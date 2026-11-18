@@ -4,7 +4,7 @@
 
 import { div, svg, View } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, TextareaState, Textarea } from "gpui-base";
-import { exec, home, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder } from "herdr";
+import { exec, home, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder, layout } from "herdr";
 import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
 import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
@@ -13,6 +13,7 @@ import { activitySentence, buildBoard, captureTarget, liveNumbersOf, normalizeSc
 import { answerBlock, applyOptimistic, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, assigneeEdit, blockChange, changeFor, CHECK_LABELS, detailState, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
+import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
@@ -24,6 +25,9 @@ const SELECTED_KEY = "argus-tsk.selected";
 const SETTINGS_KEY = "argus-tsk.settings";
 const LOCK_KEY = "argus-tsk.lock";
 const STATUS_PICK_KEY = "argus-tsk.statusPick";
+const PANEL_WIDTH_KEY = "argus-tsk.panelWidth";
+// The argus layout's panel column, made by scripts/build-layout.mjs.
+const PANEL_ID = "argus-panel";
 const MOD = "argus-tsk";
 const LIVE = { shelf: "live", group: "none", sort: "recent" };
 const EXEC_TIMEOUT = 15_000;
@@ -352,6 +356,19 @@ export default class Tasks extends View {
         cx.notify();
       }
     });
+  }
+
+  /**
+   * Widens the panel column to its max, keeping its width in `shared`, or
+   * puts an expanded column back to that width.
+   */
+  toggleExpand(cx) {
+    const panel = panelOf(layout(), PANEL_ID, MOD);
+    if (!panel) return;
+    const action = expandAction(panel, shared(PANEL_WIDTH_KEY));
+    if (action.save !== null) setShared(PANEL_WIDTH_KEY, action.save);
+    run("layout.resize", { id: PANEL_ID, px: action.px });
+    cx.notify();
   }
 
   openSettings(cx) {
@@ -804,6 +821,8 @@ export default class Tasks extends View {
     const onDeck = [...sections.ready, ...sections.inbox];
     const count = sections.needsYou.length + sections.inMotion.length + onDeck.length;
     const blocking = board.error?.kind === "missing" || board.error?.kind === "old";
+    // Only the copy in the layout's panel column can widen it.
+    const panel = props()?.overlay ? null : panelOf(layout(), PANEL_ID, MOD);
 
     const scopeButton = h_flex()
       .id("scope")
@@ -835,6 +854,9 @@ export default class Tasks extends View {
       .child(scopeButton)
       .when(!blocking && board.readAt > 0, (el) => el.child(badge))
       .child(div().flex_1())
+      .when(panel !== null, (el) =>
+        el.child(iconButton(t, "expand", ICON(panel && isExpanded(panel) ? "minimize-2" : "maximize-2"), (_e, cx) => this.toggleExpand(cx))),
+      )
       .child(
         iconButton(t, "refresh", ICON("refresh-cw"), (_e, cx) => {
           // Looks for tsk again too, in case it was installed or updated.
