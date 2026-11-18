@@ -15,10 +15,11 @@
  *   by: string, at: Timestamp, edited: boolean, feedback: Reply[], answered: boolean,
  *   closedAt: ?Timestamp, closedBy: ?string, resolution: ?string}} Review
  * @typedef {{id: string, number: number, title: string, status: Status,
- *   project: ?string, thread: ?string, assignee: ?string, assigneeKind: ?string,
- *   base: ?string, after: AfterLink[], before: number[], archived: ?string,
- *   group: ?string, block?: Block, review?: Review}} TaskRow `block` and `review`
- *   are present only on blocked and review tasks.
+ *   project: ?string, projectTitle: ?string, thread: ?string, assignee: ?string,
+ *   assigneeKind: ?string, base: ?string, after: AfterLink[], before: number[],
+ *   archived: ?string, group: ?string, block?: Block, review?: Review}} TaskRow
+ *   `projectTitle` is the project's title, null when it has none. `block` and
+ *   `review` are present only on blocked and review tasks.
  * @typedef {{id: string, shortId: string, done: boolean, text: string}} Step
  * @typedef {{at: Timestamp, by: ?string, kind: string, detail: *}} Activity
  * @typedef {TaskRow & {notes: ?string, steps: Step[], dispatch: *,
@@ -125,6 +126,7 @@ function row(r) {
     title: r.title,
     status: status(r.status),
     project: str(r.project),
+    projectTitle: str(r.project_title) || null,
     thread: str(r.thread),
     assignee: str(r.assignee),
     assigneeKind: str(r.assignee_kind),

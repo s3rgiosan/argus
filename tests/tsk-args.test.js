@@ -9,6 +9,7 @@ import {
   stepsArgs,
   replyArgs,
   archiveArgs,
+  projectTitleArgs,
   withStateDir,
 } from "../mods/argus-tsk/tsk.js";
 
@@ -242,5 +243,20 @@ test("withStateDir puts the flag before the -- that starts free text", () => {
     "/tmp/x",
     "--",
     "x",
+  ]);
+});
+
+test("project title sets a title, or clears it when null or empty", () => {
+  assert.deepEqual(projectTitleArgs("/home/test/sites/a", "Site A"), ["project", "title", "/home/test/sites/a", "Site A"]);
+  assert.deepEqual(projectTitleArgs("/home/test/sites/a", null), ["project", "title", "/home/test/sites/a", "--clear"]);
+  assert.deepEqual(projectTitleArgs("/home/test/sites/a", ""), ["project", "title", "/home/test/sites/a", "--clear"]);
+});
+
+test("project title takes the store folder at the end", () => {
+  assert.deepEqual(withStateDir(projectTitleArgs("/home/test/sites/a", "Site A"), "/tmp/x"), [
+    "project", "title", "/home/test/sites/a", "Site A", "--state-dir", "/tmp/x",
+  ]);
+  assert.deepEqual(withStateDir(projectTitleArgs("/home/test/sites/a", null), "/tmp/x"), [
+    "project", "title", "/home/test/sites/a", "--clear", "--state-dir", "/tmp/x",
   ]);
 });

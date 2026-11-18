@@ -211,6 +211,16 @@ export function archiveArgs(number, archived) {
 }
 
 /**
+ * Args to title a project, or to clear its title when `title` is null or empty.
+ * @param {string} project the project's path
+ * @param {?string} title
+ * @returns {string[]}
+ */
+export function projectTitleArgs(project, title) {
+  return ["project", "title", project, title ? title : "--clear"];
+}
+
+/**
  * Adds `--state-dir <dir>` when `dir` is a non-empty string: before the `--`
  * that starts free text, else at the end. tsk reads everything after `--` as text.
  * @param {string[]} args

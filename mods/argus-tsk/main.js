@@ -6,10 +6,10 @@ import { div, svg, View } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, TextareaState, Textarea } from "gpui-base";
 import { exec, home, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder } from "herdr";
 import { randomUUID } from "crypto";
-import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, withStateDir } from "./tsk.js";
-import { commandCandidates, expandHome, normalizeSettings, storeDir, versionOk, MIN_TSK } from "./locate.js";
+import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
+import { commandCandidates, expandHome, normalizeSettings, storeDir, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
 import { parseRows, parseError } from "./model.js";
-import { activitySentence, buildBoard, captureTarget, liveNumbersOf, normalizeScope, rowsInScope, sameScope, scopeTitle, sidebarModel, STATUS_LABELS } from "./board.js";
+import { activitySentence, buildBoard, captureTarget, liveNumbersOf, normalizeScope, rowsInScope, sameScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
 import { answerBlock, applyOptimistic, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, assigneeEdit, blockChange, changeFor, CHECK_LABELS, detailState, patchDetail, refusalOffer, reviewChange, statusChoices, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
@@ -32,6 +32,8 @@ const LOCK_RETRY = 1_000;
 const RETIRE_AFTER = 500;
 const SCOPES_WIDTH = 280;
 const SCOPES_HEIGHT = 420;
+// About how many characters of an 11 px message fit on one line of the scopes popup.
+const ERROR_CHARS = 40;
 const MIN_VERSION = MIN_TSK.join(".");
 const ICON = (name) => `mods/argus-tsk/icons/${name}.svg`;
 
@@ -56,6 +58,9 @@ export default class Tasks extends View {
     this.polling = false;
     this.capturing = false;
     this.captureError = null;
+    // The scopes popup: whether tsk can title projects, and the project being renamed.
+    this.canTitle = false;
+    this.renaming = null;
     this.reload = debounce(
       (cx) => {
         cx.spawn(async (cx) => this.sync(cx));
@@ -86,7 +91,11 @@ export default class Tasks extends View {
       saveOnBlur: true,
     });
 
-    if (checking() || this.view === "scopes") return;
+    if (checking()) return;
+    if (this.view === "scopes") {
+      this.checkTitles(cx);
+      return;
+    }
 
     this.startWatch(cx);
     cx.spawn(async (cx) => this.sync(cx));
@@ -358,6 +367,66 @@ export default class Tasks extends View {
     setShared(SETTINGS_KEY, next);
     if (next.stateDir !== current.stateDir) this.startWatch(cx);
     this.refresh(cx);
+  }
+
+  // Scopes popup
+
+  /** Shows the rename action once tsk turns out to be new enough to title projects. */
+  checkTitles(cx) {
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      const tsk = await this.locate();
+      this.canTitle = tsk.ok && versionAtLeast(tsk.version, TITLES_TSK);
+      cx.notify();
+    });
+  }
+
+  /** Turns a project's row into a field prefilled with its title, else its folder name. */
+  startRename(cx, item) {
+    this.retire(cx, this.renaming);
+    const state = this.input("rename", { value: item.title ?? item.folder, placeholder: item.folder }, (cx) => this.saveRename(cx));
+    this.renaming = { project: item.scope.project, item: { title: item.title, folder: item.folder }, state, error: null, saving: false };
+    // The field takes the keyboard once the frame that draws it is up.
+    cx.timer.after(0, () => state.focus());
+    cx.notify();
+  }
+
+  cancelRename(cx) {
+    if (!this.renaming) return;
+    if (this.focused === "rename") this.focused = null;
+    this.retire(cx, this.renaming);
+    this.renaming = null;
+    cx.notify();
+  }
+
+  /**
+   * Saves the field as the project's title, or clears the title with `clear`.
+   * Nothing to save closes the field. A refusal shows under the field and
+   * keeps it open; a saved title closes it and re-reads the board.
+   */
+  saveRename(cx, clear = false) {
+    const rename = this.renaming;
+    if (!rename || rename.saving) return;
+    const change = titleChange(rename.item, clear ? "" : rename.state.value());
+    if (change === null) {
+      this.cancelRename(cx);
+      return;
+    }
+    rename.saving = true;
+    rename.error = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        await this.tskWrite(projectTitleArgs(rename.project, change.title));
+        if (this.renaming === rename) this.cancelRename(cx);
+        this.refresh(cx);
+      } catch (error) {
+        rename.error = error?.message ?? String(error);
+      } finally {
+        rename.saving = false;
+        cx.notify();
+      }
+    });
   }
 
   // Task pane
@@ -799,12 +868,28 @@ export default class Tasks extends View {
     const board = readBoard();
     const model = sidebarModel(board.rows);
     const current = readScope();
-    const item = (entry, index) =>
-      row(t, `scope-${index}`, { selected: sameScope(entry.scope, current) })
+    const rename = this.renaming;
+    // Height the rename field adds over the row it replaces.
+    let extra = 0;
+    const item = (entry, index) => {
+      if (entry.scope.kind === "project" && rename?.project === entry.scope.project) {
+        extra += 50 + (rename.error ? 6 + 16 * Math.ceil(rename.error.length / ERROR_CHARS) : 0);
+        return this.renameField(t, rename);
+      }
+      return row(t, `scope-${index}`, { selected: sameScope(entry.scope, current) })
         .cursor_pointer()
         .on_click(() => pickScope(entry.scope))
         .child(div().flex_1().min_w(0).truncate().child(entry.label))
-        .child(div().flex_none().text_size(11).text_color(t.dim).child(String(entry.count)));
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(String(entry.count)))
+        .when(this.canTitle && entry.scope.kind === "project", (el) =>
+          el.child(
+            iconButton(t, `rename-${index}`, ICON("pencil"), (_e, cx) => {
+              cx.stop_propagation();
+              this.startRename(cx, entry);
+            }),
+          ),
+        );
+    };
 
     let index = 0;
     let titles = 0;
@@ -821,7 +906,7 @@ export default class Tasks extends View {
     }
     // A popup is as tall as its content, up to the height it was opened with,
     // so the list gets an explicit height for its rows and section titles.
-    const height = Math.min(SCOPES_HEIGHT, 12 + index * 28 + titles * 30);
+    const height = Math.min(SCOPES_HEIGHT, 12 + index * 28 + titles * 30 + extra);
     return v_flex()
       .id("argus-tsk-scopes")
       .w_full()
@@ -830,6 +915,31 @@ export default class Tasks extends View {
       .text_color(t.foreground)
       .text_size(13)
       .child(scrollArea("argus-tsk-scope-list", parts, { padding: 6 }));
+  }
+
+  /** A project's rename field with Save and Clear. Enter saves, Escape cancels. */
+  renameField(t, rename) {
+    const enabled = !rename.saving;
+    return v_flex()
+      .id("rename")
+      .flex_none()
+      .px(8)
+      .py(4)
+      .gap(6)
+      .on_key_down((event, cx) => {
+        if (event.keystroke !== "escape") return;
+        cx.stop_propagation();
+        this.cancelRename(cx);
+      })
+      .child(h_flex().child(field(t, "rename-field", rename.state, this.focused === "rename")))
+      .child(
+        h_flex()
+          .gap(6)
+          .justify_end()
+          .child(button(t, "rename-clear", "Clear", (_e, cx) => this.saveRename(cx, true), { enabled: enabled && rename.item.title !== null }))
+          .child(button(t, "rename-save", "Save", (_e, cx) => this.saveRename(cx), { primary: true, enabled })),
+      )
+      .when(Boolean(rename.error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(rename.error ?? "")));
   }
 
   /** The task pane: the selected task's fields, steps, open block or review, activity and actions. */

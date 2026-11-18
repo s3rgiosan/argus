@@ -11,7 +11,9 @@
  *   | {kind: "thread", name: string} | {kind: "assignee", name: string}} Scope
  *   The same shapes `listArgs` in tsk.js accepts.
  * @typedef {{key: string, label: string, scope: Scope, count: number}} SidebarItem
- * @typedef {{desk: SidebarItem, all: SidebarItem, projects: SidebarItem[],
+ * @typedef {SidebarItem & {title: ?string, folder: string}} ProjectItem `title` is the
+ *   project's title, null when it has none; `folder` is its folder name.
+ * @typedef {{desk: SidebarItem, all: SidebarItem, projects: ProjectItem[],
  *   threads: SidebarItem[], assignees: SidebarItem[]}} SidebarModel
  * @typedef {"default"|"you"|"task"|"agent"|"other"} WaitsKind
  */
@@ -207,12 +209,15 @@ export function sidebarModel(allRows) {
   /** @type {(scope: Scope) => number} */
   const count = (scope) => rowsInScope(allRows, scope).length;
   const labels = projectLabelsOf(allRows);
+  const titles = projectTitlesOf(allRows);
   const projects = tally(allRows.map((r) => r.project))
     .map(([project]) => ({
       key: `project:${project}`,
       label: labels.get(project) ?? project,
       scope: { kind: "project", project },
       count: count({ kind: "project", project }),
+      title: titles.get(project) ?? null,
+      folder: segments(project).pop() ?? project,
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
   return {
@@ -286,16 +291,19 @@ export function captureTarget(scope) {
 }
 
 /**
- * Each project's label, keyed by path: the folder name, widened one parent folder at a time
- * until it differs from the other projects' labels.
+ * Each project's label, keyed by path: its title when it has one, else the folder name,
+ * widened one parent folder at a time until it differs from the other projects' labels.
  * @param {TaskRow[]} rows
  * @returns {Map<string, string>}
  */
 export function projectLabelsOf(rows) {
+  const titles = projectTitlesOf(rows);
   const paths = [...new Set(rows.map((r) => r.project).filter((p) => typeof p === "string" && p !== ""))];
   const parts = new Map(paths.map((path) => [path, segments(path)]));
   const depth = new Map(paths.map((path) => [path, 1]));
   const labelOf = (path) => {
+    const title = titles.get(path);
+    if (title !== undefined) return title;
     const own = parts.get(path) ?? [];
     return own.length === 0 ? path : own.slice(-(depth.get(path) ?? 1)).join("/");
   };
@@ -310,6 +318,8 @@ export function projectLabelsOf(rows) {
     for (const group of groups.values()) {
       if (group.length < 2) continue;
       for (const path of group) {
+        // A title is fixed, so only a folder label widens.
+        if (titles.has(path)) continue;
         const current = depth.get(path) ?? 1;
         if (current < (parts.get(path) ?? []).length) {
           depth.set(path, current + 1);
@@ -335,6 +345,34 @@ export function sortByProject(rows, labels) {
     const byLabel = (labels.get(a.project) ?? a.project).localeCompare(labels.get(b.project) ?? b.project);
     return byLabel !== 0 ? byLabel : a.project.localeCompare(b.project);
   });
+}
+
+/**
+ * What the field in the scopes popup saves for a project: null when there is nothing
+ * to save (the prefill is unchanged, or an empty field for a project without a title),
+ * else the new title, null to clear it. The prefill is the title, else the folder name.
+ * @param {{title: ?string, folder: string}} item
+ * @param {string} value the field's text
+ * @returns {?{title: ?string}}
+ */
+export function titleChange(item, value) {
+  const next = String(value ?? "").trim();
+  const prefill = item.title ?? item.folder;
+  if (next === prefill) return null;
+  if (next === "") return item.title === null ? null : { title: null };
+  return { title: next };
+}
+
+/** Each titled project's title, keyed by path. Rows read before tsk 0.14 have none. */
+function projectTitlesOf(rows) {
+  const titles = new Map();
+  for (const row of rows) {
+    const title = row.projectTitle;
+    if (typeof row.project === "string" && typeof title === "string" && title !== "" && !titles.has(row.project)) {
+      titles.set(row.project, title);
+    }
+  }
+  return titles;
 }
 
 function segments(path) {

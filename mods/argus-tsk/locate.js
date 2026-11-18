@@ -3,6 +3,9 @@
 /** Oldest supported tsk version. */
 export const MIN_TSK = [0, 13, 0];
 
+/** Oldest tsk version that sets project titles. */
+export const TITLES_TSK = [0, 14, 0];
+
 /**
  * Install locations to try for `tsk`, most specific first.
  * @param {string} [home] The user's home directory.
@@ -55,10 +58,20 @@ export function parseVersion(text) {
  * @returns {boolean}
  */
 export function versionOk(versionText) {
+  return versionAtLeast(versionText, MIN_TSK);
+}
+
+/**
+ * True when `tsk --version` output names `min` or a newer version.
+ * @param {string} versionText
+ * @param {number[]} min `[major, minor, patch]`
+ * @returns {boolean}
+ */
+export function versionAtLeast(versionText, min) {
   const v = parseVersion(versionText);
   if (!v) return false;
   for (let i = 0; i < 3; i++) {
-    if (v[i] !== MIN_TSK[i]) return v[i] > MIN_TSK[i];
+    if (v[i] !== min[i]) return v[i] > min[i];
   }
   return true;
 }

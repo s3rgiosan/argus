@@ -123,3 +123,28 @@ test("parseError maps exit codes", () => {
   assert.deepEqual(parseError("boom", 9), { kind: "unexpected", exit: 9, message: "boom" });
   assert.deepEqual(parseError("boom", null), { kind: "unexpected", exit: null, message: "boom" });
 });
+
+test("project_title parses into projectTitle on rows and details", () => {
+  const rows = JSON.parse(fixture("tsk-rows.json"));
+  rows[0].project = "/home/test/sites/example/wp-content";
+  rows[0].project_title = "Example Site";
+  const parsed = parseRows(JSON.stringify(rows));
+  assert.equal(parsed[0].project, "/home/test/sites/example/wp-content");
+  assert.equal(parsed[0].projectTitle, "Example Site");
+  assert.equal(parsed[1].projectTitle, null);
+
+  const [first] = JSON.parse(fixture("tsk-task.json"));
+  first.project_title = "Example Site";
+  assert.equal(parseTask(JSON.stringify([first])).projectTitle, "Example Site");
+  delete first.project_title;
+  assert.equal(parseTask(JSON.stringify([first])).projectTitle, null);
+});
+
+test("an empty or non-string project_title is no title", () => {
+  const rows = JSON.parse(fixture("tsk-rows.json"));
+  rows[0].project_title = "";
+  rows[1].project_title = 4;
+  const parsed = parseRows(JSON.stringify(rows));
+  assert.equal(parsed[0].projectTitle, null);
+  assert.equal(parsed[1].projectTitle, null);
+});

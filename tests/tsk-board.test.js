@@ -17,6 +17,7 @@ import {
   sectionOf,
   sidebarModel,
   sortByProject,
+  titleChange,
 } from "../mods/argus-tsk/board.js";
 
 const row = (over = {}) => ({
@@ -33,6 +34,7 @@ const row = (over = {}) => ({
   before: [],
   archived: null,
   group: null,
+  projectTitle: null,
   ...over,
 });
 const blockOn = (on) => ({ on });
@@ -321,4 +323,68 @@ test("normalizeScope keeps a valid scope and falls back to the desk", () => {
   assert.deepEqual(normalizeScope({ kind: "thread", name: "" }), { kind: "desk" });
   assert.deepEqual(normalizeScope("all"), { kind: "desk" });
   assert.deepEqual(normalizeScope(null), { kind: "desk" });
+});
+
+// project titles
+test("sidebarModel: a titled project shows its title and sorts by it", () => {
+  const m = sidebarModel([
+    row({ project: "/home/test/sites/alpha/wp-content", projectTitle: "Zulu Site" }),
+    row({ project: "/home/test/tools/beta" }),
+  ]);
+  assert.deepEqual(m.projects.map((p) => p.label), ["beta", "Zulu Site"]);
+  assert.deepEqual(m.projects[1].scope, { kind: "project", project: "/home/test/sites/alpha/wp-content" });
+  assert.equal(m.projects[1].title, "Zulu Site");
+  assert.equal(m.projects[1].folder, "wp-content");
+  assert.equal(m.projects[0].title, null);
+  assert.equal(m.projects[0].folder, "beta");
+});
+test("sidebarModel: rows without projectTitle keep the folder labels", () => {
+  const { projectTitle: _drop, ...old } = row({ project: "/home/test/work/site" });
+  const m = sidebarModel([old, row({ project: "/home/test/client/site" })]);
+  assert.deepEqual(m.projects.map((p) => p.label), ["client/site", "work/site"]);
+});
+test("projectLabelsOf: a title replaces the folder label and stops a collision", () => {
+  const labels = projectLabelsOf([
+    row({ project: "/home/test/a/wp-content", projectTitle: "Site A" }),
+    row({ project: "/home/test/b/wp-content" }),
+  ]);
+  assert.deepEqual(
+    labels,
+    new Map([
+      ["/home/test/a/wp-content", "Site A"],
+      ["/home/test/b/wp-content", "wp-content"],
+    ]),
+  );
+});
+test("projectLabelsOf: a folder label that matches a title widens", () => {
+  const labels = projectLabelsOf([
+    row({ project: "/home/test/a/app", projectTitle: "site" }),
+    row({ project: "/home/test/b/site" }),
+  ]);
+  assert.equal(labels.get("/home/test/a/app"), "site");
+  assert.equal(labels.get("/home/test/b/site"), "b/site");
+});
+test("scopeTitle: names a titled project by its title", () => {
+  const model = sidebarModel([row({ project: "/home/test/sites/alpha", projectTitle: "Alpha Site" })]);
+  assert.equal(scopeTitle({ kind: "project", project: "/home/test/sites/alpha" }, model), "Alpha Site");
+});
+test("sortByProject: sorts by the shown name", () => {
+  const rows = [
+    row({ number: 1, project: "/home/test/aaa", projectTitle: "Zulu" }),
+    row({ number: 2, project: "/home/test/bbb" }),
+    row({ number: 3, project: null }),
+  ];
+  assert.deepEqual(numbers(sortByProject(rows, projectLabelsOf(rows))), [2, 1, 3]);
+});
+test("titleChange: an unchanged prefill saves nothing", () => {
+  assert.equal(titleChange({ title: null, folder: "wp-content" }, "wp-content"), null);
+  assert.equal(titleChange({ title: "Site A", folder: "wp-content" }, "  Site A "), null);
+});
+test("titleChange: a new name sets the title, trimmed", () => {
+  assert.deepEqual(titleChange({ title: null, folder: "wp-content" }, "  Site A "), { title: "Site A" });
+  assert.deepEqual(titleChange({ title: "Site A", folder: "wp-content" }, "Site B"), { title: "Site B" });
+});
+test("titleChange: an empty field clears a title, and saves nothing without one", () => {
+  assert.deepEqual(titleChange({ title: "Site A", folder: "wp-content" }, "  "), { title: null });
+  assert.equal(titleChange({ title: null, folder: "wp-content" }, ""), null);
 });

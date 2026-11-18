@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defaultCandidates, storeDir, versionOk, parseVersion, commandCandidates, expandHome, normalizeSettings } from "../mods/argus-tsk/locate.js";
+import { defaultCandidates, storeDir, versionOk, versionAtLeast, TITLES_TSK, parseVersion, commandCandidates, expandHome, normalizeSettings } from "../mods/argus-tsk/locate.js";
 
 test("default candidates cover unix locations", () => {
   const list = defaultCandidates("/home/u");
@@ -67,4 +67,14 @@ test("normalizeSettings keeps strings and fills blanks", () => {
   assert.deepEqual(normalizeSettings(undefined), { tsk: "", stateDir: "" });
   assert.deepEqual(normalizeSettings({ tsk: "/bin/tsk", stateDir: 3 }), { tsk: "/bin/tsk", stateDir: "" });
   assert.deepEqual(normalizeSettings({ tsk: " ", stateDir: " /tmp/s " }), { tsk: "", stateDir: "/tmp/s" });
+});
+
+test("versionAtLeast compares a version against a minimum", () => {
+  assert.deepEqual(TITLES_TSK, [0, 14, 0]);
+  assert.equal(versionAtLeast("tsk 0.13.9", TITLES_TSK), false);
+  assert.equal(versionAtLeast("tsk 0.14.0", TITLES_TSK), true);
+  assert.equal(versionAtLeast("tsk 0.14.1", TITLES_TSK), true);
+  assert.equal(versionAtLeast("tsk 1.0.0", TITLES_TSK), true);
+  assert.equal(versionAtLeast("garbage", TITLES_TSK), false);
+  assert.equal(versionAtLeast("", TITLES_TSK), false);
 });
