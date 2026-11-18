@@ -4,8 +4,10 @@ import {
   STATUS_LABELS,
   activitySentence,
   buildBoard,
+  captureTarget,
   inputToOn,
   liveNumbersOf,
+  normalizeScope,
   onDesk,
   onToInput,
   projectLabelsOf,
@@ -293,4 +295,30 @@ test("activitySentence: unknown verb shows as tsk wrote it", () => {
 test("activitySentence: assigned uses the target", () => {
   assert.equal(activitySentence({ at, by: "alex", kind: "assigned", detail: { to: "amy" } }), "alex assigned this to amy");
   assert.equal(activitySentence({ at, by: null, kind: "assigned", detail: null }), "Assignee changed");
+});
+
+test("captureTarget: a project scope captures into that project", () => {
+  assert.deepEqual(captureTarget({ kind: "project", project: "/work/alpha" }), { project: "/work/alpha", thread: null, assignee: null });
+});
+
+test("captureTarget: thread and assignee scopes capture onto the desk with that thread or assignee", () => {
+  assert.deepEqual(captureTarget({ kind: "thread", name: "release" }), { project: null, thread: "release", assignee: null });
+  assert.deepEqual(captureTarget({ kind: "assignee", name: "claude" }), { project: null, thread: null, assignee: "claude" });
+});
+
+test("captureTarget: desk and all capture onto the desk", () => {
+  const desk = { project: null, thread: null, assignee: null };
+  assert.deepEqual(captureTarget({ kind: "desk" }), desk);
+  assert.deepEqual(captureTarget({ kind: "all" }), desk);
+});
+
+test("normalizeScope keeps a valid scope and falls back to the desk", () => {
+  assert.deepEqual(normalizeScope({ kind: "project", project: "/work/alpha" }), { kind: "project", project: "/work/alpha" });
+  assert.deepEqual(normalizeScope({ kind: "thread", name: "release" }), { kind: "thread", name: "release" });
+  assert.deepEqual(normalizeScope({ kind: "assignee", name: "claude", extra: 1 }), { kind: "assignee", name: "claude" });
+  assert.deepEqual(normalizeScope({ kind: "all" }), { kind: "all" });
+  assert.deepEqual(normalizeScope({ kind: "project" }), { kind: "desk" });
+  assert.deepEqual(normalizeScope({ kind: "thread", name: "" }), { kind: "desk" });
+  assert.deepEqual(normalizeScope("all"), { kind: "desk" });
+  assert.deepEqual(normalizeScope(null), { kind: "desk" });
 });

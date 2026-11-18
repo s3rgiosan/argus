@@ -224,3 +224,23 @@ test("withStateDir appends the flag only when a dir is set", () => {
   assert.deepEqual(withStateDir(["list"], ""), ["list"]);
   assert.deepEqual(withStateDir(["list"], undefined), ["list"]);
 });
+
+test("withStateDir puts the flag before the -- that starts free text", () => {
+  assert.deepEqual(withStateDir(replyArgs(4, "--state-dir", false), "/tmp/x"), [
+    "reply",
+    "T4",
+    "--state-dir",
+    "/tmp/x",
+    "--",
+    "--state-dir",
+  ]);
+  assert.deepEqual(withStateDir(stepsArgs(4, { kind: "add", text: "x" }), "/tmp/x"), [
+    "steps",
+    "T4",
+    "add",
+    "--state-dir",
+    "/tmp/x",
+    "--",
+    "x",
+  ]);
+});

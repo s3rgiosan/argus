@@ -62,3 +62,39 @@ export function versionOk(versionText) {
   }
   return true;
 }
+
+/**
+ * Expands a leading `~` to `home`, trims spaces and drops a trailing slash.
+ * @param {string} path
+ * @param {string} home
+ * @returns {string}
+ */
+export function expandHome(path, home) {
+  let out = String(path ?? "").trim();
+  if (out === "~") out = home;
+  else if (out.startsWith("~/")) out = home + out.slice(1);
+  return out.length > 1 ? out.replace(/\/+$/, "") : out;
+}
+
+/**
+ * The commands to try for `tsk`, in order: the "tsk command" setting, `tsk`
+ * on the PATH, then the install locations. Each appears once.
+ * @param {string} setting
+ * @param {string} home
+ * @returns {string[]}
+ */
+export function commandCandidates(setting, home) {
+  const own = expandHome(setting, home);
+  return [...new Set([own, "tsk", ...defaultCandidates(home)].filter(Boolean))];
+}
+
+/**
+ * The mod's settings: the tsk command and the store folder, "" when unset.
+ * @param {unknown} value
+ * @returns {{tsk: string, stateDir: string}}
+ */
+export function normalizeSettings(value) {
+  const v = value && typeof value === "object" ? /** @type {Record<string, unknown>} */ (value) : {};
+  const text = (x) => (typeof x === "string" ? x.trim() : "");
+  return { tsk: text(v.tsk), stateDir: text(v.stateDir) };
+}

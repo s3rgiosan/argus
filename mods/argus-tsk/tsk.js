@@ -211,11 +211,15 @@ export function archiveArgs(number, archived) {
 }
 
 /**
- * Appends `--state-dir <dir>` when `dir` is a non-empty string.
+ * Adds `--state-dir <dir>` when `dir` is a non-empty string: before the `--`
+ * that starts free text, else at the end. tsk reads everything after `--` as text.
  * @param {string[]} args
  * @param {string} [dir]
  * @returns {string[]}
  */
 export function withStateDir(args, dir) {
-  return dir ? [...args, "--state-dir", dir] : [...args];
+  if (!dir) return [...args];
+  const end = args.indexOf("--");
+  const at = end === -1 ? args.length : end;
+  return [...args.slice(0, at), "--state-dir", dir, ...args.slice(at)];
 }

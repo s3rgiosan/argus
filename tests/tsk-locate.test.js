@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defaultCandidates, storeDir, versionOk, parseVersion } from "../mods/argus-tsk/locate.js";
+import { defaultCandidates, storeDir, versionOk, parseVersion, commandCandidates, expandHome, normalizeSettings } from "../mods/argus-tsk/locate.js";
 
 test("default candidates cover unix locations", () => {
   const list = defaultCandidates("/home/u");
@@ -43,4 +43,28 @@ test("versionOk needs 0.13.0 or newer", () => {
   assert.equal(versionOk("tsk 0.13.1"), true);
   assert.equal(versionOk("tsk 1.0.0"), true);
   assert.equal(versionOk("garbage"), false);
+});
+
+test("command candidates: the setting, then tsk on PATH, then the install locations", () => {
+  assert.deepEqual(commandCandidates("/opt/tsk/bin/tsk", "/home/u"), ["/opt/tsk/bin/tsk", "tsk", ...defaultCandidates("/home/u")]);
+  assert.deepEqual(commandCandidates("", "/home/u"), ["tsk", ...defaultCandidates("/home/u")]);
+  assert.deepEqual(commandCandidates("  ", "/home/u"), ["tsk", ...defaultCandidates("/home/u")]);
+});
+
+test("command candidates expand ~ in the setting and drop repeats", () => {
+  assert.deepEqual(commandCandidates("~/.local/bin/tsk", "/home/u"), ["/home/u/.local/bin/tsk", "tsk", ...defaultCandidates("/home/u").slice(1)]);
+  assert.deepEqual(commandCandidates("tsk", "/home/u"), ["tsk", ...defaultCandidates("/home/u")]);
+});
+
+test("expandHome", () => {
+  assert.equal(expandHome("~", "/home/u"), "/home/u");
+  assert.equal(expandHome("~/x/", "/home/u"), "/home/u/x");
+  assert.equal(expandHome(" /abs ", "/home/u"), "/abs");
+  assert.equal(expandHome("", "/home/u"), "");
+});
+
+test("normalizeSettings keeps strings and fills blanks", () => {
+  assert.deepEqual(normalizeSettings(undefined), { tsk: "", stateDir: "" });
+  assert.deepEqual(normalizeSettings({ tsk: "/bin/tsk", stateDir: 3 }), { tsk: "/bin/tsk", stateDir: "" });
+  assert.deepEqual(normalizeSettings({ tsk: " ", stateDir: " /tmp/s " }), { tsk: "", stateDir: "/tmp/s" });
 });

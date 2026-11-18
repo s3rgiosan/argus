@@ -178,6 +178,27 @@ export function rowsInScope(rows, scope) {
 }
 
 /**
+ * A scope read back from shared state; anything malformed is the desk.
+ * @param {unknown} value
+ * @returns {Scope}
+ */
+export function normalizeScope(value) {
+  const v = value && typeof value === "object" ? /** @type {Record<string, unknown>} */ (value) : {};
+  const text = (x) => typeof x === "string" && x !== "";
+  switch (v.kind) {
+    case "all":
+      return { kind: "all" };
+    case "project":
+      return text(v.project) ? { kind: "project", project: /** @type {string} */ (v.project) } : { kind: "desk" };
+    case "thread":
+    case "assignee":
+      return text(v.name) ? { kind: v.kind, name: /** @type {string} */ (v.name) } : { kind: "desk" };
+    default:
+      return { kind: "desk" };
+  }
+}
+
+/**
  * The sidebar for a live listing of every row; counts come from `rowsInScope`.
  * @param {TaskRow[]} allRows
  * @returns {SidebarModel}
@@ -241,6 +262,26 @@ export function scopeTitle(scope, model) {
     }
     default:
       return scope.name;
+  }
+}
+
+/**
+ * Where a task captured from a scope lands: a project scope names the project, a thread
+ * scope the thread, an assignee scope the assignee; the rest is the desk.
+ * @param {Scope} scope
+ * @returns {{project: ?string, thread: ?string, assignee: ?string}}
+ */
+export function captureTarget(scope) {
+  const target = { project: null, thread: null, assignee: null };
+  switch (scope.kind) {
+    case "project":
+      return { ...target, project: scope.project };
+    case "thread":
+      return { ...target, thread: scope.name };
+    case "assignee":
+      return { ...target, assignee: scope.name };
+    default:
+      return target;
   }
 }
 

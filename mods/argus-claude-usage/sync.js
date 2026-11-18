@@ -1,3 +1,5 @@
+// Copied from lib/sync.js by scripts/sync-lib.mjs: edit lib/sync.js, then run it.
+//
 // Decides which open copy of the mod asks Claude Code for usage, so at most
 // one `claude` process runs. Copies share a lock through Herdr's shared state.
 
