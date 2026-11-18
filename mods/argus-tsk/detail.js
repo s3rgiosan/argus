@@ -85,6 +85,50 @@ export function statusChoices(task) {
 }
 
 /**
+ * What picking `status` in the status dropdown writes: the change and the
+ * label its error names, or null for the current status, a disabled one or
+ * one that is not in `choices`.
+ * @param {StatusChoice[]} choices
+ * @param {string} status
+ * @returns {?{change: StatusChange, label: string}}
+ */
+export function pickedChange(choices, status) {
+  const choice = choices.find((c) => c.status === status);
+  if (!choice || choice.current || !choice.enabled) return null;
+  const change = changeFor(choice.status);
+  if (!change) return null;
+  return { change, label: choice.status === "done" ? "Mark Done" : `Mark ${choice.label}` };
+}
+
+/**
+ * A status pick that the status popup left in `shared`, when it is for this
+ * pane (`owner`), for the task it shows (`number`) and newer than `since`.
+ * @param {unknown} value
+ * @param {{owner: string, number: ?number, since: number}} pane
+ * @returns {?{status: string, at: number}}
+ */
+export function statusPick(value, pane) {
+  if (!value || typeof value !== "object") return null;
+  const v = /** @type {Record<string, unknown>} */ (value);
+  if (typeof v.status !== "string" || typeof v.at !== "number" || !Number.isFinite(v.at)) return null;
+  if (v.owner !== pane.owner || v.number !== pane.number || v.at <= pane.since) return null;
+  return { status: v.status, at: v.at };
+}
+
+/**
+ * The status choices the status popup was given in its props. Choices
+ * without a status or label are dropped; a missing flag is false.
+ * @param {unknown} value
+ * @returns {StatusChoice[]}
+ */
+export function normalizeChoices(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((c) => c && typeof c === "object" && typeof c.status === "string" && typeof c.label === "string")
+    .map((c) => ({ status: c.status, label: c.label, current: c.current === true, enabled: c.enabled === true }));
+}
+
+/**
  * The actions the pane offers for a task, in the order it shows them: the
  * changes that need more input, the open block or review card's actions, then
  * the bottom bar. A done task has no Mark Done.

@@ -7,7 +7,7 @@ The [tsk](https://gettsk.sh) board in Herdr. Board in a panel on the right, task
 - Rename a project: the pencil on its row in the scope list turns the row into a field, with the project's full path under it. Enter or Save sets the title, Clear or an empty field removes it, Esc cancels. Needs tsk 0.14.0 or newer.
 - Capture: type a title in the bottom bar, press Enter or Add. A project scope captures into that project, a thread or assignee scope onto the desk with that thread or assignee, Desk and All Projects onto the desk.
 - Click a task: it opens in a pane on the right of the current tab, or the tab's open task pane shows it.
-- Task pane: edit the title, notes, assignee and runs after; pick a status; tick, add and remove steps; block a task or request a review; answer a block or approve or send back a review; Done and Archive.
+- Task pane: edit the title, notes, assignee and runs after; pick a status from a dropdown; tick, add and remove steps; block a task or request a review; answer a block or approve or send back a review; Done and Archive.
 - Live: the board follows the store as agents and the terminal change it.
 
 ## Settings

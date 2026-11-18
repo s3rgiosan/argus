@@ -8,10 +8,13 @@ import {
   changeFor,
   detailState,
   lines,
+  normalizeChoices,
   patchDetail,
+  pickedChange,
   refusalOffer,
   reviewChange,
   statusChoices,
+  statusPick,
   taskRef,
 } from "../mods/argus-tsk/detail.js";
 
@@ -285,4 +288,51 @@ test("patchDetail leaves steps unchanged for add and move", () => {
   const d = task({ steps: [{ id: "a", shortId: "a", text: "one", done: false }] });
   assert.deepEqual(patchDetail(d, { kind: "step", op: { kind: "add", text: "n" } }).steps, d.steps);
   assert.deepEqual(patchDetail(d, { kind: "step", op: { kind: "move", id: "a", place: { kind: "last" } } }).steps, d.steps);
+});
+
+// status dropdown
+
+test("pickedChange: a pick of another enabled status writes its change", () => {
+  const choices = statusChoices(task({ status: "open" }));
+  assert.deepEqual(pickedChange(choices, "ready"), { change: { kind: "ready" }, label: "Mark Ready" });
+  assert.deepEqual(pickedChange(choices, "started"), { change: changeFor("started"), label: "Mark Started" });
+  assert.deepEqual(pickedChange(choices, "done"), { change: changeFor("done"), label: "Mark Done" });
+});
+test("pickedChange: the current, a disabled or an unknown status writes nothing", () => {
+  const choices = statusChoices(task({ status: "blocked", block: blockOn("you") }));
+  assert.equal(pickedChange(statusChoices(task({ status: "open" })), "open"), null);
+  assert.equal(pickedChange(choices, "blocked"), null);
+  assert.equal(pickedChange(choices, "paused"), null);
+});
+
+test("statusPick: takes a new pick for this pane and task", () => {
+  const value = { owner: "pane-1", number: 2, status: "ready", at: 200 };
+  assert.deepEqual(statusPick(value, { owner: "pane-1", number: 2, since: 100 }), { status: "ready", at: 200 });
+});
+test("statusPick: skips a pick already handled, for another pane or another task", () => {
+  const value = { owner: "pane-1", number: 2, status: "ready", at: 200 };
+  assert.equal(statusPick(value, { owner: "pane-1", number: 2, since: 200 }), null);
+  assert.equal(statusPick(value, { owner: "pane-2", number: 2, since: 100 }), null);
+  assert.equal(statusPick(value, { owner: "pane-1", number: 3, since: 100 }), null);
+});
+test("statusPick: skips malformed values", () => {
+  const ctx = { owner: "pane-1", number: 2, since: 0 };
+  assert.equal(statusPick(null, ctx), null);
+  assert.equal(statusPick("ready", ctx), null);
+  assert.equal(statusPick({ owner: "pane-1", number: 2, at: 5 }, ctx), null);
+  assert.equal(statusPick({ owner: "pane-1", number: 2, status: "ready" }, ctx), null);
+  assert.equal(statusPick({ owner: "pane-1", number: "2", status: "ready", at: 5 }, ctx), null);
+});
+
+test("normalizeChoices: keeps well-formed choices from popup props", () => {
+  const choices = statusChoices(task({ status: "review", review: reviewOn("you") }));
+  assert.deepEqual(normalizeChoices(choices), choices);
+  assert.deepEqual(
+    normalizeChoices([{ status: "open", label: "Open" }, { label: "No status" }, 4, { status: "done", label: "Done", current: true, enabled: false }]),
+    [
+      { status: "open", label: "Open", current: false, enabled: false },
+      { status: "done", label: "Done", current: true, enabled: false },
+    ],
+  );
+  assert.deepEqual(normalizeChoices(undefined), []);
 });

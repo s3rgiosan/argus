@@ -1,6 +1,6 @@
-// The tsk board in Herdr. One mod with three views, picked by `props().view`:
-// the board (the layout's panel), the scope list (a popup) and a task
-// (a pane beside the terminals). Every change goes through the `tsk` CLI.
+// The tsk board in Herdr. One mod with four views, picked by `props().view`:
+// the board (the layout's panel), the scope list (a popup), a task (a pane
+// beside the terminals) and the status list (a popup). Every change goes through the `tsk` CLI.
 
 import { div, svg, View } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, TextareaState, Textarea } from "gpui-base";
@@ -11,7 +11,7 @@ import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, 
 import { parseRows, parseError } from "./model.js";
 import { activitySentence, buildBoard, captureTarget, liveNumbersOf, normalizeScope, rowsInScope, sameScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
 import { answerBlock, applyOptimistic, retryStatus, sendBack } from "./flows.js";
-import { actionsFor, addAfter, assigneeEdit, blockChange, changeFor, CHECK_LABELS, detailState, patchDetail, refusalOffer, reviewChange, statusChoices, taskRef } from "./detail.js";
+import { actionsFor, addAfter, assigneeEdit, blockChange, changeFor, CHECK_LABELS, detailState, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
@@ -23,6 +23,7 @@ const SCOPE_KEY = "argus-tsk.scope";
 const SELECTED_KEY = "argus-tsk.selected";
 const SETTINGS_KEY = "argus-tsk.settings";
 const LOCK_KEY = "argus-tsk.lock";
+const STATUS_PICK_KEY = "argus-tsk.statusPick";
 const MOD = "argus-tsk";
 const LIVE = { shelf: "live", group: "none", sort: "recent" };
 const EXEC_TIMEOUT = 15_000;
@@ -32,6 +33,7 @@ const LOCK_RETRY = 1_000;
 const RETIRE_AFTER = 500;
 const SCOPES_WIDTH = 280;
 const SCOPES_HEIGHT = 420;
+const STATUS_WIDTH = 200;
 // About how many characters of an 11 px message fit on one line of the scopes popup.
 const ERROR_CHARS = 40;
 const MIN_VERSION = MIN_TSK.join(".");
@@ -82,6 +84,8 @@ export default class Tasks extends View {
     this.writeError = null;
     this.flowError = null;
     this.refusal = null;
+    // Status picks from the status popup older than this are already handled.
+    this.pickSince = Date.now();
 
     this.captureInput = this.input("capture", { placeholder: "New task…" }, (cx) => this.capture(cx));
     this.captureInput.on("change", (_e, cx) => cx.notify());
@@ -91,7 +95,7 @@ export default class Tasks extends View {
       saveOnBlur: true,
     });
 
-    if (checking()) return;
+    if (checking() || this.view === "status") return;
     if (this.view === "scopes") {
       this.checkTitles(cx);
       return;
@@ -781,6 +785,8 @@ export default class Tasks extends View {
     switch (this.view) {
       case "scopes":
         return this.renderScopes(t);
+      case "status":
+        return renderStatusMenu(t);
       case "task":
         return this.renderTask(t, cx);
       case "settings":
@@ -971,6 +977,18 @@ export default class Tasks extends View {
     }
 
     const number = task.number;
+    // A status picked in the status popup arrives as a re-render; the write runs as a task.
+    const pick = statusPick(shared(STATUS_PICK_KEY), { owner: this.owner, number, since: this.pickSince });
+    if (pick) {
+      this.pickSince = pick.at;
+      const picked = pickedChange(statusChoices(task), pick.status);
+      if (picked) {
+        cx.spawn(async (cx) => {
+          await cx.sleep(0);
+          this.changeStatus(cx, number, picked.change, picked.label);
+        });
+      }
+    }
     const actions = actionsFor(task);
     const has = (action) => actions.includes(action);
     const status = h_flex()
@@ -999,21 +1017,30 @@ export default class Tasks extends View {
 
     parts.push(sectionTitle(t, "Notes"), pad(textBox(t, "notes", fields.notes, this.focused === "notes")));
 
-    // Status: the states to pick, then the changes that need more input.
-    const choices = statusChoices(task).map((choice) =>
-      chip(t, `status-${choice.status}`, choice.label, (_e, cx) => {
-        if (choice.current) return;
-        const change = changeFor(choice.status);
-        if (change) this.changeStatus(cx, number, change, choice.status === "done" ? "Mark Done" : `Mark ${choice.label}`);
-      }, { selected: choice.current, enabled: choice.enabled }),
-    );
+    // Status: a dropdown of the states to pick, then the changes that need more input.
+    const choices = statusChoices(task);
+    const statusMenu = h_flex()
+      .id("status-menu")
+      .h(26)
+      .flex_none()
+      .px(8)
+      .gap(4)
+      .items_center()
+      .rounded(6)
+      .cursor_pointer()
+      .text_size(12)
+      .text_color(t.muted)
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .on_click(() => openStatusMenu(this.owner, number, choices))
+      .child(div().child(choices.find((c) => c.current)?.label ?? STATUS_LABELS[task.status] ?? task.status))
+      .child(svg(ICON("chevron-down")).size(12).flex_none());
     const more = [];
     if (has("startQuiet")) more.push(chip(t, "start-quiet", "Start Without Agent", (_e, cx) => this.changeStatus(cx, number, changeFor("startQuiet"), "Start")));
     more.push(chip(t, "open-block", "Block…", (_e, cx) => this.openCard(cx, "block"), { selected: this.card === "block" }));
     more.push(chip(t, "open-review", "Request Review…", (_e, cx) => this.openCard(cx, "review"), { selected: this.card === "review" }));
     const offer = refusalOffer(this.refusal, number);
     if (offer) more.push(chip(t, "refusal", offer.label, (_e, cx) => this.changeStatus(cx, number, offer.change, offer.label), { selected: true }));
-    parts.push(sectionTitle(t, "Status"), wrapRow(choices), wrapRow(more));
+    parts.push(sectionTitle(t, "Status"), h_flex().px(4).py(4).child(statusMenu), wrapRow(more));
 
     parts.push(sectionTitle(t, "Assignee"), pad(field(t, "assignee", fields.assignee, this.focused === "assignee")));
 
@@ -1319,6 +1346,41 @@ function card(t, id, children) {
 
 function openScopes() {
   openOverlay({ mod: MOD, props: { view: "scopes" }, kind: "popup", width: SCOPES_WIDTH, height: SCOPES_HEIGHT });
+}
+
+/**
+ * Opens the status dropdown under the pointer. The popup is another copy of
+ * this mod, so it gets the pane's choices, task number and owner in its props.
+ */
+function openStatusMenu(owner, number, choices) {
+  const height = 12 + choices.length * 28;
+  openOverlay({ mod: MOD, props: { view: "status", owner, number, choices }, kind: "popup", width: STATUS_WIDTH, height });
+}
+
+/** The status dropdown: one row per status, the current one checked, disabled ones dimmed. */
+function renderStatusMenu(t) {
+  const p = props() ?? {};
+  const choices = normalizeChoices(p.choices);
+  const rows = choices.map((choice) =>
+    row(t, `status-${choice.status}`, { selected: choice.current })
+      .when(choice.enabled && !choice.current, (el) => el.cursor_pointer().on_click(() => pickStatus(p, choice.status)))
+      .child(div().flex_1().min_w(0).truncate().text_color(choice.enabled ? t.foreground : t.dim).child(choice.label))
+      .when(choice.current, (el) => el.child(svg(ICON("check")).size(14).flex_none().text_color(t.muted))),
+  );
+  return v_flex()
+    .id("argus-tsk-status")
+    .w_full()
+    .h(12 + rows.length * 28)
+    .bg(t.popover)
+    .text_color(t.foreground)
+    .text_size(13)
+    .child(scrollArea("argus-tsk-status-list", rows, { padding: 6 }));
+}
+
+/** Hands a picked status to the pane that opened the popup, then closes the popup. */
+function pickStatus(p, status) {
+  setShared(STATUS_PICK_KEY, { owner: p.owner, number: p.number, status, at: Date.now() });
+  if (p.overlay) closeOverlay(p.overlay);
 }
 
 function pickScope(scope) {
