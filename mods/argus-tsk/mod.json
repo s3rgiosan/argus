@@ -1,1 +1,1 @@
-{"place": "none", "title": "Tasks", "panel": {"label": "Tasks", "icon": "icons/list-checks.svg"}}
+{"place": "none", "title": "Tasks", "overlay": {"width": 360, "height": 640}, "panel": {"label": "Tasks", "icon": "icons/list-checks.svg"}}

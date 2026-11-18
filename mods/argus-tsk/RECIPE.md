@@ -4,7 +4,7 @@ The tsk board as a Herdr panel, with the task in a pane beside the terminals. Ev
 
 ## What you see
 
-- `mod.json`: `{ "place": "none", "title": "Tasks", "panel": { "label": "Tasks", "icon": "icons/list-checks.svg" } }`. The `argus` layout (`scripts/build-layout.mjs`) gives it a toolbar button and a panel.
+- `mod.json`: `{ "place": "none", "title": "Tasks", "overlay": { "width": 360, "height": 640 }, "panel": { "label": "Tasks", "icon": "icons/list-checks.svg" } }`. The `argus` layout (`scripts/build-layout.mjs`) gives it a toolbar button and a panel. `mod.open` opens it as a 360 × 640 popup.
 - One mod, three views picked by `props().view`: none or `"board"` (the panel), `"scopes"` (popup), `"task"` (pane).
 - Board, drawn with `ui.js` (a copy of `lib/ui.js`): frame; 42 px header with "Tasks" (semibold), the scope button (scope name at 12 px `muted` with a chevron, hover `hover`), the count badge (11 px `muted` on `raised`), then refresh and settings icon buttons (14 px Lucide icons in `icons/`); scroll area; bottom bar with a 32 px "New task…" field and an Add button (`solid` while there is a title).
 - Sections, titled at 11 px semibold `muted`: "NEEDS YOU · n", "IN MOTION · n", "ON DECK · n" (ready rows, then open rows). Empty sections are left out; no rows at all shows "No tasks here" ("Loading…" before the first read).
