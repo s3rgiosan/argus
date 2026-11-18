@@ -17,7 +17,7 @@ The tsk board as a Herdr panel, with the task in a pane beside the terminals. Ev
 ## How it behaves
 
 - `shared` keys: `argus-tsk.board` `{ rows, readAt, error }` (rows from `tsk list --all --json`); `argus-tsk.scope` (a scope, default the desk); `argus-tsk.selected` `{ number }`; `argus-tsk.settings` `{ tsk, stateDir }`; `argus-tsk.lock` (the reader lock).
-- Board and task copies watch the store folder (`watchFolder`, looped in `cx.spawn`). A change re-reads 300 ms after the last one in a burst. The copy that takes the lock (`lib/sync.js`, `lib/gate.js`) reads; a copy whose shared board is already newer than the change skips its read. If the watch is refused, the board is read every 10 s.
+- Board and task copies watch the store folder (`watchFolder`, looped in `cx.spawn`). Every tsk run (reads too) changes the store files' metadata, and other tsk clients do the same, so a batch alone proves nothing: after each batch the copy runs `stat` on `tsk.json` (`store.js`: modification time and size) and re-reads only when that stamp moved, 300 ms after the last such change. A watch started again after an empty batch reads once. The copy that takes the lock (`lib/sync.js`, `lib/gate.js`) reads; a copy whose shared board is already newer than the change skips its read. If the watch is refused, the board is read every 10 s.
 - Finding tsk: the tsk command setting, `tsk` on the PATH that Herdr's `exec` sees, then the install locations; the first whose `--version` runs is used, once per setting. Older than 0.13.0 or not found: one note in the panel, no rows. The refresh icon looks again.
 - Store folder: the setting (passed to tsk as `--state-dir`), else `TSK_STATE_DIR` read once with `/bin/sh -c 'printf %s "$TSK_STATE_DIR"'`, else `~/.tsk`.
 - Capture runs `tsk add` with the scope's target (`captureTarget` in `board.js`), then re-reads. A refusal shows tsk's message over the bottom bar and keeps the text.
@@ -29,7 +29,7 @@ The tsk board as a Herdr panel, with the task in a pane beside the terminals. Ev
 ## Built from
 
 - `main.js`: the `View`; `exec`, `home`, `checking`, `theme`, `shared`, `setShared`, `props`, `run`, `openOverlay`, `closeOverlay`, `panes`, `spaces`, `watchFolder` from `herdr`; `randomUUID` from `crypto`; `Input`, `InputState`, `Textarea`, `TextareaState` from `gpui-base`.
-- `tsk.js` (argv for every command), `locate.js` (tsk lookup, store folder, version check, settings), `model.js` (JSON to camelCase rows), `board.js` (sections, scopes, capture target), `flows.js` (block and review flows), `detail.js` (task read state, status choices and actions per status, form changes, optimistic patches), `timing.js` (debounce with an injectable clock). All pure, tested with `node --test`.
+- `tsk.js` (argv for every command), `locate.js` (tsk lookup, store folder, version check, settings), `model.js` (JSON to camelCase rows), `board.js` (sections, scopes, capture target), `flows.js` (block and review flows), `detail.js` (task read state, status choices and actions per status, form changes, optimistic patches), `timing.js` (debounce with an injectable clock), `store.js` (the `tsk.json` stamp that tells a real store change from read noise). All pure, tested with `node --test`.
 
 ## Watch out
 

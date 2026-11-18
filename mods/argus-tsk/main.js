@@ -13,6 +13,7 @@ import { activitySentence, buildBoard, captureTarget, liveNumbersOf, normalizeSc
 import { answerBlock, applyOptimistic, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, assigneeEdit, blockChange, changeFor, CHECK_LABELS, detailState, patchDetail, refusalOffer, reviewChange, statusChoices, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
+import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, iconButton, row, scrollArea, field, button, footer, sectionTitle, note } from "./ui.js";
@@ -196,8 +197,24 @@ export default class Tasks extends View {
   }
 
   /**
+   * The store data file's stamp (modification time and size), or null when
+   * it cannot be read.
+   * @returns {Promise<string | null>}
+   */
+  async storeStamp(dir) {
+    const [command, args] = stampArgs(dir);
+    try {
+      return parseStamp(await exec(command, args, { timeout: EXEC_TIMEOUT }));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Watches the store folder and re-reads the board after a burst of
-   * changes. When the watch is refused, the 10 s timer reads instead.
+   * changes. A batch that leaves the data file as it was comes from a read
+   * (tsk changes file metadata on every run) and is skipped. When the watch
+   * is refused, the 10 s timer reads instead.
    */
   startWatch(cx) {
     const token = {};
@@ -206,15 +223,26 @@ export default class Tasks extends View {
     this.watch = null;
     cx.spawn(async (cx) => {
       const dir = await this.storePath();
-      let restart = false;
+      let stamp = await this.storeStamp(dir);
+      // What the last batch asks for, checked once the next watch is in place
+      // so no change slips through between two watches.
+      let pending = null;
       while (this.watchToken === token) {
         let changed;
         try {
           this.watch = watchFolder(dir);
-          // A watch started again may have missed changes, so read once it is in place.
-          if (restart) {
+          if (pending === "restart") {
+            // A watch started again may have missed changes, so read now.
+            stamp = await this.storeStamp(dir);
             this.since = Date.now();
             this.reload(cx);
+          } else if (pending === "batch") {
+            const next = await this.storeStamp(dir);
+            if (this.watchToken === token && storeChanged(stamp, next)) {
+              stamp = next;
+              this.since = Date.now();
+              this.reload(cx);
+            }
           }
           changed = await this.watch;
         } catch {
@@ -223,14 +251,13 @@ export default class Tasks extends View {
         }
         if (this.watchToken !== token) return;
         this.polling = false;
-        restart = changed.length === 0;
         // An empty batch means the watch was given up: wait a little, then watch again.
-        if (restart) {
+        if (changed.length === 0) {
+          pending = "restart";
           await cx.sleep(POLL);
           continue;
         }
-        this.since = Date.now();
-        this.reload(cx);
+        pending = "batch";
       }
     });
   }
