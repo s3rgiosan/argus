@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { answerBlock, applyOptimistic, retryStatus, sendBack, statusOf } from "../mods/argus-tsk/flows.js";
+import { answerBlock, applyOptimistic, flowOutcome, retryStatus, sendBack, statusOf } from "../mods/argus-tsk/flows.js";
 
 function fakeApi() {
   const api = {
@@ -122,4 +122,23 @@ test("applyOptimistic leaves other rows alone", () => {
   const out = applyOptimistic(rows, 1, { kind: "ready" });
   assert.equal(out[0].status, "ready");
   assert.equal(out[1], rows[1]);
+});
+
+// flowOutcome
+test("flowOutcome: a finished flow clears the error and the draft", () => {
+  assert.deepEqual(flowOutcome({ ok: true }, false, true), { apply: true, flowError: null, clearDraft: true });
+});
+test("flowOutcome: a failed reply keeps the draft; a failed status change after the reply clears it", () => {
+  const error = { message: "Example refusal" };
+  assert.deepEqual(flowOutcome({ ok: false, replied: false, error }, false, true), {
+    apply: true, flowError: { replied: false, message: "Example refusal" }, clearDraft: false,
+  });
+  assert.deepEqual(flowOutcome({ ok: false, replied: true, error }, false, true), {
+    apply: true, flowError: { replied: true, message: "Example refusal" }, clearDraft: true,
+  });
+  assert.equal(flowOutcome({ ok: false, replied: false, error }, true, true).clearDraft, true);
+});
+test("flowOutcome: a flow for a task no longer shown changes nothing", () => {
+  assert.deepEqual(flowOutcome({ ok: true }, false, false), { apply: false, flowError: null, clearDraft: false });
+  assert.deepEqual(flowOutcome({ ok: false, replied: true, error: { message: "x" } }, true, false), { apply: false, flowError: null, clearDraft: false });
 });

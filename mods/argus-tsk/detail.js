@@ -15,6 +15,7 @@ import { statusOf } from "./flows.js";
  * @typedef {"block"|"requestReview"|"startQuiet"|"answer"|"sendBack"|"approve"|"markDone"|"reply"|"archive"} Action
  * @typedef {{status: string, label: string, current: boolean, enabled: boolean}} StatusChoice
  * @typedef {{code: string, number: number, change: StatusChange}} Refusal
+ * @typedef {import("./tsk.js").EditInput} EditInput
  */
 
 /** The states the status control offers. Blocked and review need a form. */
@@ -249,6 +250,38 @@ export function assigneeEdit(task, value) {
   const name = String(value ?? "").trim();
   if (name === (task.assignee ?? "")) return null;
   return name === "" ? { unassign: true } : { assignee: name };
+}
+
+/**
+ * What leaving the title, notes or assignee field saves. `baseline` is the
+ * field's text at the last time tsk's value was put in it: a field still at
+ * its baseline saves nothing, so tsk's newer value is never overwritten with
+ * the old text. An edited field writes when it differs from tsk's value; an
+ * emptied title goes back to tsk's title.
+ * @param {"title"|"notes"|"assignee"} field
+ * @param {string} value the field's text
+ * @param {string} baseline
+ * @param {{title: string, notes?: ?string, assignee: ?string}} task tsk's latest read
+ * @returns {{kind: "none"} | {kind: "reset"} | {kind: "write", input: EditInput}}
+ */
+export function fieldSave(field, value, baseline, task) {
+  const none = { kind: "none" };
+  if (value === baseline) return none;
+  switch (field) {
+    case "title": {
+      const title = value.trim();
+      if (title === "") return { kind: "reset" };
+      return title === task.title ? none : { kind: "write", input: { title } };
+    }
+    case "notes":
+      return value === (task.notes ?? "") ? none : { kind: "write", input: { notes: value } };
+    case "assignee": {
+      const input = assigneeEdit(task, value);
+      return input === null ? none : { kind: "write", input };
+    }
+    default:
+      return none;
+  }
 }
 
 /**

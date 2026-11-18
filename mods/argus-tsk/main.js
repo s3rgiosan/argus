@@ -10,8 +10,8 @@ import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs
 import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
 import { parseRows, parseError } from "./model.js";
 import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, rowsInScope, sameScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
-import { answerBlock, applyOptimistic, retryStatus, sendBack } from "./flows.js";
-import { actionsFor, addAfter, assigneeEdit, blockChange, changeFor, CHECK_LABELS, detailState, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
+import { answerBlock, applyOptimistic, flowOutcome, retryStatus, sendBack } from "./flows.js";
+import { actionsFor, addAfter, blockChange, changeFor, CHECK_LABELS, detailState, fieldSave, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
 import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
@@ -195,6 +195,10 @@ export default class Tasks extends View {
       return { ok: false, error: { kind: "missing", message: `tsk not found. Install tsk ${MIN_VERSION} or newer, or set the tsk command in settings.` } };
     })();
     this.located = { setting, result };
+    // Only a found tsk is kept: a missing or old one is looked up again next time.
+    result.then((found) => {
+      if (!found.ok && this.located?.result === result) this.located = null;
+    });
     return result;
   }
 
@@ -532,13 +536,17 @@ export default class Tasks extends View {
         step: this.input("step", { placeholder: "Add a step" }, (cx) => this.addStep(cx, number)),
         reply: this.input("reply", { placeholder: "Reply" }, (cx) => this.submitReply(cx, number), { multiline: true }),
       };
+      // The text each field had when tsk's value was last put in it.
+      this.fields.baseline = { title: task.title, notes: task.notes ?? "", assignee: task.assignee ?? "" };
       this.fields.notes.set_auto_grow(3, 12);
       this.fields.reply.set_auto_grow(2, 8);
       this.fields.reply.on("change", (_e, cx) => cx.notify());
       return;
     }
     const sync = (id, state, value) => {
-      if (this.focused !== id && state.value() !== value) state.set_value(value);
+      if (this.focused === id) return;
+      if (state.value() !== value) state.set_value(value);
+      this.fields.baseline[id] = value;
     };
     sync("title", this.fields.title, task.title);
     sync("notes", this.fields.notes, task.notes ?? "");
@@ -606,9 +614,12 @@ export default class Tasks extends View {
           this.detail = null;
         }
       } catch (error) {
-        const message = error?.kind === "store" ? `${error.message}; the board was re-read` : (error?.message ?? String(error));
-        this.writeError = `${label} couldn't be completed. ${message}`;
-        if (error?.kind === "refused" && change) this.refusal = { code: error.code, number, change };
+        // The error belongs to task `number`; the pane may show another task by now.
+        if (this.shownNumber === number) {
+          const message = error?.kind === "store" ? `${error.message}; the board was re-read` : (error?.message ?? String(error));
+          this.writeError = `${label} couldn't be completed. ${message}`;
+          if (error?.kind === "refused" && change) this.refusal = { code: error.code, number, change };
+        }
       } finally {
         this.refresh(cx);
         this.loadTask(cx, readSelected());
@@ -623,33 +634,42 @@ export default class Tasks extends View {
   }
 
   saveTitle(cx, number) {
-    const task = this.shownTask();
-    if (task?.number !== number || this.fields?.number !== number) return;
-    const title = this.fields.title.value().trim();
-    if (title === "") {
-      this.fields.title.set_value(task.title);
-      return;
-    }
-    if (title === task.title) return;
-    const input = { title };
-    this.write(cx, number, "Edit Title", editArgs(number, input), { patch: { kind: "edit", input } });
+    this.saveField(cx, number, "title", "Edit Title");
   }
 
   saveNotes(cx, number) {
-    const task = this.shownTask();
-    if (task?.number !== number || this.fields?.number !== number) return;
-    const notes = this.fields.notes.value();
-    if (notes === (task.notes ?? "")) return;
-    const input = { notes };
-    this.write(cx, number, "Edit Notes", editArgs(number, input), { patch: { kind: "edit", input } });
+    this.saveField(cx, number, "notes", "Edit Notes");
   }
 
   saveAssignee(cx, number) {
+    this.saveField(cx, number, "assignee", null);
+  }
+
+  /**
+   * Saves the title, notes or assignee field of task `number` when it was
+   * edited since tsk's value was last put in it (`fieldSave`). `label` names
+   * the write; the assignee's is Assign or Unassign.
+   */
+  saveField(cx, number, field, label) {
     const task = this.shownTask();
     if (task?.number !== number || this.fields?.number !== number) return;
-    const input = assigneeEdit(task, this.fields.assignee.value());
-    if (input === null) return;
-    this.write(cx, number, "unassign" in input ? "Unassign" : "Assign", editArgs(number, input), { patch: { kind: "edit", input } });
+    const state = this.fields[field];
+    const value = state.value();
+    const save = fieldSave(field, value, this.fields.baseline[field], task);
+    switch (save.kind) {
+      case "reset":
+        state.set_value(task.title);
+        this.fields.baseline[field] = task.title;
+        return;
+      case "write": {
+        this.fields.baseline[field] = value;
+        const name = label ?? ("unassign" in save.input ? "Unassign" : "Assign");
+        this.write(cx, number, name, editArgs(number, save.input), { patch: { kind: "edit", input: save.input } });
+        return;
+      }
+      default:
+        return;
+    }
   }
 
   addRunsAfter(cx, number) {
@@ -701,7 +721,7 @@ export default class Tasks extends View {
     cx.spawn(async (cx) => {
       try {
         const result = task.status === "blocked" ? await answerBlock(this.flowApi(), task, text) : await sendBack(this.flowApi(), task, text);
-        this.finishFlow(result, false);
+        this.finishFlow(number, result, false);
       } finally {
         this.busy = false;
         this.refresh(cx);
@@ -719,7 +739,7 @@ export default class Tasks extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        this.finishFlow(await retryStatus(this.flowApi(), task), true);
+        this.finishFlow(task.number, await retryStatus(this.flowApi(), task), true);
       } finally {
         this.busy = false;
         this.refresh(cx);
@@ -729,14 +749,12 @@ export default class Tasks extends View {
     });
   }
 
-  finishFlow(result, clearDraft) {
-    if (result.ok) {
-      this.flowError = null;
-      this.fields?.reply.set_value("");
-      return;
-    }
-    this.flowError = { replied: result.replied, message: result.error.message };
-    if (result.replied || clearDraft) this.fields?.reply.set_value("");
+  /** Shows a flow's result, only while the pane still shows task `number`. */
+  finishFlow(number, result, clearDraft) {
+    const outcome = flowOutcome(result, clearDraft, this.shownNumber === number && this.fields?.number === number);
+    if (!outcome.apply) return;
+    this.flowError = outcome.flowError;
+    if (outcome.clearDraft) this.fields.reply.set_value("");
   }
 
   /** Opens the block or review form, filled from the task's last block or review. */

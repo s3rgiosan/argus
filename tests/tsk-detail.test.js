@@ -7,6 +7,7 @@ import {
   blockChange,
   changeFor,
   detailState,
+  fieldSave,
   lines,
   normalizeChoices,
   patchDetail,
@@ -339,4 +340,30 @@ test("normalizeChoices: keeps well-formed choices from popup props", () => {
     ],
   );
   assert.deepEqual(normalizeChoices(undefined), []);
+});
+
+// fieldSave
+test("fieldSave: a field left as it was at the last sync saves nothing, even when tsk changed since", () => {
+  const t = task({ title: "Changed by an agent", notes: "New notes", assignee: "agent" });
+  assert.deepEqual(fieldSave("title", "Example task", "Example task", t), { kind: "none" });
+  assert.deepEqual(fieldSave("notes", "Old notes", "Old notes", t), { kind: "none" });
+  assert.deepEqual(fieldSave("assignee", "", "", t), { kind: "none" });
+});
+test("fieldSave: an edited title writes the trimmed text; empty resets; tsk's own text saves nothing", () => {
+  const t = task({ title: "Example task" });
+  assert.deepEqual(fieldSave("title", "  New title ", "Example task", t), { kind: "write", input: { title: "New title" } });
+  assert.deepEqual(fieldSave("title", "  ", "Example task", t), { kind: "reset" });
+  assert.deepEqual(fieldSave("title", "Example task ", "Example", t), { kind: "none" });
+});
+test("fieldSave: edited notes write as typed, including empty to clear", () => {
+  const t = task({ notes: "Some notes" });
+  assert.deepEqual(fieldSave("notes", "Other notes", "Some notes", t), { kind: "write", input: { notes: "Other notes" } });
+  assert.deepEqual(fieldSave("notes", "", "Some notes", t), { kind: "write", input: { notes: "" } });
+  assert.deepEqual(fieldSave("notes", "Some notes", "Old", t), { kind: "none" });
+});
+test("fieldSave: an edited assignee assigns or unassigns", () => {
+  const t = task({ assignee: "ana" });
+  assert.deepEqual(fieldSave("assignee", "bob", "ana", t), { kind: "write", input: { assignee: "bob" } });
+  assert.deepEqual(fieldSave("assignee", "", "ana", t), { kind: "write", input: { unassign: true } });
+  assert.deepEqual(fieldSave("assignee", "ana", "old", t), { kind: "none" });
 });

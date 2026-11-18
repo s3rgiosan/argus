@@ -79,6 +79,22 @@ export async function retryStatus(api, task) {
   return { ok: true };
 }
 
+/**
+ * What a finished flow changes in the pane. Only a flow for the task the pane
+ * still shows (`sameTask`) applies: success clears the error and the reply
+ * draft; a failure shows the error, and the draft clears when the reply was
+ * sent or `clearDraft` asks for it.
+ * @param {FlowResult} result
+ * @param {boolean} clearDraft
+ * @param {boolean} sameTask
+ * @returns {{apply: boolean, flowError: ?{replied: boolean, message: string}, clearDraft: boolean}}
+ */
+export function flowOutcome(result, clearDraft, sameTask) {
+  if (!sameTask) return { apply: false, flowError: null, clearDraft: false };
+  if (result.ok) return { apply: true, flowError: null, clearDraft: true };
+  return { apply: true, flowError: { replied: result.replied, message: result.error.message }, clearDraft: result.replied || clearDraft };
+}
+
 /** The status a status change leaves a task in. */
 export function statusOf(change) {
   return change.kind === "start" ? "started" : change.kind;
