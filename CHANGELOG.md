@@ -25,5 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `argus-tsk` board and task pane follow the tsk store as it changes, with no manual refresh.
 - `argus-tsk` settings set the tsk command and the store folder, and the panel shows a note when tsk is missing or older than 0.13.0.
 - `gate.js` and `sync.js` moved to `lib/`, and `argus-claude-usage` and `argus-tsk` share them.
+- `argus-tsk` shows each project under its tsk title when it has one, else under its folder name.
+- A pencil on each project row of the `argus-tsk` scope list sets or clears the project's title, with tsk 0.14.0 or later.
+- The Argus panel opens 440 px wide, and you can drag it between 280 and 900 px.
 
 [Unreleased]: https://github.com/s3rgiosan/argus/commits/main
