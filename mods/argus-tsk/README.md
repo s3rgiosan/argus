@@ -26,7 +26,7 @@ In the `argus` layout: the Tasks button beside the tab bar.
 
 ## Credits
 
-- Not affiliated with tsk (gettsk.sh).
+- The functionality follows [tskdeck](https://github.com/s3rgiosan/tskdeck), by the same author. Not affiliated with tsk (gettsk.sh).
 - Icons: [Lucide](https://lucide.dev) (ISC, `icons/LICENSE-Lucide.txt`).
 
 ## Install
