@@ -90,6 +90,19 @@ export function expandHome(path, home) {
 }
 
 /**
+ * Shows a path inside `home` with `~` in place of the home folder.
+ * @param {string} path
+ * @param {string} home
+ * @returns {string}
+ */
+export function tildePath(path, home) {
+  const root = String(home ?? "").replace(/\/+$/, "");
+  if (root === "") return path;
+  if (path === root) return "~";
+  return path.startsWith(`${root}/`) ? `~${path.slice(root.length)}` : path;
+}
+
+/**
  * The commands to try for `tsk`, in order: the "tsk command" setting, `tsk`
  * on the PATH, then the install locations. Each appears once.
  * @param {string} setting

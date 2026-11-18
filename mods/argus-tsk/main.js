@@ -7,7 +7,7 @@ import { h_flex, v_flex, Input, InputState, TextareaState, Textarea } from "gpui
 import { exec, home, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder } from "herdr";
 import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
-import { commandCandidates, expandHome, normalizeSettings, storeDir, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
+import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
 import { parseRows, parseError } from "./model.js";
 import { activitySentence, buildBoard, captureTarget, liveNumbersOf, normalizeScope, rowsInScope, sameScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
 import { answerBlock, applyOptimistic, retryStatus, sendBack } from "./flows.js";
@@ -873,7 +873,7 @@ export default class Tasks extends View {
     let extra = 0;
     const item = (entry, index) => {
       if (entry.scope.kind === "project" && rename?.project === entry.scope.project) {
-        extra += 50 + (rename.error ? 6 + 16 * Math.ceil(rename.error.length / ERROR_CHARS) : 0);
+        extra += 88 + (rename.error ? 6 + 16 * Math.ceil(rename.error.length / ERROR_CHARS) : 0);
         return this.renameField(t, rename);
       }
       return row(t, `scope-${index}`, { selected: sameScope(entry.scope, current) })
@@ -917,7 +917,10 @@ export default class Tasks extends View {
       .child(scrollArea("argus-tsk-scope-list", parts, { padding: 6 }));
   }
 
-  /** A project's rename field with Save and Clear. Enter saves, Escape cancels. */
+  /**
+   * A project's rename field, the project's path and a hint under it, then
+   * Clear and Save. Enter saves, Escape cancels.
+   */
   renameField(t, rename) {
     const enabled = !rename.saving;
     return v_flex()
@@ -932,6 +935,14 @@ export default class Tasks extends View {
         this.cancelRename(cx);
       })
       .child(h_flex().child(field(t, "rename-field", rename.state, this.focused === "rename")))
+      .child(
+        v_flex()
+          .gap(2)
+          .text_size(11)
+          .text_color(t.dim)
+          .child(div().min_w(0).truncate().child(tildePath(rename.project, home())))
+          .child(div().child("Leave empty to use the folder name.")),
+      )
       .child(
         h_flex()
           .gap(6)

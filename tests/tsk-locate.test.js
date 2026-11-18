@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defaultCandidates, storeDir, versionOk, versionAtLeast, TITLES_TSK, parseVersion, commandCandidates, expandHome, normalizeSettings } from "../mods/argus-tsk/locate.js";
+import { defaultCandidates, storeDir, versionOk, versionAtLeast, TITLES_TSK, parseVersion, commandCandidates, expandHome, normalizeSettings, tildePath } from "../mods/argus-tsk/locate.js";
 
 test("default candidates cover unix locations", () => {
   const list = defaultCandidates("/home/u");
@@ -77,4 +77,13 @@ test("versionAtLeast compares a version against a minimum", () => {
   assert.equal(versionAtLeast("tsk 1.0.0", TITLES_TSK), true);
   assert.equal(versionAtLeast("garbage", TITLES_TSK), false);
   assert.equal(versionAtLeast("", TITLES_TSK), false);
+});
+
+test("tildePath shows the home folder as ~", () => {
+  assert.equal(tildePath("/home/u/sites/example/wp-content", "/home/u"), "~/sites/example/wp-content");
+  assert.equal(tildePath("/home/u", "/home/u"), "~");
+  assert.equal(tildePath("/home/user2/site", "/home/u"), "/home/user2/site");
+  assert.equal(tildePath("/tmp/example-site/wordpress/wp-content", "/home/u"), "/tmp/example-site/wordpress/wp-content");
+  assert.equal(tildePath("/home/u/site", ""), "/home/u/site");
+  assert.equal(tildePath("/home/u/site", "/home/u/"), "~/site");
 });
