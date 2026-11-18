@@ -8,12 +8,14 @@
  * @typedef {"needsYou"|"inMotion"|"onDeck"|"done"} SectionId
  * @typedef {{needsYou: TaskRow[], inMotion: TaskRow[], ready: TaskRow[], inbox: TaskRow[]}} BoardModel
  * @typedef {{kind: "desk"} | {kind: "all"} | {kind: "project", project: string}
- *   | {kind: "thread", name: string} | {kind: "assignee", name: string}} Scope
+ *   | {kind: "thread", name: string} | {kind: "assignee", name: string}} ListScope
  *   The same shapes `listArgs` in tsk.js accepts.
+ * @typedef {ListScope | {kind: "follow"}} Scope `follow` shows the project of the
+ *   focused space; `effectiveScope` turns it into a ListScope.
  * @typedef {{key: string, label: string, scope: Scope, count: number}} SidebarItem
  * @typedef {SidebarItem & {title: ?string, folder: string}} ProjectItem `title` is the
  *   project's title, null when it has none; `folder` is its folder name.
- * @typedef {{desk: SidebarItem, all: SidebarItem, projects: ProjectItem[],
+ * @typedef {{follow: SidebarItem, desk: SidebarItem, all: SidebarItem, projects: ProjectItem[],
  *   threads: SidebarItem[], assignees: SidebarItem[]}} SidebarModel
  * @typedef {"default"|"you"|"task"|"agent"|"other"} WaitsKind
  */
@@ -180,14 +182,18 @@ export function rowsInScope(rows, scope) {
 }
 
 /**
- * A scope read back from shared state; anything malformed is the desk.
+ * A scope read back from shared state. No stored scope follows the space;
+ * anything malformed is the desk.
  * @param {unknown} value
  * @returns {Scope}
  */
 export function normalizeScope(value) {
+  if (value === null || value === undefined) return { kind: "follow" };
   const v = value && typeof value === "object" ? /** @type {Record<string, unknown>} */ (value) : {};
   const text = (x) => typeof x === "string" && x !== "";
   switch (v.kind) {
+    case "follow":
+      return { kind: "follow" };
     case "all":
       return { kind: "all" };
     case "project":
@@ -202,10 +208,12 @@ export function normalizeScope(value) {
 
 /**
  * The sidebar for a live listing of every row; counts come from `rowsInScope`.
+ * The follow item counts the rows of `followed`, or of the desk without one.
  * @param {TaskRow[]} allRows
+ * @param {?string} [followed] the project the focused space is in
  * @returns {SidebarModel}
  */
-export function sidebarModel(allRows) {
+export function sidebarModel(allRows, followed = null) {
   /** @type {(scope: Scope) => number} */
   const count = (scope) => rowsInScope(allRows, scope).length;
   const labels = projectLabelsOf(allRows);
@@ -220,7 +228,9 @@ export function sidebarModel(allRows) {
       folder: segments(project).pop() ?? project,
     }))
     .sort((a, b) => compareNames(a.label, b.label));
+  const follow = { kind: "follow" };
   return {
+    follow: { key: "follow", label: "Follow space", scope: follow, count: count(effectiveScope(follow, followed)) },
     desk: { key: "desk", label: "Desk", scope: { kind: "desk" }, count: count({ kind: "desk" }) },
     all: { key: "all", label: "All Projects", scope: { kind: "all" }, count: allRows.length },
     projects,
@@ -251,12 +261,16 @@ export function sameScope(a, b) {
 
 /**
  * The name the sidebar gives a scope. A project with no rows left shows its folder name.
+ * Follow adds the name of what it follows.
  * @param {Scope} scope
  * @param {SidebarModel} model
+ * @param {?string} [followed] the project the focused space is in
  * @returns {string}
  */
-export function scopeTitle(scope, model) {
+export function scopeTitle(scope, model, followed = null) {
   switch (scope.kind) {
+    case "follow":
+      return `${model.follow.label} · ${scopeTitle(effectiveScope(scope, followed), model)}`;
     case "desk":
       return model.desk.label;
     case "all":
@@ -268,6 +282,68 @@ export function scopeTitle(scope, model) {
     default:
       return scope.name;
   }
+}
+
+/**
+ * The scope the board lists: follow becomes the followed project, else the desk.
+ * @param {Scope} scope
+ * @param {?string} followed
+ * @returns {ListScope}
+ */
+export function effectiveScope(scope, followed) {
+  if (scope.kind !== "follow") return scope;
+  return followed ? { kind: "project", project: followed } : { kind: "desk" };
+}
+
+/**
+ * The project that is `folder` or holds it, matched on whole folder names; the
+ * longest match wins. Trailing and doubled slashes are ignored. Returns the path
+ * as `projects` has it, or null.
+ * @param {Array<?string>} projects
+ * @param {?string} folder
+ * @returns {?string}
+ */
+export function followedProject(projects, folder) {
+  if (typeof folder !== "string" || folder === "") return null;
+  const target = segments(folder);
+  let best = null;
+  let bestLength = 0;
+  for (const project of projects) {
+    if (typeof project !== "string") continue;
+    const own = segments(project);
+    if (own.length === 0 || own.length > target.length || own.length <= bestLength) continue;
+    if (own.every((part, i) => part === target[i])) {
+      best = project;
+      bestLength = own.length;
+    }
+  }
+  return best;
+}
+
+/**
+ * The folder of the focused space: the focused terminal's folder, else a
+ * terminal's in the focused tab, else one in another tab of that space, else
+ * the space's folder. Without focus it reads the shown space and its shown tab.
+ * @param {?{space?: string, tab?: string, cwd?: ?string}} focused from `focused()`
+ * @param {Array<{terminal?: ?string, tab: string, cwd?: ?string}>} panes from `panes()`
+ * @param {Array<{id: string, active: boolean, folder?: string, tabs?: Array<{id: string, active: boolean}>}>} spaces from `spaces()`
+ * @returns {?string}
+ */
+export function followFolder(focused, panes, spaces) {
+  const text = (v) => (typeof v === "string" && v !== "" ? v : null);
+  const own = text(focused?.cwd);
+  if (own) return own;
+  const space = spaces.find((s) => s.id === focused?.space) ?? spaces.find((s) => s.active);
+  if (!space) return null;
+  const tabs = space.tabs ?? [];
+  const tab = focused?.tab ?? tabs.find((t) => t.active)?.id ?? null;
+  const terminals = panes.filter((p) => typeof p.terminal === "string" && text(p.cwd));
+  const inTab = terminals.find((p) => p.tab === tab);
+  if (inTab) return inTab.cwd;
+  const tabIds = new Set(tabs.map((t) => t.id));
+  const inSpace = terminals.find((p) => tabIds.has(p.tab));
+  if (inSpace) return inSpace.cwd;
+  return text(space.folder);
 }
 
 /**

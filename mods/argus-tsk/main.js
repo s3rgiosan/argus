@@ -4,12 +4,12 @@
 
 import { div, svg, View } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, TextareaState, Textarea } from "gpui-base";
-import { exec, home, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder, layout } from "herdr";
+import { exec, home, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder, layout, focused } from "herdr";
 import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
 import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
 import { parseRows, parseError } from "./model.js";
-import { activitySentence, buildBoard, captureTarget, liveNumbersOf, normalizeScope, rowsInScope, sameScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
+import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, rowsInScope, sameScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
 import { answerBlock, applyOptimistic, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, assigneeEdit, blockChange, changeFor, CHECK_LABELS, detailState, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
@@ -342,7 +342,8 @@ export default class Tasks extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const reply = await this.runTsk(addArgs({ title, ...captureTarget(readScope()) }));
+        const scope = effectiveScope(readScope(), followedOf(readBoard().rows));
+        const reply = await this.runTsk(addArgs({ title, ...captureTarget(scope) }));
         if (reply.code === 0) {
           this.captureInput.set_value("");
           this.refresh(cx);
@@ -816,8 +817,9 @@ export default class Tasks extends View {
   renderBoard(t) {
     const board = readBoard();
     const scope = readScope();
-    const model = sidebarModel(board.rows);
-    const sections = buildBoard(rowsInScope(board.rows, scope), liveNumbersOf(board.rows));
+    const following = followedOf(board.rows);
+    const model = sidebarModel(board.rows, following);
+    const sections = buildBoard(rowsInScope(board.rows, effectiveScope(scope, following)), liveNumbersOf(board.rows));
     const onDeck = [...sections.ready, ...sections.inbox];
     const count = sections.needsYou.length + sections.inMotion.length + onDeck.length;
     const blocking = board.error?.kind === "missing" || board.error?.kind === "old";
@@ -837,7 +839,7 @@ export default class Tasks extends View {
       .text_color(t.muted)
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click(() => openScopes())
-      .child(div().min_w(0).truncate().child(scopeTitle(scope, model)))
+      .child(div().min_w(0).truncate().child(scopeTitle(scope, model, following)))
       .child(svg(ICON("chevron-down")).size(12).flex_none());
     const badge = div().flex_none().px(6).rounded(9).bg(t.raised).text_size(11).text_color(t.muted).child(String(count));
 
@@ -894,7 +896,7 @@ export default class Tasks extends View {
 
   renderScopes(t) {
     const board = readBoard();
-    const model = sidebarModel(board.rows);
+    const model = sidebarModel(board.rows, followedOf(board.rows));
     const current = readScope();
     const rename = this.renaming;
     // Height the rename field adds over the row it replaces.
@@ -921,7 +923,7 @@ export default class Tasks extends View {
 
     let index = 0;
     let titles = 0;
-    const parts = [item(model.desk, index++), item(model.all, index++)];
+    const parts = [item(model.follow, index++), item(model.desk, index++), item(model.all, index++)];
     for (const [title, entries] of [
       ["Projects", model.projects],
       ["Threads", model.threads],
@@ -1433,6 +1435,14 @@ function openTask(number) {
 
 function readSettings() {
   return normalizeSettings(shared(SETTINGS_KEY));
+}
+
+/** The project the focused space is in, among the projects on the board, or null. */
+function followedOf(rows) {
+  return followedProject(
+    rows.map((r) => r.project),
+    followFolder(focused(), panes(), spaces()),
+  );
 }
 
 function readScope() {
