@@ -1,5 +1,7 @@
-// Decides which open copy of the mod asks Claude Code for usage, so at most
-// one `claude` process runs. Copies share a lock through Herdr's shared state.
+// Copied from lib/sync.js by scripts/sync-lib.mjs: edit lib/sync.js, then run it.
+//
+// Decides which open copy of a mod runs the shared read, so only one copy
+// reads at a time. Copies share a lock through Herdr's shared state.
 
 export const LOCK_MS = 120_000;
 

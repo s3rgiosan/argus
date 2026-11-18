@@ -16,7 +16,7 @@ A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, button
 - `mod.json`: `{ "place": "none", "title": "Argus toolbar" }`.
 - `main.js` reads `props()`: `{ panel: "argus-panel", stack: "argus-panels", buttons: [{ id, label, icon }] }`. `icon` is a path under `~/.config/herdr-app` (`mods/<mod>/<file>.svg`).
 - `toolbar-logic.js`: `isOpen`, `clickCommands`.
-- `scripts/build-layout.mjs` (repo) places it: the `tabs` block becomes the first child of row `argus-tabs-row`, followed by this block (width `10 + Σ(32 + 7 × label length + 3)` px); column `argus-panel` (368 px, hidden) with stack `argus-panels` goes last in `work-body`. A mod gets a button by declaring `"panel": { "label", "icon" }` in its `mod.json`.
+- `scripts/build-layout.mjs` (repo) places it: the `tabs` block becomes the first child of row `argus-tabs-row`, followed by this block (width `10 + Σ(32 + 7 × label length + 3)` px); column `argus-panel` (440 px, drags between 280 and 900 px, hidden) with stack `argus-panels` goes last in `work-body`. A mod gets a button by declaring `"panel": { "label", "icon" }` in its `mod.json`.
 
 ## Watch out
 

@@ -6,7 +6,10 @@ export const TOOLBAR_ID = "argus-toolbar";
 export const PANEL_ID = "argus-panel";
 export const STACK_ID = "argus-panels";
 const ROW_ID = "argus-tabs-row";
-const PANEL_WIDTH = 368;
+// The panel opens at PANEL_WIDTH and drags between PANEL_MIN and PANEL_MAX.
+const PANEL_WIDTH = 440;
+const PANEL_MIN = 280;
+const PANEL_MAX = 900;
 
 /**
  * The toolbar's width in px for its buttons: 10 px of padding, then per
@@ -76,6 +79,8 @@ export function buildLayout(main, panels) {
     id: PANEL_ID,
     type: "column",
     size: { px: PANEL_WIDTH },
+    min: PANEL_MIN,
+    max: PANEL_MAX,
     hidden: true,
     children: [
       {

@@ -1,0 +1,13 @@
+[
+  {"id":"id-3","number":3,"title":"Example review task","status":"review","project":"/home/u/example-project","thread":null,
+   "assignee":null,"assignee_kind":null,"base":null,"after":[],"before":[],
+   "review":{"round":2,"done":"Did it","checks":[{"text":"First check","state":"passed"},{"text":"Second check","state":"failed"}],
+             "next":"Ship","on":"human","by":"agent","at":[1700000000,0],"edited":false,
+             "feedback":[{"at":[1700000100,0],"by":"human","text":"Looks ok"}],"answered":false},
+   "notes":"Example notes",
+   "steps":[{"id":"step-aaaa","short_id":"s1","done":true,"text":"Step one"},{"id":"step-bbbb","short_id":"s2","done":false,"text":"Step two"}],
+   "dispatch":null,
+   "past_blocks":[{"why":"Old","needs":null,"options":[],"on":"human","by":"agent","at":[1690000000,0],"edited":false,"replies":[],"answered":true,"closed_at":[1690000100,0],"closed_by":"human"}],
+   "past_reviews":[{"round":1,"done":null,"checks":[],"next":null,"on":"human","by":"agent","at":[1690000000,0],"edited":false,"feedback":[],"answered":true,"resolution":"changes"}],
+   "activity":[{"at":[1700000000,0],"by":"agent","kind":"review","detail":{"round":2}},{"at":[1690000000,0],"by":null,"kind":"created","detail":null}]}
+]

@@ -19,7 +19,7 @@ The mod finds the accounts by itself: `~/.claude` and every `~/.claude-*` folder
 
 ## Open it
 
-- In the `argus` layout: the Usage button beside the tab bar.
+- In the `argus` layout: the Usage button beside the tab bar opens a panel on the right. It opens 440 px wide, and you can drag it between 280 and 900 px.
 - As a popup: `herdr-app do mod.open '{"name":"argus-claude-usage"}'`. Its pane icon opens it as a pane beside your terminals.
 
 Usage refreshes while the mod is open. All open copies share one refresh, and at most one `claude` process runs at a time.

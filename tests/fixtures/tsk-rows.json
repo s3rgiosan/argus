@@ -1,0 +1,12 @@
+[
+  {"id":"id-1","number":1,"title":"Example task","status":"open","project":null,"thread":null,
+   "assignee":null,"assignee_kind":null,"base":null,"after":[],"before":[2]},
+  {"id":"id-2","number":2,"title":"Example blocked task","status":"blocked","project":"/home/u/example-project","thread":"example-thread",
+   "assignee":"example-user","assignee_kind":"human","base":"main","after":[{"task":1,"done":false}],"before":[],
+   "block":{"why":"Need input","needs":null,"options":["A","B"],"on":"human","by":"agent","at":[1700000000,0],
+            "edited":false,"replies":[],"answered":false}},
+  {"id":"id-3","number":3,"title":"Example review task","status":"review","project":"/home/u/example-project","thread":null,
+   "assignee":null,"assignee_kind":null,"base":null,"after":[],"before":[],
+   "review":{"round":1,"done":"Did it","checks":[{"text":"c1","state":"open"}],"next":null,"on":"human","by":"agent",
+             "at":[1700000000,0],"edited":false,"feedback":[],"answered":false}}
+]

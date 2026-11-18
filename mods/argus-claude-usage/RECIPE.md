@@ -4,7 +4,7 @@ A panel with Claude plan usage for every Claude Code account on this computer, o
 
 ## What you see
 
-- Opens from the Usage button of `argus-toolbar` in the `argus` layout (`mod.json` declares `"panel": { "label": "Usage", "icon": "icons/chart-line.svg" }`), as a popup (`mod.open`, 360 × 640 from `mod.json` `overlay`), or as a pane (`pane.split { direction: "right", mod: "argus-claude-usage" }`); the popup's pane button opens the pane and closes the popup.
+- Opens from the Usage button of `argus-toolbar` in the `argus` layout (`mod.json` declares `"panel": { "label": "Usage", "icon": "icons/chart-line.svg" }`) as a panel in the `argus-panel` column (440 px, drags between 280 and 900 px), as a popup (`mod.open`, 360 × 640 from `mod.json` `overlay`), or as a pane (`pane.split { direction: "right", mod: "argus-claude-usage" }`); the popup's pane button opens the pane and closes the popup.
 - `mod.json` `"place": "none"`: Herdr docks it nowhere by itself.
 - Drawn with `ui.js` (a copy of the repo's `lib/ui.js`), in the sizes of Herdr's own panels: a frame with 10 px corners on `background` with a 1 px `border`, 13 px text; a 42 px header (14 px side padding, semibold title, bottom border) with 26 px icon buttons (14 px Lucide icons in `icons/`: refresh, open as pane in the popup only, settings); a scroll area with 6 px padding and Herdr's scrollbar; a bottom bar (top border) with Status page (status.anthropic.com) as a 28 px row.
 - One section per account, in discovery order, separated by a 1 px `border`:
@@ -30,6 +30,7 @@ A panel with Claude plan usage for every Claude Code account on this computer, o
 ## Built from
 
 - `mod.json`: `{ "place": "none", "title": "Claude usage", "overlay": { "width": 360, "height": 640 }, "panel": { "label": "Usage", "icon": "icons/chart-line.svg" } }`.
+- `gate.js` and `sync.js` are copies of `lib/gate.js` and `lib/sync.js` (one run at a time; which copy holds the lock).
 - `main.js`: the `View`; `exec`, `home`, `appHome`, `readTextFile`, `checking`, `theme`, `shared`, `setShared`, `props`, `run`, `closeOverlay`, `notify` from `herdr`; `readdir`, `readFile` from `fs/promises`; `randomUUID` from `crypto`; `InputState` from `gpui-base`; the rest of the UI from `ui.js`.
 - `accounts.js`: `discover` lists `~/.claude` (label file `~/.claude.json`) and each `~/.claude-*` folder or added folder with a `.claude.json`, label from its `oauthAccount`; `visibleProfiles` drops hidden folders, then keeps the first folder per `accountUuid`.
 - `usage.sh`: runs `claude -p --safe-mode --no-session-persistence --input-format stream-json --output-format stream-json --verbose`, writes `{"type":"control_request","request_id":"argus-claude-usage","request":{"subtype":"get_usage","skip_behaviors":true}}` to its stdin through a FIFO, prints the first `control_response` line. Exit 0 / 1 (no reply) / 127 (no `claude`). Run through `/usr/bin/env -u CLAUDE_CONFIG_DIR` for the default profile and `/usr/bin/env CLAUDE_CONFIG_DIR=<folder>` for the others, because `exec` sets neither stdin nor environment.

@@ -1,3 +1,5 @@
+// Copied from lib/gate.js by scripts/sync-lib.mjs: edit lib/gate.js, then run it.
+//
 // Lets one refresh run at a time. A refresh asked for while one runs is kept,
 // and runs once when the current one ends, so a settings change still applies.
 
