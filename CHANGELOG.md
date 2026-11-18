@@ -19,5 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/build-layout.mjs` writes the `argus` layout from Herdr's current `main` layout, with the toolbar and the panel column added.
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
+- The `argus-tsk` mod shows the [tsk](https://gettsk.sh) task board in a Tasks panel, with NEEDS YOU, IN MOTION and ON DECK sections and a scope picker for the desk, all projects, projects, threads and assignees.
+- `argus-tsk` captures a task from the bottom bar of the panel into the current scope.
+- Clicking a task in `argus-tsk` opens it in a pane beside the terminals, where you edit the title, notes, assignee and runs after, set the status, manage steps, block a task or request a review, answer a block, approve or send back a review, mark it done and archive it.
+- The `argus-tsk` board and task pane follow the tsk store as it changes, with no manual refresh.
+- `argus-tsk` settings set the tsk command and the store folder, and the panel shows a note when tsk is missing or older than 0.13.0.
+- `gate.js` and `sync.js` moved to `lib/`, and `argus-claude-usage` and `argus-tsk` share them.
 
 [Unreleased]: https://github.com/s3rgiosan/argus/commits/main

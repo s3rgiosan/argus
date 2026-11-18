@@ -34,6 +34,6 @@ The tsk board as a Herdr panel, with the task in a pane beside the terminals. Ev
 ## Watch out
 
 - Herdr's `exec` has no stdin or env options: the store folder goes to tsk as `--state-dir`, placed before a `--` that starts free text.
-- `InputState.new` is refused during render: the fields are made in `init`.
+- `InputState.new` is refused during render. The capture and settings fields are made in `init`. The per-task fields are made in the task read (`bindFields`) and the block and review form fields in the click handler that opens the card (`openCard`).
 - A popup is as tall as its content (up to the height asked for): the scopes list sets its height from its rows.
 - Herdr app 0.1.16 does not load a symlinked mod folder: copy it with `scripts/install.sh`.

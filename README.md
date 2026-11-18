@@ -9,6 +9,7 @@ Not affiliated with Herdr or Anthropic.
 | Mod | What it does |
 |---|---|
 | [`argus-claude-usage`](mods/argus-claude-usage/README.md) | Claude plan usage for every Claude Code account on this computer: session, weekly and per-model limits with pace, usage by surface, extra usage, and a toast near a limit. |
+| [`argus-tsk`](mods/argus-tsk/README.md) | The [tsk](https://gettsk.sh) task board: a Tasks panel with sections and a scope picker, quick capture, and a task pane with status, steps, block and review cards. |
 | [`argus-toolbar`](mods/argus-toolbar/README.md) | Buttons beside Herdr's tab bar that open this repo's panel mods in a panel on the right. |
 
 ## Requirements
@@ -16,6 +17,7 @@ Not affiliated with Herdr or Anthropic.
 - Herdr desktop app (tested on 0.1.16), macOS or Linux.
 - Node.js 20 or later, for the scripts and tests.
 - `argus-claude-usage`: Claude Code (tested on 2.1.327), signed in with a Claude plan.
+- `argus-tsk`: [tsk](https://gettsk.sh) 0.13.0 or later.
 
 ## Install
 
@@ -52,7 +54,7 @@ Run `build-layout.mjs` again after a Herdr update too: it rebuilds from Herdr's 
 ```sh
 herdr-app do layout.switch '{"name":"main"}'
 rm ~/.config/herdr-app/layouts/argus.json
-rm -r ~/.config/herdr-app/mods/argus-claude-usage ~/.config/herdr-app/mods/argus-toolbar
+rm -r ~/.config/herdr-app/mods/argus-claude-usage ~/.config/herdr-app/mods/argus-toolbar ~/.config/herdr-app/mods/argus-tsk
 ```
 
 ## Development
