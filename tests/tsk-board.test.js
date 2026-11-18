@@ -5,6 +5,7 @@ import {
   activitySentence,
   buildBoard,
   captureTarget,
+  compareNames,
   inputToOn,
   liveNumbersOf,
   normalizeScope,
@@ -387,4 +388,29 @@ test("titleChange: a new name sets the title, trimmed", () => {
 test("titleChange: an empty field clears a title, and saves nothing without one", () => {
   assert.deepEqual(titleChange({ title: "Site A", folder: "wp-content" }, "  "), { title: null });
   assert.equal(titleChange({ title: null, folder: "wp-content" }, ""), null);
+});
+
+// name order
+test("compareNames: sorts without regard to case, then by the raw text", () => {
+  assert.deepEqual(["cli", "Taken Name", "alpha"].sort(compareNames), ["alpha", "cli", "Taken Name"]);
+  assert.deepEqual(["b", "a", "A", "B"].sort(compareNames), ["A", "a", "B", "b"]);
+  assert.equal(compareNames("same", "same"), 0);
+});
+test("sidebarModel: projects, threads and assignees sort without regard to case", () => {
+  const m = sidebarModel([
+    row({ project: "/home/test/cli", thread: "b", assignee: "ana" }),
+    row({ project: "/home/test/x", projectTitle: "Taken Name", thread: "A", assignee: "Ana" }),
+    row({ project: "/home/test/alpha", thread: "a", assignee: "Bob" }),
+  ]);
+  assert.deepEqual(m.projects.map((p) => p.label), ["alpha", "cli", "Taken Name"]);
+  assert.deepEqual(m.threads.map((t) => t.label), ["A", "a", "b"]);
+  assert.deepEqual(m.assignees.map((a) => a.label), ["Ana", "ana", "Bob"]);
+});
+test("sortByProject: sorts shown names without regard to case", () => {
+  const rows = [
+    row({ number: 1, project: "/home/test/x", projectTitle: "Taken Name" }),
+    row({ number: 2, project: "/home/test/cli" }),
+    row({ number: 3, project: "/home/test/Alpha" }),
+  ];
+  assert.deepEqual(numbers(sortByProject(rows, projectLabelsOf(rows))), [3, 2, 1]);
 });

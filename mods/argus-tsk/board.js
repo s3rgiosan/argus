@@ -219,7 +219,7 @@ export function sidebarModel(allRows) {
       title: titles.get(project) ?? null,
       folder: segments(project).pop() ?? project,
     }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => compareNames(a.label, b.label));
   return {
     desk: { key: "desk", label: "Desk", scope: { kind: "desk" }, count: count({ kind: "desk" }) },
     all: { key: "all", label: "All Projects", scope: { kind: "all" }, count: allRows.length },
@@ -342,9 +342,24 @@ export function sortByProject(rows, labels) {
     if (a.project === b.project) return 0;
     if (a.project === null) return 1;
     if (b.project === null) return -1;
-    const byLabel = (labels.get(a.project) ?? a.project).localeCompare(labels.get(b.project) ?? b.project);
-    return byLabel !== 0 ? byLabel : a.project.localeCompare(b.project);
+    const byLabel = compareNames(labels.get(a.project) ?? a.project, labels.get(b.project) ?? b.project);
+    return byLabel !== 0 ? byLabel : compareNames(a.project, b.project);
   });
+}
+
+/**
+ * Orders names A-Z without regard to case, then by their exact text so the order is stable.
+ * Plain comparisons keep the order the same in every JavaScript runtime.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+export function compareNames(a, b) {
+  const lowerA = a.toLowerCase();
+  const lowerB = b.toLowerCase();
+  if (lowerA !== lowerB) return lowerA < lowerB ? -1 : 1;
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 /**
@@ -387,7 +402,7 @@ function tally(values) {
       counts.set(v, (counts.get(v) ?? 0) + 1);
     }
   }
-  return [...counts].sort(([a], [b]) => a.localeCompare(b));
+  return [...counts].sort(([a], [b]) => compareNames(a, b));
 }
 
 // Activity
