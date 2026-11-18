@@ -305,15 +305,19 @@ test("pickedChange: the current, a disabled or an unknown status writes nothing"
   assert.equal(pickedChange(choices, "paused"), null);
 });
 
-test("statusPick: takes a new pick for this pane and task", () => {
+test("statusPick: takes a new pick for this pane and the shown task", () => {
   const value = { owner: "pane-1", number: 2, status: "ready", at: 200 };
-  assert.deepEqual(statusPick(value, { owner: "pane-1", number: 2, since: 100 }), { status: "ready", at: 200 });
+  assert.deepEqual(statusPick(value, { owner: "pane-1", number: 2, since: 100 }), { status: "ready", at: 200, run: true });
 });
-test("statusPick: skips a pick already handled, for another pane or another task", () => {
+test("statusPick: a new pick for another task, or while none is shown, is consumed and not run", () => {
+  const value = { owner: "pane-1", number: 2, status: "ready", at: 200 };
+  assert.deepEqual(statusPick(value, { owner: "pane-1", number: 3, since: 100 }), { status: "ready", at: 200, run: false });
+  assert.deepEqual(statusPick(value, { owner: "pane-1", number: null, since: 100 }), { status: "ready", at: 200, run: false });
+});
+test("statusPick: skips a pick already handled or for another pane", () => {
   const value = { owner: "pane-1", number: 2, status: "ready", at: 200 };
   assert.equal(statusPick(value, { owner: "pane-1", number: 2, since: 200 }), null);
   assert.equal(statusPick(value, { owner: "pane-2", number: 2, since: 100 }), null);
-  assert.equal(statusPick(value, { owner: "pane-1", number: 3, since: 100 }), null);
 });
 test("statusPick: skips malformed values", () => {
   const ctx = { owner: "pane-1", number: 2, since: 0 };

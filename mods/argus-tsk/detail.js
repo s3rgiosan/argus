@@ -102,17 +102,19 @@ export function pickedChange(choices, status) {
 
 /**
  * A status pick that the status popup left in `shared`, when it is for this
- * pane (`owner`), for the task it shows (`number`) and newer than `since`.
+ * pane (`owner`) and newer than `since`. The pane consumes every such pick;
+ * `run` is true only when it is for the task the pane shows (`number`), so a
+ * pick for a task no longer shown never runs later.
  * @param {unknown} value
  * @param {{owner: string, number: ?number, since: number}} pane
- * @returns {?{status: string, at: number}}
+ * @returns {?{status: string, at: number, run: boolean}}
  */
 export function statusPick(value, pane) {
   if (!value || typeof value !== "object") return null;
   const v = /** @type {Record<string, unknown>} */ (value);
   if (typeof v.status !== "string" || typeof v.at !== "number" || !Number.isFinite(v.at)) return null;
-  if (v.owner !== pane.owner || v.number !== pane.number || v.at <= pane.since) return null;
-  return { status: v.status, at: v.at };
+  if (!Number.isInteger(v.number) || v.owner !== pane.owner || v.at <= pane.since) return null;
+  return { status: v.status, at: v.at, run: v.number === pane.number };
 }
 
 /**

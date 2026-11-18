@@ -27,7 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `gate.js` and `sync.js` moved to `lib/`, and `argus-claude-usage` and `argus-tsk` share them.
 - `argus-tsk` shows each project under its tsk title when it has one, else under its folder name.
 - A pencil on each project row of the `argus-tsk` scope list sets or clears the project's title, with tsk 0.14.0 or later.
+- While a project is renamed, `argus-tsk` shows its full path under the field, with a hint that an empty field goes back to the folder name.
 - The Argus panel opens 440 px wide, and you can drag it between 280 and 900 px.
+- In the `argus-tsk` task pane, you pick a status from a dropdown that lists Open, Ready, Started and Done.
+- An expand button in the `argus-tsk` board header widens the Tasks panel to 900 px, and a second click puts it back to its earlier width.
 - The `argus-tsk` board follows the focused space by default: it shows the tsk project that holds the space's folder, or the desk when no project does.
 
 [Unreleased]: https://github.com/s3rgiosan/argus/commits/main

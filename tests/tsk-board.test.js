@@ -502,3 +502,9 @@ test("sidebarModel: the follow item counts what it follows", () => {
   assert.equal(sidebarModel(rows, "/home/test/p").follow.count, 2);
   assert.equal(sidebarModel(rows, null).follow.count, 1);
 });
+test("followFolder: a space on another machine follows nothing", () => {
+  const remote = [{ id: "sp9", active: true, machine: "build-box", folder: "/home/test/site", tabs: [{ id: "tb9", active: true }] }];
+  const focused = { space: "sp9", tab: "tb9", pane: "p9", terminal: "t9", cwd: "/home/test/site" };
+  assert.equal(followFolder(focused, [paneFixture({ pane: "p9", tab: "tb9", cwd: "/home/test/site" })], remote), null);
+  assert.equal(followFolder(null, [], remote), null);
+});

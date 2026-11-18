@@ -991,9 +991,24 @@ export default class Tasks extends View {
 
     const empty = (text) => paneFrame(t).child(header(t, "Task")).child(note(t, text));
     const detail = this.detail;
+    const task = this.shownTask();
+    // A status picked in the status popup arrives as a re-render. Every pick
+    // for this pane is consumed here; only one for the shown task is written,
+    // as a task.
+    const pick = statusPick(shared(STATUS_PICK_KEY), { owner: this.owner, number: task?.number ?? null, since: this.pickSince });
+    if (pick) {
+      this.pickSince = pick.at;
+      const picked = pick.run && task ? pickedChange(statusChoices(task), pick.status) : null;
+      if (picked) {
+        const pickedNumber = task.number;
+        cx.spawn(async (cx) => {
+          await cx.sleep(0);
+          this.changeStatus(cx, pickedNumber, picked.change, picked.label);
+        });
+      }
+    }
     if (detail?.kind === "missing") return empty("Task not found");
     if (selected === null) return empty("Pick a task on the board");
-    const task = this.shownTask();
     const fields = this.fields?.number === task?.number ? this.fields : null;
     if (!task || !fields) {
       if (detail?.kind === "error") return empty(detail.message);
@@ -1001,18 +1016,6 @@ export default class Tasks extends View {
     }
 
     const number = task.number;
-    // A status picked in the status popup arrives as a re-render; the write runs as a task.
-    const pick = statusPick(shared(STATUS_PICK_KEY), { owner: this.owner, number, since: this.pickSince });
-    if (pick) {
-      this.pickSince = pick.at;
-      const picked = pickedChange(statusChoices(task), pick.status);
-      if (picked) {
-        cx.spawn(async (cx) => {
-          await cx.sleep(0);
-          this.changeStatus(cx, number, picked.change, picked.label);
-        });
-      }
-    }
     const actions = actionsFor(task);
     const has = (action) => actions.includes(action);
     const status = h_flex()
@@ -1386,8 +1389,10 @@ function renderStatusMenu(t) {
   const p = props() ?? {};
   const choices = normalizeChoices(p.choices);
   const rows = choices.map((choice) =>
-    row(t, `status-${choice.status}`, { selected: choice.current })
-      .when(choice.enabled && !choice.current, (el) => el.cursor_pointer().on_click(() => pickStatus(p, choice.status)))
+    (choice.enabled && !choice.current
+      ? row(t, `status-${choice.status}`).cursor_pointer().on_click(() => pickStatus(p, choice.status))
+      : staticRow(t, `status-${choice.status}`, choice.current)
+    )
       .child(div().flex_1().min_w(0).truncate().text_color(choice.enabled ? t.foreground : t.dim).child(choice.label))
       .when(choice.current, (el) => el.child(svg(ICON("check")).size(14).flex_none().text_color(t.muted))),
   );
@@ -1399,6 +1404,22 @@ function renderStatusMenu(t) {
     .text_color(t.foreground)
     .text_size(13)
     .child(scrollArea("argus-tsk-status-list", rows, { padding: 6 }));
+}
+
+/**
+ * A 28 px row the size of `row()` that takes no clicks: no hover background
+ * and no pointer. On `selected` when `selected` is true.
+ */
+function staticRow(t, id, selected) {
+  return h_flex()
+    .id(id)
+    .h(28)
+    .flex_none()
+    .px(8)
+    .gap(8)
+    .items_center()
+    .rounded(7)
+    .when(selected, (el) => el.bg(t.selected));
 }
 
 /** Hands a picked status to the pane that opened the popup, then closes the popup. */

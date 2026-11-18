@@ -324,16 +324,18 @@ export function followedProject(projects, folder) {
  * The folder of the focused space: the focused terminal's folder, else a
  * terminal's in the focused tab, else one in another tab of that space, else
  * the space's folder. Without focus it reads the shown space and its shown tab.
+ * A space on another machine gives null: its folders are not on this computer.
  * @param {?{space?: string, tab?: string, cwd?: ?string}} focused from `focused()`
  * @param {Array<{terminal?: ?string, tab: string, cwd?: ?string}>} panes from `panes()`
- * @param {Array<{id: string, active: boolean, folder?: string, tabs?: Array<{id: string, active: boolean}>}>} spaces from `spaces()`
+ * @param {Array<{id: string, active: boolean, machine?: ?string, folder?: string, tabs?: Array<{id: string, active: boolean}>}>} spaces from `spaces()`
  * @returns {?string}
  */
 export function followFolder(focused, panes, spaces) {
   const text = (v) => (typeof v === "string" && v !== "" ? v : null);
+  const space = spaces.find((s) => s.id === focused?.space) ?? spaces.find((s) => s.active);
+  if (text(space?.machine)) return null;
   const own = text(focused?.cwd);
   if (own) return own;
-  const space = spaces.find((s) => s.id === focused?.space) ?? spaces.find((s) => s.active);
   if (!space) return null;
   const tabs = space.tabs ?? [];
   const tab = focused?.tab ?? tabs.find((t) => t.active)?.id ?? null;
