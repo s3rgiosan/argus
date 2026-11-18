@@ -34,6 +34,40 @@ const json = (t) => JSON.stringify([{ id: t.id, number: t.number, title: t.title
 
 // detailState
 
+const withActivity = (kinds) =>
+  JSON.stringify([
+    {
+      id: "00000000-0000-4000-8000-000000000003",
+      number: 3,
+      title: "Example task",
+      status: "open",
+      after: [],
+      before: [],
+      steps: [],
+      // tsk lists activity newest first.
+      activity: kinds.map((kind, i) => ({ at: [1700000000 + kinds.length - i, 0], by: "you", kind, detail: null })),
+    },
+  ]);
+
+test("detailState treats an archived task as missing", () => {
+  assert.deepEqual(detailState({ code: 0, stdout: withActivity(["archived", "created"]), stderr: "" }), { kind: "missing" });
+});
+
+test("detailState shows a task archived and then unarchived or restored", () => {
+  assert.equal(detailState({ code: 0, stdout: withActivity(["unarchived", "archived", "created"]), stderr: "" }).kind, "ok");
+  assert.equal(detailState({ code: 0, stdout: withActivity(["restored", "archived", "created"]), stderr: "" }).kind, "ok");
+});
+
+test("detailState reads the archive state by time, whatever the activity order", () => {
+  const archivedLast = JSON.parse(withActivity(["archived", "unarchived", "created"]));
+  archivedLast[0].activity[0].at = [1700000009, 0];
+  archivedLast[0].activity[1].at = [1700000005, 0];
+  assert.deepEqual(detailState({ code: 0, stdout: JSON.stringify(archivedLast), stderr: "" }), { kind: "missing" });
+  const reversed = JSON.parse(withActivity(["unarchived", "archived", "created"]));
+  reversed[0].activity.reverse();
+  assert.equal(detailState({ code: 0, stdout: JSON.stringify(reversed), stderr: "" }).kind, "ok");
+});
+
 test("detailState reads a task from a successful run", () => {
   const state = detailState({ code: 0, stdout: json(task({ number: 5, title: "Five" })), stderr: "" });
   assert.equal(state.kind, "ok");
@@ -115,8 +149,10 @@ test("offers send back, approve and a reply on a task in review", () => {
   assert.deepEqual(actionsFor(task({ status: "review", review: reviewOn("you") })), ["block", "requestReview", "sendBack", "approve", "markDone", "reply", "archive"]);
 });
 
-test("offers mark done and archive for every status", () => {
-  for (const status of ["open", "ready", "started", "blocked", "review", "done", "unknown"]) {
+test("offers mark done on every status but done, and archive on every status", () => {
+  assert.ok(!actionsFor(task({ status: "done" })).includes("markDone"));
+  assert.ok(actionsFor(task({ status: "done" })).includes("archive"));
+  for (const status of ["open", "ready", "started", "blocked", "review", "unknown"]) {
     const actions = actionsFor(task({ status }));
     assert.ok(actions.includes("markDone"), status);
     assert.ok(actions.includes("archive"), status);

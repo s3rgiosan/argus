@@ -28,6 +28,7 @@ const EXEC_TIMEOUT = 15_000;
 const DEBOUNCE = 300;
 const POLL = 10_000;
 const LOCK_RETRY = 1_000;
+const RETIRE_AFTER = 500;
 const SCOPES_WIDTH = 280;
 const SCOPES_HEIGHT = 420;
 const MIN_VERSION = MIN_TSK.join(".");
@@ -205,10 +206,16 @@ export default class Tasks extends View {
     this.watch = null;
     cx.spawn(async (cx) => {
       const dir = await this.storePath();
+      let restart = false;
       while (this.watchToken === token) {
         let changed;
         try {
           this.watch = watchFolder(dir);
+          // A watch started again may have missed changes, so read once it is in place.
+          if (restart) {
+            this.since = Date.now();
+            this.reload(cx);
+          }
           changed = await this.watch;
         } catch {
           if (this.watchToken === token) this.polling = true;
@@ -216,10 +223,14 @@ export default class Tasks extends View {
         }
         if (this.watchToken !== token) return;
         this.polling = false;
-        // An empty batch means the watch was given up; read again, then wait a little.
+        restart = changed.length === 0;
+        // An empty batch means the watch was given up: wait a little, then watch again.
+        if (restart) {
+          await cx.sleep(POLL);
+          continue;
+        }
         this.since = Date.now();
         this.reload(cx);
-        if (changed.length === 0) await cx.sleep(POLL);
       }
     });
   }
@@ -330,17 +341,23 @@ export default class Tasks extends View {
    */
   loadTask(cx, number) {
     const seq = ++this.loadSeq;
+    let oldForm = null;
     if (number !== this.shownNumber) {
       this.shownNumber = number;
       this.card = null;
+      oldForm = this.form;
       this.form = null;
       this.writeError = null;
       this.flowError = null;
       this.refusal = null;
       if (number !== null) this.detail = { kind: "loading", number };
     }
-    if (number === null || checking()) return;
+    if (checking()) return;
+    // This can run from render, so the read and the release start after it.
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      this.retire(cx, oldForm);
+      if (number === null) return;
       let result;
       try {
         result = await this.runTsk(taskArgs(number));
@@ -351,8 +368,10 @@ export default class Tasks extends View {
       const state = detailState(result);
       switch (state.kind) {
         case "ok":
-          this.bindFields(state.task);
+          this.bindFields(cx, state.task);
           this.detail = { kind: "ok", number, task: state.task };
+          // A retry only applies while the block or review it answered is still open.
+          if (state.task.status !== "blocked" && state.task.status !== "review") this.flowError = null;
           break;
         case "missing":
           this.detail = { kind: "missing", number };
@@ -377,9 +396,10 @@ export default class Tasks extends View {
    * puts tsk's values in the fields that do not have the keyboard.
    * Each input saves to the task it was made for.
    */
-  bindFields(task) {
+  bindFields(cx, task) {
     const number = task.number;
     if (this.fields?.number !== number) {
+      this.retire(cx, this.fields);
       this.fields = {
         number,
         title: this.input("title", { value: task.title, placeholder: "Title" }, (cx) => this.saveTitle(cx, number), { saveOnBlur: true }),
@@ -407,6 +427,25 @@ export default class Tasks extends View {
     sync("assignee", this.fields.assignee, task.assignee ?? "");
   }
 
+  /**
+   * Releases the input states in `states` (an object of states; other values
+   * are skipped) once the frame that still draws them is gone.
+   */
+  retire(cx, states) {
+    if (!states) return;
+    const old = Object.values(states).filter((s) => typeof s?.release === "function");
+    if (old.length === 0) return;
+    cx.timer.after(RETIRE_AFTER, () => {
+      for (const state of old) {
+        try {
+          state.release();
+        } catch {
+          // Already released.
+        }
+      }
+    });
+  }
+
   /** Runs a tsk write and rejects with a parsed tsk error when it fails. */
   async tskWrite(args) {
     const reply = await this.runTsk(args);
@@ -425,13 +464,14 @@ export default class Tasks extends View {
   /**
    * Writes one change to task `number`, showing `patch` on the task until tsk
    * is read again. A status change also shows on the board. `close` clears
-   * the selection once the write succeeded. Afterwards the board and the task
-   * are read again.
+   * the selection once the write succeeded, and `done(cx)` runs then.
+   * Afterwards the board and the task are read again.
    */
   write(cx, number, label, args, { patch = null, change = null, close = false, done = null } = {}) {
     const task = this.shownTask();
     if (task?.number !== number) return;
     this.writeError = null;
+    this.flowError = null;
     this.refusal = null;
     if (patch) this.detail = { ...this.detail, task: patchDetail(task, patch) };
     if (change) {
@@ -442,7 +482,7 @@ export default class Tasks extends View {
     cx.spawn(async (cx) => {
       try {
         await this.tskWrite(args);
-        done?.();
+        done?.(cx);
         if (close && readSelected() === number) {
           setShared(SELECTED_KEY, null);
           this.detail = null;
@@ -587,6 +627,7 @@ export default class Tasks extends View {
     if (!task) return;
     const multi = { multiline: true };
     const none = () => {};
+    this.retire(cx, this.form);
     if (card === "block") {
       this.form = {
         why: this.input("why", { value: task.block?.why ?? "", placeholder: "Why", rows: 2 }, none, multi),
@@ -605,6 +646,7 @@ export default class Tasks extends View {
   }
 
   closeCard(cx) {
+    this.retire(cx, this.form);
     this.card = null;
     this.form = null;
     cx.notify();
@@ -624,8 +666,9 @@ export default class Tasks extends View {
     this.write(cx, task.number, label, statusArgs(task.number, change), {
       patch: { kind: "status", change },
       change,
-      done: () => {
+      done: (cx) => {
         if (this.card === card) {
+          this.retire(cx, this.form);
           this.card = null;
           this.form = null;
         }
@@ -864,7 +907,7 @@ export default class Tasks extends View {
     }
 
     const bar = footer(t)
-      .child(button(t, "mark-done", "Done", (_e, cx) => this.changeStatus(cx, number, changeFor("markDone"), "Mark Done"), { primary: task.status !== "done" }))
+      .when(has("markDone"), (el) => el.child(button(t, "mark-done", "Done", (_e, cx) => this.changeStatus(cx, number, changeFor("markDone"), "Mark Done"), { primary: true })))
       .when(has("reply"), (el) => el.child(button(t, "reply", "Reply", () => fields.reply.focus())))
       .child(div().flex_1())
       .child(button(t, "archive", "Archive", (_e, cx) => this.archive(cx, number)));

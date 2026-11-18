@@ -37,9 +37,27 @@ function isMissing(error) {
   return error.kind === "usage" && /\bunknown task\b/.test(error.message);
 }
 
+const ARCHIVE_KINDS = new Set(["archived", "unarchived", "restored"]);
+
+/**
+ * Whether the task's latest archive or unarchive entry is an archive.
+ * `tsk list <n>` still prints an archived task, so its activity tells.
+ * @param {TaskDetail} task
+ */
+function isArchived(task) {
+  let latest = null;
+  for (const entry of task.activity) {
+    if (!ARCHIVE_KINDS.has(entry.kind) || !Array.isArray(entry.at)) continue;
+    const later = latest === null || entry.at[0] > latest.at[0] || (entry.at[0] === latest.at[0] && entry.at[1] > latest.at[1]);
+    if (later) latest = entry;
+  }
+  return latest?.kind === "archived";
+}
+
 /**
  * What the pane shows for one `tsk list <n> --json` run: the exec result
- * `{ code, stdout, stderr }`, or `{ error }` when tsk could not run.
+ * `{ code, stdout, stderr }`, or `{ error }` when tsk could not run. An
+ * archived task counts as missing.
  * @param {{code?: number, stdout?: string, stderr?: string, error?: {message: string}}} loadResult
  * @returns {DetailState}
  */
@@ -50,7 +68,8 @@ export function detailState(loadResult) {
     return isMissing(error) ? { kind: "missing" } : { kind: "error", message: error.message };
   }
   const task = parseTask(loadResult.stdout ?? "");
-  return task === null ? { kind: "error", message: "tsk printed a task this board cannot read." } : { kind: "ok", task };
+  if (task === null) return { kind: "error", message: "tsk printed a task this board cannot read." };
+  return isArchived(task) ? { kind: "missing" } : { kind: "ok", task };
 }
 
 /**
@@ -68,7 +87,7 @@ export function statusChoices(task) {
 /**
  * The actions the pane offers for a task, in the order it shows them: the
  * changes that need more input, the open block or review card's actions, then
- * the bottom bar.
+ * the bottom bar. A done task has no Mark Done.
  * @param {{status: string, assignee: ?string}} task
  * @returns {Action[]}
  */
@@ -86,7 +105,7 @@ export function actionsFor(task) {
     default:
       break;
   }
-  actions.push("markDone");
+  if (task.status !== "done") actions.push("markDone");
   if (task.status === "blocked" || task.status === "review") actions.push("reply");
   actions.push("archive");
   return actions;

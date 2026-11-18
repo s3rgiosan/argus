@@ -62,11 +62,11 @@ rm -r ~/.config/herdr-app/mods/argus-claude-usage ~/.config/herdr-app/mods/argus
 ```sh
 npm test                               # pure modules and shell scripts, with node --test
 herdr-app check mods/argus-claude-usage   # load and render a mod once
-node scripts/sync-lib.mjs              # after editing lib/ui.js: copy it into each mod that uses it
+node scripts/sync-lib.mjs              # after editing a lib/*.js file: copy each into the mods that import it
 ```
 
 - Each mod lives in `mods/<name>/` with a `README.md` for people and a `RECIPE.md` for an agent rebuilding it.
-- `lib/ui.js` holds the shared building blocks (frame, header, rows, fields, buttons, meters) in the sizes of Herdr's own panels. Herdr loads a mod's files from its own folder only, so each mod carries a copy; a test fails when a copy differs.
+- `lib/` holds code shared by mods: `ui.js` (frame, header, rows, fields, buttons, meters in the sizes of Herdr's own panels), `gate.js` (one run at a time, with one queued) and `sync.js` (which open copy runs a shared read). Herdr loads a mod's files from its own folder only, so each mod carries a copy of the lib files it imports; a test fails when a copy differs.
 - A mod gets a toolbar button by declaring `"panel": { "label": "Usage", "icon": "icons/chart-line.svg" }` in its `mod.json`.
 
 ## Credits
