@@ -60,7 +60,7 @@ test("adds a hidden panel column with one block per panel", () => {
   const body = find(out, "work-body");
   assert.deepEqual(body.children.map((c) => c.id), ["main", "panel", "argus-panel"]);
   const column = find(out, "argus-panel");
-  assert.deepEqual([column.type, column.size, column.hidden], ["column", { px: 368 }, true]);
+  assert.deepEqual([column.type, column.size, column.hidden], ["column", { px: 440 }, true]);
   const stack = find(out, "argus-panels");
   assert.equal(stack.type, "stack");
   assert.equal(stack.active, "argus-claude-usage");
@@ -112,4 +112,9 @@ test("panelsFromManifests drops icon paths that leave the mod folder", () => {
 
 test("refuses a layout that already has the argus blocks", () => {
   assert.throws(() => buildLayout(buildLayout(main(), panels), panels), /already has the argus blocks/);
+});
+
+test("the panel column resizes between 280 and 900 px", () => {
+  const column = find(buildLayout(main(), panels), "argus-panel");
+  assert.deepEqual([column.min, column.max], [280, 900]);
 });
