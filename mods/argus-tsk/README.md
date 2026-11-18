@@ -6,6 +6,7 @@ The [tsk](https://gettsk.sh) board in Herdr. Board in a panel on the right, task
 - Scope button in the header: Desk, All Projects, each project, thread and assignee, with counts.
 - Capture: type a title in the bottom bar, press Enter or Add. A project scope captures into that project, a thread or assignee scope onto the desk with that thread or assignee, Desk and All Projects onto the desk.
 - Click a task: it opens in a pane on the right of the current tab, or the tab's open task pane shows it.
+- Task pane: edit the title, notes, assignee and runs after; pick a status; tick, add and remove steps; block a task or request a review; answer a block or approve or send back a review; Done and Archive.
 - Live: the board follows the store as agents and the terminal change it.
 
 ## Settings
