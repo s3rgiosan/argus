@@ -1,0 +1,296 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  STATUS_LABELS,
+  activitySentence,
+  buildBoard,
+  inputToOn,
+  liveNumbersOf,
+  onDesk,
+  onToInput,
+  projectLabelsOf,
+  rowsInScope,
+  sameScope,
+  scopeTitle,
+  sectionOf,
+  sidebarModel,
+  sortByProject,
+} from "../mods/argus-tsk/board.js";
+
+const row = (over = {}) => ({
+  id: "id",
+  number: 1,
+  title: "Task",
+  status: "open",
+  project: null,
+  thread: null,
+  assignee: null,
+  assigneeKind: null,
+  base: null,
+  after: [],
+  before: [],
+  archived: null,
+  group: null,
+  ...over,
+});
+const blockOn = (on) => ({ on });
+const reviewOn = (on) => ({ on });
+const numbers = (rows) => rows.map((r) => r.number);
+
+// sections
+test("sectionOf: block waiting on a live task is in motion", () => {
+  assert.equal(sectionOf(row({ status: "blocked", block: blockOn("task:7") }), new Set([7])), "inMotion");
+});
+test("sectionOf: block waiting on a finished task needs you", () => {
+  assert.equal(sectionOf(row({ status: "blocked", block: blockOn("task:7") }), new Set()), "needsYou");
+});
+test("sectionOf: review with no record needs you", () => {
+  assert.equal(sectionOf(row({ status: "review" }), new Set()), "needsYou");
+});
+test("sectionOf: block waiting on you needs you", () => {
+  assert.equal(sectionOf(row({ status: "blocked", block: blockOn("you") }), new Set()), "needsYou");
+});
+test("sectionOf: agent waits are in motion", () => {
+  assert.equal(sectionOf(row({ status: "review", review: reviewOn("agent:builder") }), new Set()), "inMotion");
+  assert.equal(sectionOf(row({ status: "blocked", block: blockOn("other:vendor") }), new Set()), "inMotion");
+  assert.equal(sectionOf(row({ status: "review", review: reviewOn("builder") }), new Set()), "inMotion");
+});
+test("sectionOf: remaining statuses", () => {
+  assert.equal(sectionOf(row({ status: "started" }), new Set()), "inMotion");
+  assert.equal(sectionOf(row({ status: "ready" }), new Set()), "onDeck");
+  assert.equal(sectionOf(row({ status: "open" }), new Set()), "onDeck");
+  assert.equal(sectionOf(row({ status: "done" }), new Set()), "done");
+});
+test("sectionOf: unknown status goes to the inbox", () => {
+  const board = buildBoard([row({ number: 1, status: "unknown" }), row({ number: 2, status: "ready" })], new Set());
+  assert.deepEqual(numbers(board.inbox), [1]);
+  assert.deepEqual(numbers(board.ready), [2]);
+});
+test("buildBoard: splits ready from the inbox", () => {
+  const b = buildBoard([row({ number: 1, status: "open" }), row({ number: 2, status: "ready" })], new Set());
+  assert.deepEqual(numbers(b.ready), [2]);
+  assert.deepEqual(numbers(b.inbox), [1]);
+});
+test("buildBoard: keeps row order per section and drops done rows", () => {
+  const b = buildBoard(
+    [
+      row({ number: 3, status: "started" }),
+      row({ number: 1, status: "review" }),
+      row({ number: 2, status: "started" }),
+      row({ number: 4, status: "done" }),
+    ],
+    new Set(),
+  );
+  assert.deepEqual(numbers(b.inMotion), [3, 2]);
+  assert.deepEqual(numbers(b.needsYou), [1]);
+});
+test("buildBoard: empty input gives four empty lists", () => {
+  assert.deepEqual(buildBoard([], new Set()), { needsYou: [], inMotion: [], ready: [], inbox: [] });
+});
+test("buildBoard: all-done rows give empty sections", () => {
+  const b = buildBoard([row({ number: 1, status: "done" }), row({ number: 2, status: "done" })], new Set());
+  assert.deepEqual(b, { needsYou: [], inMotion: [], ready: [], inbox: [] });
+});
+test("liveNumbersOf: collects every non-done number", () => {
+  const s = liveNumbersOf([row({ number: 1, status: "done" }), row({ number: 2, status: "open" })]);
+  assert.deepEqual([...s], [2]);
+});
+
+// waits
+test("onToInput: maps each stored form to a control kind", () => {
+  assert.deepEqual(onToInput("you"), { kind: "you", value: "" });
+  assert.deepEqual(onToInput("task:12"), { kind: "task", value: "T12" });
+  assert.deepEqual(onToInput("other:ask legal"), { kind: "other", value: "ask legal" });
+  assert.deepEqual(onToInput("agent:builder"), { kind: "agent", value: "builder" });
+  assert.deepEqual(onToInput("claude"), { kind: "agent", value: "claude" });
+});
+test("inputToOn: round trip sends a value tsk stores identically", () => {
+  const sent = (on) => {
+    const { kind, value } = onToInput(on);
+    return inputToOn(kind, value);
+  };
+  assert.equal(sent("you"), "you");
+  assert.equal(sent("task:12"), "T12");
+  assert.equal(sent("other:ask legal"), "ask legal");
+  assert.equal(sent("agent:builder"), "builder");
+  assert.equal(sent("claude"), "claude");
+});
+test("inputToOn: null for the default or an empty value", () => {
+  assert.equal(inputToOn("default", ""), null);
+  assert.equal(inputToOn("other", ""), null);
+});
+
+// sidebar
+test("sidebarModel: disambiguates colliding basenames", () => {
+  const m = sidebarModel([row({ project: "/home/test/work/site" }), row({ project: "/home/test/client/site" })]);
+  assert.deepEqual(m.projects.map((p) => p.label), ["client/site", "work/site"]);
+  assert.deepEqual(m.projects[0].scope, { kind: "project", project: "/home/test/client/site" });
+});
+test("sidebarModel: widens colliding labels until unique", () => {
+  const m = sidebarModel(
+    [
+      row({ project: "/home/test/a/x/app" }),
+      row({ project: "/home/test/b/x/app" }),
+      row({ project: "/home/test/c/y/app" }),
+      row({ project: "/home/test/tool" }),
+    ]
+  );
+  assert.deepEqual(m.projects.map((p) => p.label), ["a/x/app", "b/x/app", "tool", "y/app"]);
+});
+test("sidebarModel: counts the desk like the terminal desk", () => {
+  const m = sidebarModel(
+    [
+      row({ project: "/p", status: "started" }),
+      row({ project: "/p", status: "ready" }),
+      row({ project: null, status: "open" }),
+    ]
+  );
+  assert.equal(m.desk.count, 2);
+  assert.equal(m.all.count, 3);
+});
+test("sidebarModel: labels the cross-project view All Projects", () => {
+  assert.equal(sidebarModel([]).all.label, "All Projects");
+});
+test("sidebarModel: sorts projects by label and counts rows", () => {
+  const m = sidebarModel([row({ project: "/x/beta" }), row({ project: "/x/alpha" }), row({ project: "/x/beta" })]);
+  assert.deepEqual(m.projects.map((p) => [p.label, p.count]), [["alpha", 1], ["beta", 2]]);
+});
+test("sidebarModel: sorted thread and assignee items, skipping empty ones", () => {
+  const m = sidebarModel(
+    [
+      row({ thread: "zeta", assignee: "bob" }),
+      row({ thread: "alpha", assignee: "amy" }),
+      row({ thread: "alpha" }),
+    ]
+  );
+  assert.deepEqual(m.threads.map((t) => [t.label, t.count]), [["alpha", 2], ["zeta", 1]]);
+  assert.deepEqual(m.threads[0].scope, { kind: "thread", name: "alpha" });
+  assert.deepEqual(m.assignees.map((a) => a.label), ["amy", "bob"]);
+  assert.deepEqual(m.assignees[0].scope, { kind: "assignee", name: "amy" });
+});
+test("sidebarModel: desk and all items carry their scopes and keys", () => {
+  const m = sidebarModel([]);
+  assert.deepEqual(m.desk, { key: "desk", label: "Desk", scope: { kind: "desk" }, count: 0 });
+  assert.deepEqual(m.all.scope, { kind: "all" });
+});
+
+test("scopeTitle: names the views", () => {
+  const model = sidebarModel([]);
+  assert.equal(scopeTitle({ kind: "desk" }, model), "Desk");
+  assert.equal(scopeTitle({ kind: "all" }, model), "All Projects");
+});
+test("scopeTitle: names a project as the sidebar does", () => {
+  const model = sidebarModel([row({ project: "/home/test/work/site" }), row({ project: "/home/test/client/site" })]);
+  assert.equal(scopeTitle({ kind: "project", project: "/home/test/work/site" }, model), "work/site");
+});
+test("scopeTitle: names a project with no rows by its folder", () => {
+  const model = sidebarModel([row({ project: "/home/test/work/site" })]);
+  assert.equal(scopeTitle({ kind: "project", project: "/home/test/empty" }, model), "empty");
+});
+test("scopeTitle: names threads and assignees", () => {
+  const model = sidebarModel([]);
+  assert.equal(scopeTitle({ kind: "thread", name: "launch" }, model), "launch");
+  assert.equal(scopeTitle({ kind: "assignee", name: "ana" }, model), "ana");
+});
+
+test("projectLabelsOf: maps each project path to its sidebar label", () => {
+  const labels = projectLabelsOf(
+    [row({ project: "/home/test/a/wp-content" }), row({ project: "/home/test/b/other" }), row({ project: null })]
+  );
+  assert.deepEqual(
+    labels,
+    new Map([
+      ["/home/test/a/wp-content", "wp-content"],
+      ["/home/test/b/other", "other"],
+    ]),
+  );
+});
+test("sortByProject: keeps projects that share a label apart", () => {
+  const rows = [
+    row({ number: 1, project: "/home/test/a" }),
+    row({ number: 2, project: "/home/test/b" }),
+    row({ number: 3, project: "/home/test/a" }),
+  ];
+  const labels = new Map([
+    ["/home/test/a", "Site"],
+    ["/home/test/b", "Site"],
+  ]);
+  assert.deepEqual(numbers(sortByProject(rows, labels)), [1, 3, 2]);
+});
+test("onDesk: unknown status on the desk like an open one", () => {
+  assert.equal(onDesk(row({ status: "unknown", project: null })), true);
+  assert.equal(onDesk(row({ status: "unknown", project: "/home/test/alpha" })), false);
+});
+test("onDesk: started rows from any project; done rows never", () => {
+  assert.equal(onDesk(row({ status: "started", project: "/p" })), true);
+  assert.equal(onDesk(row({ status: "done", project: null })), false);
+});
+
+test("sameScope: compares scopes by value", () => {
+  assert.equal(sameScope({ kind: "desk" }, { kind: "desk" }), true);
+  assert.equal(sameScope({ kind: "thread", name: "a" }, { kind: "thread", name: "b" }), false);
+  assert.equal(sameScope({ kind: "thread", name: "a" }, { kind: "assignee", name: "a" }), false);
+});
+
+test("rowsInScope: filters rows by scope", () => {
+  const rows = [
+    row({ number: 1, status: "started", project: "/p", thread: "t", assignee: "amy" }),
+    row({ number: 2, status: "ready", project: "/p" }),
+    row({ number: 3, status: "open", project: null, thread: "t" }),
+    row({ number: 4, status: "open", project: "/q", assignee: "amy" }),
+  ];
+  assert.deepEqual(numbers(rowsInScope(rows, { kind: "all" })), [1, 2, 3, 4]);
+  assert.deepEqual(numbers(rowsInScope(rows, { kind: "desk" })), [1, 3]);
+  assert.deepEqual(numbers(rowsInScope(rows, { kind: "project", project: "/p" })), [1, 2]);
+  assert.deepEqual(numbers(rowsInScope(rows, { kind: "thread", name: "t" })), [1, 3]);
+  assert.deepEqual(numbers(rowsInScope(rows, { kind: "assignee", name: "amy" })), [1, 4]);
+});
+test("rowsInScope: counts match the sidebar items", () => {
+  const rows = [row({ project: "/p", thread: "t" }), row({ project: "/p" }), row({ status: "started" })];
+  const m = sidebarModel(rows);
+  for (const item of [m.desk, m.all, ...m.projects, ...m.threads, ...m.assignees]) {
+    assert.equal(rowsInScope(rows, item.scope).length, item.count);
+  }
+});
+
+// status
+test("STATUS_LABELS: names every status", () => {
+  assert.deepEqual(STATUS_LABELS, {
+    open: "Open",
+    ready: "Ready",
+    started: "Started",
+    blocked: "Blocked",
+    review: "In Review",
+    done: "Done",
+    unknown: "Unknown",
+  });
+});
+
+// activity
+const at = [0, 0];
+test("activitySentence: names the person who acted", () => {
+  assert.equal(activitySentence({ at, by: "alex", kind: "created", detail: null }), "alex added this task");
+});
+test("activitySentence: reads without a person", () => {
+  assert.equal(
+    activitySentence({ at, by: null, kind: "status_set", detail: { from: "ready", to: "started" } }),
+    "Status changed to Started",
+  );
+});
+test("activitySentence: status set without a readable target", () => {
+  assert.equal(activitySentence({ at, by: null, kind: "status_set", detail: null }), "Status changed");
+});
+test("activitySentence: a status word reads as a status change", () => {
+  assert.equal(
+    activitySentence({ at, by: "claude", kind: "blocked", detail: { on: "human" } }),
+    "claude changed the status to Blocked",
+  );
+});
+test("activitySentence: unknown verb shows as tsk wrote it", () => {
+  assert.equal(activitySentence({ at, by: "alex", kind: "base_set", detail: "main" }), "alex base_set: main");
+  assert.equal(activitySentence({ at, by: null, kind: "cleaned", detail: null }), "cleaned");
+});
+test("activitySentence: assigned uses the target", () => {
+  assert.equal(activitySentence({ at, by: "alex", kind: "assigned", detail: { to: "amy" } }), "alex assigned this to amy");
+  assert.equal(activitySentence({ at, by: null, kind: "assigned", detail: null }), "Assignee changed");
+});
