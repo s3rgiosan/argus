@@ -1,0 +1,5 @@
+#!/bin/sh
+# Test double: ignores TERM and never answers.
+trap '' TERM
+cat >/dev/null &
+while :; do sleep 1; done

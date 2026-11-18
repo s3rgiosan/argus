@@ -1,0 +1,3 @@
+#!/bin/sh
+# Test double: never answers.
+cat >/dev/null

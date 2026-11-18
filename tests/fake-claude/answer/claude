@@ -1,0 +1,6 @@
+#!/bin/sh
+# Test double: answers the first request line, then waits for stdin to close.
+IFS= read -r _request
+echo "noise"
+printf '{"type":"control_response","dir":"%s"}\n' "${CLAUDE_CONFIG_DIR:-}"
+cat >/dev/null
