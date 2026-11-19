@@ -128,3 +128,9 @@ test("GitLab lists drop a merge request without a usable iid and keep the rest",
   assert.deepEqual(parsed.mine, []);
   assert.deepEqual(parseGlabProject(project, host).map((pr) => pr.number), [4, 5]);
 });
+
+test("parseGlabDetail reads the head sha and squash", () => {
+  const d = parseGlabDetail(fixture("pr-glab-detail.json"), host);
+  assert.equal(d.headSha, "89abcdef0123456789abcdef0123456789abcdef");
+  assert.equal(d.squash, true);
+});

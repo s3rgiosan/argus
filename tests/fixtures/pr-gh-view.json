@@ -71,5 +71,6 @@
       "body": "Example comment.",
       "createdAt": "2026-11-12T08:30:00Z"
     }
-  ]
+  ],
+  "headRefOid": "0123456789abcdef0123456789abcdef01234567"
 }
