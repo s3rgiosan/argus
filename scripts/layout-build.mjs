@@ -2,7 +2,7 @@
 // blocks stay as they are, with a keep-awake button and a toolbar beside the
 // tab bar and a panel column for this repo's panel mods.
 
-import { toolbarWidthFor } from "../lib/toolbar-width.js";
+import { toolbarWidthFor } from "./toolbar-seed.mjs";
 
 export const TOOLBAR_ID = "argus-toolbar";
 /** The generated layout's name, which Herdr shows in Settings. */
@@ -17,8 +17,8 @@ const ROW_ID = "argus-tabs-row";
 const PANEL_WIDTH = 368;
 const PANEL_MIN = 280;
 const PANEL_MAX = 900;
-/** The keep-awake block's width in px: one 30 px icon button and 10 px of padding. */
-export const STAY_AWAKE_WIDTH = 40;
+/** The keep-awake block's width in px: one 26 px icon button and 10 px of padding. */
+export const STAY_AWAKE_WIDTH = 36;
 
 /** The input layout already holds the blocks this script adds. */
 export class ArgusBlocksError extends Error {

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildLayout, panelsFromManifests, STAY_AWAKE_WIDTH } from "../scripts/layout-build.mjs";
-import { toolbarWidth, toolbarWidthFor, toolbarResize } from "../lib/toolbar-width.js";
+import { toolbarWidth, toolbarWidthFor } from "../scripts/toolbar-seed.mjs";
 
 const main = () => ({
   id: "root",
@@ -186,11 +186,4 @@ test("toolbarWidthFor: an unknown display counts as both", () => {
 test("buildLayout sizes the toolbar for the given display", () => {
   const out = buildLayout(main(), panels, { display: "icons" });
   assert.deepEqual(find(out, "argus-toolbar").size, { px: toolbarWidthFor(panels, "icons") });
-});
-
-test("toolbarResize: gives the width only when the live block differs", () => {
-  const tree = (px) => ({ id: "root", children: [{ id: "argus-toolbar", size: { px } }] });
-  assert.equal(toolbarResize(tree(100), "argus-toolbar", panels, "labels"), toolbarWidthFor(panels, "labels"));
-  assert.equal(toolbarResize(tree(toolbarWidthFor(panels, "labels")), "argus-toolbar", panels, "labels"), null);
-  assert.equal(toolbarResize({ id: "root", children: [] }, "argus-toolbar", panels, "labels"), null);
 });

@@ -7,9 +7,8 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, props, layout, run, appHome, readTextFile, watchFolder, notify, checking } from "herdr";
-import { isOpen, clickCommands, toolbarSettings, touchesFile } from "./toolbar-logic.js";
+import { isOpen, clickCommands, toolbarSettings, touchesFile, measuredResize } from "./toolbar-logic.js";
 import { sortButtons } from "./order.js";
-import { toolbarResize } from "./toolbar-width.js";
 
 const FILE = "argus.json";
 const BAD_FILE = "argus.json could not be read; using the default settings";
@@ -66,7 +65,6 @@ export default class Toolbar extends View {
         this.order = null;
         this.display = "both";
         notify({ title: BAD_FILE, level: "warning" });
-        this.fit();
         cx.notify();
       }
       return;
@@ -83,15 +81,12 @@ export default class Toolbar extends View {
       this.warned = text;
       notify({ title: BAD_FILE, level: "warning" });
     }
-    this.fit();
     cx.notify();
   }
 
-  /** Resizes the toolbar block to the current display when its live width differs. */
-  fit() {
-    const { buttons } = props() ?? {};
-    if (!Array.isArray(buttons)) return;
-    const px = toolbarResize(layout(), TOOLBAR_ID, buttons, this.display);
+  /** Resizes the toolbar block to the measured button row when its live width differs. */
+  fit(width) {
+    const px = measuredResize(layout(), TOOLBAR_ID, width);
     if (px !== null) run("layout.resize", { id: TOOLBAR_ID, px });
   }
 
@@ -101,6 +96,7 @@ export default class Toolbar extends View {
     const ids = { panel, stack };
     const tree = layout();
     const display = this.display;
+    const stop = (_e, cx) => cx.stop_propagation();
 
     const button = ({ id, label, icon }) => {
       const on = isOpen(tree, ids, id);
@@ -118,6 +114,7 @@ export default class Toolbar extends View {
         .bg(on ? t.selected : t.chrome)
         .text_color(on ? t.foreground : t.muted)
         .hover((s) => s.bg(t.hover))
+        .on_mouse_down("left", stop)
         .on_click(() => {
           for (const [name, args] of clickCommands(layout(), ids, id)) run(name, args);
         })
@@ -130,12 +127,19 @@ export default class Toolbar extends View {
       .size_full()
       .min_w(0)
       .pr(10)
-      .gap(3)
       .items_center()
       .justify_end()
       .bg(t.chrome)
       .border_b(1)
       .border_color(t.border)
-      .children(sortButtons(buttons, this.order).map(button));
+      .child(
+        h_flex()
+          .id("toolbar-buttons")
+          .flex_none()
+          .gap(3)
+          .items_center()
+          .on_size_change((size) => this.fit(size.width))
+          .children(sortButtons(buttons, this.order).map(button)),
+      );
   }
 }

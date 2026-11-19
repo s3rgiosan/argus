@@ -1,7 +1,10 @@
 // What the toolbar shows as open and what a click does. No Herdr imports, so
 // Node can test it.
 
-import { DISPLAYS } from "./toolbar-width.js";
+/** The ways a button shows: icon only, label only, or both. */
+export const DISPLAYS = ["icons", "labels", "both"];
+/** The toolbar's padding to the right of its buttons. */
+const BAR_PAD = 10;
 
 /**
  * Whether `target` is the panel shown now.
@@ -98,4 +101,22 @@ function find(node, id) {
     if (hit) return hit;
   }
   return null;
+}
+
+/**
+ * The width to resize the toolbar block to for a measured button row, or null
+ * when the live layout has no such block, the measure is not a positive
+ * number, or the block already has that width.
+ *
+ * @param {unknown} tree The shown layout, from `layout()`.
+ * @param {string} id The toolbar block's id.
+ * @param {unknown} measured The rendered button row's width in px.
+ * @returns {number | null}
+ */
+export function measuredResize(tree, id, measured) {
+  if (typeof measured !== "number" || !Number.isFinite(measured) || measured <= 0) return null;
+  const node = find(tree, id);
+  if (!node) return null;
+  const px = Math.ceil(measured) + BAR_PAD;
+  return node.size?.px === px ? null : px;
 }

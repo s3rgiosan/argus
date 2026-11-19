@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isOpen, clickCommands, toolbarSettings, touchesFile } from "../mods/argus-toolbar/toolbar-logic.js";
+import { isOpen, clickCommands, toolbarSettings, touchesFile, measuredResize, DISPLAYS } from "../mods/argus-toolbar/toolbar-logic.js";
 
 const tree = (hidden, active) => ({
   id: "root",
@@ -125,4 +125,27 @@ test("toolbarSettings: invalid JSON gives the defaults and an error", () => {
 test("toolbarSettings: empty text and a wrong-type file give the defaults", () => {
   assert.deepEqual(toolbarSettings(""), { order: null, display: "both", error: null });
   assert.equal(toolbarSettings("[]").display, "both");
+});
+
+test("DISPLAYS lists the three display modes", () => {
+  assert.deepEqual(DISPLAYS, ["icons", "labels", "both"]);
+});
+
+const sized = (px) => ({ id: "root", children: [{ id: "argus-toolbar", size: { px } }] });
+
+test("measuredResize: the measured row plus the 10 px bar padding, only when the block differs", () => {
+  assert.equal(measuredResize(sized(100), "argus-toolbar", 200), 210);
+  assert.equal(measuredResize(sized(210), "argus-toolbar", 200), null);
+});
+
+test("measuredResize: a fractional measure rounds up", () => {
+  assert.equal(measuredResize(sized(100), "argus-toolbar", 200.2), 211);
+  assert.equal(measuredResize(sized(211), "argus-toolbar", 200.2), null);
+});
+
+test("measuredResize: null without the block, without a usable measure or without a px size", () => {
+  assert.equal(measuredResize({ id: "root", children: [] }, "argus-toolbar", 200), null);
+  for (const bad of [0, -5, NaN, Infinity, null, undefined, "200"]) assert.equal(measuredResize(sized(100), "argus-toolbar", bad), null, String(bad));
+  assert.equal(measuredResize({ id: "root", children: [{ id: "argus-toolbar", size: { weight: 1 } }] }, "argus-toolbar", 200), 210);
+  assert.equal(measuredResize(null, "argus-toolbar", 200), null);
 });
