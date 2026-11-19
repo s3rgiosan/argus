@@ -1,6 +1,6 @@
 # Pull requests
 
-GitHub pull requests and GitLab merge requests as a Herdr panel, with one pull request in a pane beside the terminals. Every read goes through `gh`, `glab` and `git`. Phase 1 writes nothing to GitHub or GitLab.
+GitHub pull requests and GitLab merge requests as a Herdr panel, with one pull request in a pane beside the terminals. Every read goes through `gh`, `glab` and `git`. The mod writes nothing to GitHub or GitLab.
 
 ## What you see
 
@@ -26,7 +26,7 @@ GitHub pull requests and GitLab merge requests as a Herdr panel, with one pull r
 - Filter: case-insensitive match on title, author and branch, and on the number with or without `#` (`matchesFilter`).
 - Row click: sets `argus-pull-requests.selected`. If the shown tab has a pane of this mod, `pane.focus` it; else `pane.split { direction: "right", mod: "argus-pull-requests", props: { view: "pr" } }`.
 - Pane read: `gh pr view` or the GitLab detail query when the selection changes, and again when the board is newer.
-- Open in browser: `open <url>` (`xdg-open` on Linux) for an http or https URL.
+- Open in browser: `open <url>` (`xdg-open` elsewhere) for an http or https URL.
 - Check out in a worktree (`runCheckout`, `worktree.js`):
   1. Read the worktrees folder from `settings.json` (`worktrees.directory`, default `~/.herdr/worktrees`).
   2. `git worktree list --porcelain` in the local clone. A worktree already on branch `pr/<n>` (`mr/<n>` on GitLab) is opened: `space.select` when a space shows it, else `space.new`.
@@ -46,3 +46,4 @@ GitHub pull requests and GitLab merge requests as a Herdr panel, with one pull r
 - Herdr's `exec` has no stdin or env options.
 - Herdr app 0.1.16 does not load a symlinked mod folder: copy it with `scripts/install.sh`.
 - A `gh` or `glab` command setting that does not run falls back to PATH and the install folders, so a wrong setting shows no note while one of those runs.
+- A GitHub Enterprise host is read as GitLab, because every host other than github.com and a few known other forges is treated as GitLab.

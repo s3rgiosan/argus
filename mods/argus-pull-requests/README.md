@@ -3,8 +3,8 @@
 GitHub pull requests and GitLab merge requests in Herdr. Board in a panel on the right, one pull request in a pane beside the terminals. The mod only reads: it never writes to GitHub or GitLab.
 
 - Four groups with counts: READY TO MERGE (checks pass, nothing running, mergeable, approved or no review needed), NEEDS WORK (a failed check, changes requested or a merge conflict), WAITING ON REVIEW (everything else), DRAFT. Newest first inside a group.
-- Row: number, title, checks (passed/total), age, repo, branch and review state.
-- Scope button in the header: Needs my review, Mine, Follow space and each project, with counts. Follow space (the default is Needs my review) shows the project that holds the focused space's folder. A project is a GitHub or GitLab repo found in an open space.
+- Row: number, title, checks (`✓ 3/3`, `✗ 1/3` or `● running`), age, repo, branch and review state.
+- Scope button in the header: Needs my review, Mine, Follow space and each project, with counts. Follow space shows the project that holds the focused space's folder. The default scope is Needs my review. A project is a GitHub or GitLab repo found in an open space.
 - Filter field at the bottom: matches the title, number (`#12` or `12`), author and branch.
 - Click a row: it opens in a pane on the right of the current tab, or the tab's open pull request pane shows it.
 - Pull request pane: Open in browser, Check out in a worktree, then Checks, Reviews, Merge state, Description and Conversation.
@@ -16,8 +16,8 @@ GitHub pull requests and GitLab merge requests in Herdr. Board in a panel on the
 
 Gear icon in the header:
 
-- gh command: empty uses `gh` from PATH, else the usual install folders.
-- glab command: empty uses `glab` from PATH, else the usual install folders.
+- gh command: empty uses `gh` from PATH, else the usual install folders. A set command that fails also falls back to the bare name on PATH and the usual install folders.
+- glab command: empty uses `glab` from PATH, else the usual install folders. A set command that fails falls back the same way.
 - Refresh every: 1, 3, 5, 10 or 15 minutes.
 
 Needs `gh` 2.x (tested on 2.104.0) and/or `glab` 1.x (tested on 1.131.0), signed in.
