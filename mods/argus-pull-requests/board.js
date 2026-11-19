@@ -223,7 +223,7 @@ export function scopeTitle(scope, board, followed) {
       return project ? `Follow space · ${project.repo}` : "Follow space";
     }
     default:
-      return board.projects.find((p) => p.key === scope.key)?.repo ?? scope.key;
+      return board.projects.find((p) => p.key === scope.key)?.repo ?? scope.key.split("/").slice(1).join("/");
   }
 }
 

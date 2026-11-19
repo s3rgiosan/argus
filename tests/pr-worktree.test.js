@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { branchSlug, checkoutBranch, checkoutPlan, parseWorktrees, spaceFor, worktreeRoot } from "../mods/argus-pull-requests/worktree.js";
+import { branchSlug, checkoutBranch, checkoutPlan, gitError, parseWorktrees, spaceFor, worktreeRoot } from "../mods/argus-pull-requests/worktree.js";
 
 const dir = (directory) => JSON.stringify({ worktrees: { directory } });
 
@@ -85,4 +85,18 @@ test("spaceFor", () => {
   assert.equal(spaceFor(spaces, [], "/wt/a/pr-420"), "s2");
   assert.equal(spaceFor([{ ...spaces[1], folder: "/wt/a/pr-42" }], [], "/wt/a/pr-42/"), "s1");
   assert.equal(spaceFor(spaces.slice(0, 1), [], "/wt/a/pr-42"), null);
+});
+
+test("gitError: the error line, not the first progress line", () => {
+  const stderr = "From example-remote\n ! [rejected]        refs/pull/42/head -> pr/42  (non-fast-forward)\nerror: could not fetch\nhint: example hint\n";
+  assert.equal(gitError({ code: 1, stdout: "", stderr }), "git: error: could not fetch");
+  const add = "Preparing worktree (checking out 'pr/42')\nfatal: '/example/path' already exists\n";
+  assert.equal(gitError({ code: 128, stdout: "", stderr: add }), "git: fatal: '/example/path' already exists");
+  assert.equal(gitError({ code: 1, stdout: "", stderr: "first\nlast line\n\n" }), "git: last line");
+  assert.equal(gitError({ code: 1, stdout: "out one\nout two\n", stderr: "  \n" }), "git: out two");
+  assert.equal(gitError({ code: 3, stdout: "", stderr: "" }), "git: exited with code 3");
+});
+
+test("worktreeRoot: a blank directory is an error", () => {
+  assert.deepEqual(worktreeRoot('{"worktrees":{"directory":"  "}}', "/home/test"), { error: "worktrees.directory must be a non-empty path." });
 });

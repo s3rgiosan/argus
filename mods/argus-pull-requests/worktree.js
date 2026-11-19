@@ -22,7 +22,8 @@ export function worktreeRoot(settingsText, home) {
     }
   }
   const directory = settings?.worktrees?.directory ?? DEFAULT_DIRECTORY;
-  if (typeof directory !== "string" || directory.trim() === "") {
+  const trimmed = typeof directory === "string" ? directory.trim() : "";
+  if (trimmed === "") {
     return { error: "worktrees.directory must be a non-empty path." };
   }
   let path = directory.replace(/\\/g, "/");
@@ -33,6 +34,24 @@ export function worktreeRoot(settingsText, home) {
     return { error: "worktrees.directory must be an absolute path or start with ~/." };
   }
   return { root: path.replace(/\/+$/, "") };
+}
+
+/**
+ * One-line error text for a failed git call: the last `fatal:` or `error:` line of
+ * stderr, else its last line, else the last line of stdout, else the exit code.
+ * @param {{code: number, stdout: string, stderr: string}} reply
+ * @returns {string}
+ */
+export function gitError(reply) {
+  const lines = (text) =>
+    String(text ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
+  const err = lines(reply.stderr);
+  const marked = err.filter((line) => line.startsWith("fatal:") || line.startsWith("error:"));
+  const line = marked.at(-1) ?? err.at(-1) ?? lines(reply.stdout).at(-1);
+  return `git: ${line ?? `exited with code ${reply.code}`}`;
 }
 
 /**

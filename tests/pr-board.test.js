@@ -170,7 +170,7 @@ test("scopeTitle", () => {
   const board = assembleBoard(input());
   assert.equal(scopeTitle({ kind: "follow" }, board, project.key), "Follow space · example-org/example-repo");
   assert.equal(scopeTitle({ kind: "follow" }, board, null), "Follow space");
-  assert.equal(scopeTitle({ kind: "project", key: "gone/key" }, board, null), "gone/key");
+  assert.equal(scopeTitle({ kind: "project", key: "gitlab.example.com/example-group/example-project" }, board, null), "example-group/example-project");
   assert.equal(scopeTitle({ kind: "project", key: project.key }, board, null), "example-org/example-repo");
 });
 
