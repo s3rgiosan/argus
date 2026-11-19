@@ -4,7 +4,7 @@ A coffee-cup button at the right of the tab row that keeps the display awake.
 
 - Click: turns keep-awake on, or off when it is on.
 - Right-click: keeps the display awake until no agent is working. It shows a toast when no agent is working.
-- Off: plain icon. On: highlighted like Herdr's open Files and Changes buttons. Until agents finish: highlighted with an accent dot.
+- Off: an empty cup. On: a full cup, highlighted like Herdr's open Files and Changes buttons. Until agents finish: highlighted with an accent dot.
 
 While on, the mod runs `caffeinate -di -t 120` at once and again every 60 seconds. The Mac can sleep about two minutes after Herdr quits. In the agents mode, the display can stay awake for about 3 minutes after the last agent finishes: up to one tick, then the last run. Turning keep-awake off leaves the last run for up to 120 seconds. When `caffeinate` cannot start, a toast says so. The mode is not saved: Herdr starts with it off. It needs `caffeinate`, which macOS includes.
 

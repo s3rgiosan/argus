@@ -4,7 +4,7 @@ A button at the right of the tab row that keeps the display awake with `caffeina
 
 ## What you see
 
-A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, with one button right-aligned 10 px from the edge. The button is Herdr's square icon button: 26 px square, radius 6, a 14 px Lucide `coffee` icon, `muted` with `hover` background and `foreground` icon on hover. When on, it shows like Herdr's open Files and Changes buttons: `selected` background and `foreground` icon; waiting for agents adds a 5 px `accent` dot at its top right. Tooltip: `Keep the display awake · Right-click: until agents finish`.
+A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, with one button right-aligned 10 px from the edge. The button is Herdr's square icon button: 26 px square, radius 6, a 14 px Lucide `coffee` icon (`iconFor` in `stay-awake.js`), `muted` with `hover` background and `foreground` icon on hover. When on, the icon is `coffee-full.svg` (the `coffee` outline with the cup filled from y 11 down), and the button shows like Herdr's open Files and Changes buttons: `selected` background and `foreground` icon; waiting for agents adds a 5 px `accent` dot at its top right. Tooltip: `Keep the display awake · Right-click: until agents finish`.
 
 ## How it behaves
 
@@ -21,7 +21,7 @@ A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, with o
 - Mouse: the left button toggles on mouse up; the right button stops propagation and picks agents mode.
 - `stay-awake.js`: `MODES`, `anyWorking`, `leftClick`, `rightClick`, `tick`, `caffeinateArgs`, `shouldRun`, `MAX_RUNS`, `TICK_MS`, `EXEC_TIMEOUT_MS`. No Herdr imports.
 - `main.js`: the view, the timer and `exec`.
-- `icons/coffee.svg` and `icons/LICENSE-Lucide.txt`.
+- `icons/coffee.svg`, `icons/coffee-full.svg` (made from `coffee.svg`) and `icons/LICENSE-Lucide.txt`.
 - `scripts/build-layout.mjs` places block `argus-stay-awake` (36 px wide: the 26 px button and 10 px of padding) in row `argus-tabs-row`, right of `argus-toolbar`, the last child.
 
 ## Watch out

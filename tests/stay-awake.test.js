@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MODES, anyWorking, leftClick, rightClick, tick, caffeinateArgs, shouldRun, MAX_RUNS, TICK_MS, EXEC_TIMEOUT_MS } from "../mods/argus-stay-awake/stay-awake.js";
+import { MODES, iconFor, anyWorking, leftClick, rightClick, tick, caffeinateArgs, shouldRun, MAX_RUNS, TICK_MS, EXEC_TIMEOUT_MS } from "../mods/argus-stay-awake/stay-awake.js";
 
 test("constants", () => {
   assert.deepEqual(MODES, ["off", "on", "agents"]);
@@ -44,4 +44,10 @@ test("shouldRun starts a run only when keeping awake and under the cap", () => {
   assert.equal(shouldRun(true, 2), true);
   assert.equal(shouldRun(true, 3), false);
   assert.equal(shouldRun(false, 0), false);
+});
+
+test("iconFor: an empty cup while off, a full cup while on or until agents finish", () => {
+  assert.equal(iconFor("off"), "mods/argus-stay-awake/icons/coffee.svg");
+  assert.equal(iconFor("on"), "mods/argus-stay-awake/icons/coffee-full.svg");
+  assert.equal(iconFor("agents"), "mods/argus-stay-awake/icons/coffee-full.svg");
 });
