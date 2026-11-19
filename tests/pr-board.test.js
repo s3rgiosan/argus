@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ageText,
+  prPaneTitle,
   fetchedAtOf,
   keepStale,
   markStale,
@@ -287,3 +288,11 @@ test("scopeItems keeps a picked project that is no longer on the board, ticked",
   ]);
 });
 
+test("prPaneTitle: the number and title of the shown pull request, else the panel name", () => {
+  assert.equal(prPaneTitle({ number: 12, title: "Example title" }), "#12 · Example title");
+  assert.equal(prPaneTitle(null), "Pull requests");
+});
+
+test("prPaneTitle: an empty title shows the number alone", () => {
+  assert.equal(prPaneTitle({ number: 12, title: "" }), "#12");
+});

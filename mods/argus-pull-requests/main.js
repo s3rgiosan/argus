@@ -11,7 +11,7 @@ import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidat
 import { NO_METHOD, OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
-import { assembleBoard, normalizeBoard, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
+import { assembleBoard, normalizeBoard, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
@@ -28,6 +28,7 @@ const SETTINGS_KEY = "argus-pull-requests.settings";
 const LOCK_KEY = "argus-pull-requests.lock";
 // PR key -> {kind, at} for the review and merge actions running in any copy.
 const RUNNING_KEY = "argus-pull-requests.running";
+const TITLE_KEY = "argus-pull-requests.paneTitle";
 const MOD = "argus-pull-requests";
 const CLI_TIMEOUT = 30_000;
 const GIT_TIMEOUT = 15_000;
@@ -915,6 +916,13 @@ export default class PullRequests extends View {
     const selected = readSelected();
     // A new selection arrives as a re-render; the read runs as a task.
     if (selected && this.shown?.key !== selected.key && !checking()) this.loadPr(cx, selected);
+    if (!checking()) {
+      // The board comes first, because every pane copy sees the same board; a pane's own read
+      // can lag, and two copies with different titles would overwrite each other.
+      const listed = selected ? (readBoard().prs.find((pr) => prKey(pr) === selected.key) ?? null) : null;
+      const read = this.shown?.key === selected?.key ? (this.shown?.detail?.pr ?? null) : null;
+      shareTitle(cx, prPaneTitle(listed ?? read));
+    }
 
     const empty = (text) => frame(t, "argus-pull-requests-pr").rounded_none().border_0().child(note(t, text));
     if (!selected) return empty("Pick a pull request on the board.");
@@ -1190,4 +1198,16 @@ function readSelected() {
 /** The board all copies share. */
 function readBoard() {
   return normalizeBoard(shared(BOARD_KEY));
+}
+
+/**
+ * Shares the title the Argus pane header shows for this mod's panes. A write
+ * renders every mod again, so only a changed title is written, after this render.
+ */
+function shareTitle(cx, title) {
+  if (shared(TITLE_KEY) === title) return;
+  cx.spawn(async (cx) => {
+    await cx.sleep(0);
+    if (shared(TITLE_KEY) !== title) setShared(TITLE_KEY, title);
+  });
 }

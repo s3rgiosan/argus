@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 // Writes the Argus layout: Herdr's shipped main layout plus a keep-awake
-// button and a toolbar beside the tab bar and a panel column for the
-// installed panel mods. Run it again after a Herdr update or after installing
+// button and a toolbar beside the tab bar, a panel column for the installed
+// panel mods, and Argus's copy of the pane header (`argus-pane`). Run it again after a Herdr update or after installing
 // a mod.
 //
 //   node scripts/build-layout.mjs [--name Argus] [--switch]
 
-import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync, copyFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { homedir } from "node:os";
+import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync, copyFileSync, mkdirSync, mkdtempSync, statSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { toolbarSettings } from "../mods/argus-toolbar/toolbar-logic.js";
+import { PANE_HEADER, SHIPPED_HEADER, PaneHeaderError, ownsHeader, paneHeaderManifest, patchPaneHeader, useHeader } from "./pane-header.mjs";
 import { buildLayout, panelsFromManifests, planLayoutFile, planStateFile, ArgusBlocksError, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";
 
 const MARKER = "argus";
@@ -133,6 +134,77 @@ if (name === LAYOUT_NAME) {
   }
 }
 if (plan.removeLegacy) rmSync(join(layouts, `${LEGACY_NAME}.json`));
+
+/** Reads a JSON file, or null when it is missing or does not parse. */
+function readJson(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The first error line of `node --check` for an ES module source, or null when it parses.
+ * @param {string} source
+ * @returns {string | null}
+ */
+function syntaxError(source) {
+  const dir = mkdtempSync(join(tmpdir(), "argus-pane-"));
+  try {
+    const file = join(dir, "main.mjs");
+    writeFileSync(file, source);
+    const check = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
+    if (check.status === 0) return null;
+    return (check.stderr.split("\n").find((line) => /Error/.test(line)) ?? "node --check failed").trim();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Writes Argus's pane header again from Herdr's shipped one, so a Herdr update
+ * reaches it on the next run. No shipped header writes nothing and is no error.
+ * The copy's folder may be missing, empty, or one this script wrote.
+ * @returns {{ written: boolean, error: string | null }}
+ */
+function writePaneHeader() {
+  let source;
+  try {
+    source = readFileSync(join(modsDir, SHIPPED_HEADER, "main.js"), "utf8");
+  } catch {
+    return { written: false, error: null };
+  }
+  const copy = join(modsDir, PANE_HEADER);
+  if (existsSync(copy)) {
+    const empty = statSync(copy).isDirectory() && readdirSync(copy).length === 0;
+    if (!empty && !ownsHeader(readJson(join(copy, "mod.json")))) {
+      return { written: false, error: `${copy} exists and was not written by this script` };
+    }
+  }
+  let patched;
+  try {
+    patched = patchPaneHeader(source);
+  } catch (error) {
+    if (error instanceof PaneHeaderError) return { written: false, error: error.message };
+    throw error;
+  }
+  const parse = syntaxError(patched);
+  if (parse !== null) return { written: false, error: `the patched pane header does not parse (${parse})` };
+  try {
+    mkdirSync(copy, { recursive: true });
+    // mod.json goes first: its marker lets the next run repair a copy that stopped half way.
+    writeFileSync(join(copy, "mod.json"), JSON.stringify(paneHeaderManifest(readJson(join(modsDir, SHIPPED_HEADER, "mod.json")) ?? {}), null, 2) + "\n");
+    writeFileSync(join(copy, "main.js"), patched);
+  } catch (error) {
+    return { written: false, error: `cannot write ${copy} (${error.message})` };
+  }
+  return { written: true, error: null };
+}
+
+const header = writePaneHeader();
+if (header.error !== null) console.error(`build-layout: ${header.error}; the layout uses Herdr's pane header`);
+if (header.written) layout = useHeader(layout, PANE_HEADER);
 
 const preview = `layouts/${name}.svg`;
 copyFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "layouts", "Argus.svg"), join(layouts, `${name}.svg`));

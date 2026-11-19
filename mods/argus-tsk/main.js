@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
 import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
 import { parseRows, parseError } from "./model.js";
-import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
+import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, taskPaneTitle, titleChange } from "./board.js";
 import { answerBlock, applyOptimistic, flowOutcome, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, blockChange, changeFor, CHECK_LABELS, detailState, fieldSave, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
@@ -28,6 +28,7 @@ const SETTINGS_KEY = "argus-tsk.settings";
 const LOCK_KEY = "argus-tsk.lock";
 const STATUS_PICK_KEY = "argus-tsk.statusPick";
 const PANEL_WIDTH_KEY = "argus-tsk.panelWidth";
+const TITLE_KEY = "argus-tsk.paneTitle";
 // The argus layout's panel column, made by scripts/build-layout.mjs.
 const PANEL_ID = "argus-panel";
 const MOD = "argus-tsk";
@@ -1061,6 +1062,12 @@ export default class Tasks extends View {
     const selected = readSelected();
     // A new selection arrives as a re-render; the read runs as a task.
     if (selected !== this.shownNumber && !checking()) this.loadTask(cx, selected);
+    if (!checking()) {
+      // The board comes first, because every pane copy sees the same board; a pane's own read
+      // can lag, and two copies with different titles would overwrite each other.
+      const title = readBoard().rows.find((r) => r.number === selected)?.title ?? this.shownTask()?.title ?? null;
+      shareTitle(cx, taskPaneTitle(selected, title));
+    }
 
     const empty = (text) => paneFrame(t).child(header(t, "Task")).child(note(t, text));
     const detail = this.detail;
@@ -1531,4 +1538,16 @@ function readBoard() {
     readAt: Number.isFinite(v.readAt) ? v.readAt : 0,
     error: v.error && typeof v.error === "object" && typeof v.error.message === "string" ? v.error : null,
   };
+}
+
+/**
+ * Shares the title the Argus pane header shows for this mod's panes. A write
+ * renders every mod again, so only a changed title is written, after this render.
+ */
+function shareTitle(cx, title) {
+  if (shared(TITLE_KEY) === title) return;
+  cx.spawn(async (cx) => {
+    await cx.sleep(0);
+    if (shared(TITLE_KEY) !== title) setShared(TITLE_KEY, title);
+  });
 }
