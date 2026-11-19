@@ -265,3 +265,55 @@ test("pane header: no shipped header leaves the layout as it is", () => {
   assert.equal(r.stderr, "");
   assert.equal(headerMod(dir), "pane");
 });
+
+// Argus's copy of the sidebar
+const SIDEBAR_MAIN = {
+  id: "root",
+  type: "row",
+  children: [
+    { id: "spaces", type: "block", content: { mod: "spaces" } },
+    { id: "work", type: "column", children: [{ id: "tabs", type: "block" }, { id: "work-body", type: "row", children: [] }] },
+  ],
+};
+const SHIPPED_SIDEBAR = `export default class Spaces {
+  gitTail(g) {
+    const where = [g.name, g.branch].filter(Boolean).join(" · ");
+    return [where, g.ahead, g.behind];
+  }
+}
+`;
+function withSidebar(source = SHIPPED_SIDEBAR) {
+  const dir = home({ main: SIDEBAR_MAIN });
+  mkdirSync(join(dir, "mods", "spaces"));
+  writeFileSync(join(dir, "mods", "spaces", "main.js"), source);
+  writeFileSync(join(dir, "mods", "spaces", "mod.json"), JSON.stringify({ place: "none", title: "Spaces" }));
+  return dir;
+}
+const sidebarMod = (dir) => JSON.parse(readFileSync(join(dir, "layouts", "Argus.json"), "utf8")).children[0].content.mod;
+
+test("sidebar: writes the copy and points the layout at it", () => {
+  const dir = withSidebar();
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(readFileSync(join(dir, "mods", "argus-spaces", "main.js"), "utf8"), /^    const where = "";$/m);
+  assert.equal(JSON.parse(readFileSync(join(dir, "mods", "argus-spaces", "mod.json"), "utf8")).title, "Spaces (Argus)");
+  assert.equal(sidebarMod(dir), "argus-spaces");
+});
+
+test("sidebar: a changed shipped sidebar keeps the shipped one, with a message", () => {
+  const dir = withSidebar(SHIPPED_SIDEBAR.replace("gitTail(g)", "tail(g)"));
+  const r = run(dir);
+  assert.equal(r.status, 0);
+  assert.match(r.stderr, /^build-layout: Herdr's sidebar changed .*; the layout uses Herdr's sidebar/m);
+  assert.equal(existsSync(join(dir, "mods", "argus-spaces")), false);
+  assert.equal(sidebarMod(dir), "spaces");
+});
+
+test("sidebar: a folder this script did not write is left alone", () => {
+  const dir = withSidebar();
+  mkdirSync(join(dir, "mods", "argus-spaces"));
+  writeFileSync(join(dir, "mods", "argus-spaces", "main.js"), "// someone else's");
+  const r = run(dir);
+  assert.match(r.stderr, /argus-spaces exists and was not written by this script; the layout uses Herdr's sidebar/);
+  assert.equal(sidebarMod(dir), "spaces");
+});

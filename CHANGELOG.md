@@ -5,6 +5,16 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-11-19
+
+### Added
+
+- The Argus layout uses `argus-spaces`, a copy of Herdr's sidebar that `scripts/build-layout.mjs` writes again on every run. A space row shows no repo or branch text after its name, and the ahead and behind counts stay. When the copy cannot be made, the script says why and the layout keeps Herdr's sidebar.
+
+### Changed
+
+- `scripts/build-layout.mjs` writes the pane header copy and the sidebar copy through one writer, with the same checks for both.
+
 ## [1.5.0] - 2026-11-19
 
 ### Added
@@ -117,7 +127,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.5.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.6.0...HEAD
+[1.6.0]: https://github.com/s3rgiosan/argus/compare/1.5.0...1.6.0
 [1.5.0]: https://github.com/s3rgiosan/argus/compare/1.4.1...1.5.0
 [1.4.1]: https://github.com/s3rgiosan/argus/compare/1.4.0...1.4.1
 [1.4.0]: https://github.com/s3rgiosan/argus/compare/1.3.1...1.4.0

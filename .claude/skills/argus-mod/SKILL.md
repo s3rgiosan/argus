@@ -27,7 +27,7 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 - Guard side effects with `checking()`, because `herdr-app check` runs the mod.
 - `herdr-app check <mod dir>` renders only the first state. It does not test clicks, popups or later states.
 - Herdr app 0.1.16 does not load a symlinked mod folder. `scripts/install.sh` copies the files.
-- Herdr replaces its shipped layouts on start and does not let mods edit them. Never edit Herdr's shipped mods or layouts. Argus builds its own layout with `node scripts/build-layout.mjs`; rebuild it after a Herdr update. A copy of a shipped mod is allowed only when that script writes it again from the shipped files on every run, as `scripts/pane-header.mjs` does for `argus-pane`, and the script keeps the shipped mod when its patch no longer applies.
+- Herdr replaces its shipped layouts on start and does not let mods edit them. Never edit Herdr's shipped mods or layouts. Argus builds its own layout with `node scripts/build-layout.mjs`; rebuild it after a Herdr update. A copy of a shipped mod is allowed only when that script writes it again from the shipped files on every run, as `scripts/pane-header.mjs` and `scripts/sidebar.mjs` do for `argus-pane` and `argus-spaces`, and the script keeps the shipped mod when its patch no longer applies.
 - `readTextFile` reads at most 1 MiB and gives null when the file is missing.
 - Keep data for one copy in the instance and data for all copies in shared state, because a mod can have several copies open.
 - A mod imports only files in its own folder. This is why `lib/` is copied into each mod.
