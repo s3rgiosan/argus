@@ -412,10 +412,11 @@ export function keepStale(next, current, startedAt) {
 
 /**
  * The title the pane header shows for the pull request pane: the shown pull
- * request's number and title, else the panel name.
+ * request's number and title, the number alone without a title, else the panel name.
  * @param {{number: number, title: string} | null} pr
  * @returns {string}
  */
 export function prPaneTitle(pr) {
-  return pr === null ? "Pull requests" : `#${pr.number} · ${pr.title}`;
+  if (pr === null) return "Pull requests";
+  return pr.title ? `#${pr.number} · ${pr.title}` : `#${pr.number}`;
 }

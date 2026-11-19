@@ -6,9 +6,9 @@
 //
 //   node scripts/build-layout.mjs [--name Argus] [--switch]
 
-import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync, copyFileSync, mkdirSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { homedir } from "node:os";
+import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync, copyFileSync, mkdirSync, mkdtempSync, statSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { toolbarSettings } from "../mods/argus-toolbar/toolbar-logic.js";
@@ -145,8 +145,27 @@ function readJson(path) {
 }
 
 /**
+ * The first error line of `node --check` for an ES module source, or null when it parses.
+ * @param {string} source
+ * @returns {string | null}
+ */
+function syntaxError(source) {
+  const dir = mkdtempSync(join(tmpdir(), "argus-pane-"));
+  try {
+    const file = join(dir, "main.mjs");
+    writeFileSync(file, source);
+    const check = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
+    if (check.status === 0) return null;
+    return (check.stderr.split("\n").find((line) => /Error/.test(line)) ?? "node --check failed").trim();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
  * Writes Argus's pane header again from Herdr's shipped one, so a Herdr update
  * reaches it on the next run. No shipped header writes nothing and is no error.
+ * The copy's folder may be missing, empty, or one this script wrote.
  * @returns {{ written: boolean, error: string | null }}
  */
 function writePaneHeader() {
@@ -157,8 +176,11 @@ function writePaneHeader() {
     return { written: false, error: null };
   }
   const copy = join(modsDir, PANE_HEADER);
-  if (existsSync(copy) && !ownsHeader(readJson(join(copy, "mod.json")))) {
-    return { written: false, error: `${copy} exists and was not written by this script` };
+  if (existsSync(copy)) {
+    const empty = statSync(copy).isDirectory() && readdirSync(copy).length === 0;
+    if (!empty && !ownsHeader(readJson(join(copy, "mod.json")))) {
+      return { written: false, error: `${copy} exists and was not written by this script` };
+    }
   }
   let patched;
   try {
@@ -167,9 +189,16 @@ function writePaneHeader() {
     if (error instanceof PaneHeaderError) return { written: false, error: error.message };
     throw error;
   }
-  mkdirSync(copy, { recursive: true });
-  writeFileSync(join(copy, "main.js"), patched);
-  writeFileSync(join(copy, "mod.json"), JSON.stringify(paneHeaderManifest(readJson(join(modsDir, SHIPPED_HEADER, "mod.json")) ?? {}), null, 2) + "\n");
+  const parse = syntaxError(patched);
+  if (parse !== null) return { written: false, error: `the patched pane header does not parse (${parse})` };
+  try {
+    mkdirSync(copy, { recursive: true });
+    // mod.json goes first: its marker lets the next run repair a copy that stopped half way.
+    writeFileSync(join(copy, "mod.json"), JSON.stringify(paneHeaderManifest(readJson(join(modsDir, SHIPPED_HEADER, "mod.json")) ?? {}), null, 2) + "\n");
+    writeFileSync(join(copy, "main.js"), patched);
+  } catch (error) {
+    return { written: false, error: `cannot write ${copy} (${error.message})` };
+  }
   return { written: true, error: null };
 }
 

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -202,6 +202,48 @@ test("pane header: a changed shipped header removes an earlier copy from the lay
   run(dir);
   writeFileSync(join(dir, "mods", "pane", "main.js"), SHIPPED_HEADER.replace("const name =", "const label ="));
   run(dir);
+  assert.equal(headerMod(dir), "pane");
+  // The earlier copy stays on disk; the layout no longer uses it.
+  assert.equal(existsSync(join(dir, "mods", "argus-pane", "main.js")), true);
+});
+
+test("pane header: a copy that stopped after its mod.json is written again", () => {
+  const dir = withHeader();
+  mkdirSync(join(dir, "mods", "argus-pane"));
+  writeFileSync(join(dir, "mods", "argus-pane", "mod.json"), JSON.stringify({ generated_by: "argus" }));
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(readFileSync(join(dir, "mods", "argus-pane", "main.js"), "utf8"), /paneTitle/);
+  assert.equal(headerMod(dir), "argus-pane");
+});
+
+test("pane header: an empty folder is used for the copy", () => {
+  const dir = withHeader();
+  mkdirSync(join(dir, "mods", "argus-pane"));
+  assert.equal(run(dir).status, 0);
+  assert.equal(headerMod(dir), "argus-pane");
+});
+
+test("pane header: a patched header that does not parse keeps the shipped one, with a message", () => {
+  const dir = withHeader(SHIPPED_HEADER + "const broken = ;\n");
+  const r = run(dir);
+  assert.equal(r.status, 0);
+  assert.match(r.stderr, /^build-layout: the patched pane header does not parse.*; the layout uses Herdr's pane header/m);
+  assert.equal(existsSync(join(dir, "mods", "argus-pane", "main.js")), false);
+  assert.equal(headerMod(dir), "pane");
+});
+
+test("pane header: a folder it cannot write keeps the shipped one, with a message", () => {
+  const dir = withHeader();
+  // A read-only copy folder makes the writes fail.
+  mkdirSync(join(dir, "mods", "argus-pane"));
+  writeFileSync(join(dir, "mods", "argus-pane", "mod.json"), JSON.stringify({ generated_by: "argus" }));
+  chmodSync(join(dir, "mods", "argus-pane", "mod.json"), 0o444);
+  chmodSync(join(dir, "mods", "argus-pane"), 0o555);
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /^build-layout: cannot write .*argus-pane.*; the layout uses Herdr's pane header/m);
+  assert.doesNotMatch(r.stderr, /\n\s+at /);
   assert.equal(headerMod(dir), "pane");
 });
 

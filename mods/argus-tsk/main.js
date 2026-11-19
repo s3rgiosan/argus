@@ -1063,7 +1063,9 @@ export default class Tasks extends View {
     // A new selection arrives as a re-render; the read runs as a task.
     if (selected !== this.shownNumber && !checking()) this.loadTask(cx, selected);
     if (!checking()) {
-      const title = this.shownTask()?.title ?? readBoard().rows.find((r) => r.number === selected)?.title ?? null;
+      // The board comes first, because every pane copy sees the same board; a pane's own read
+      // can lag, and two copies with different titles would overwrite each other.
+      const title = readBoard().rows.find((r) => r.number === selected)?.title ?? this.shownTask()?.title ?? null;
       shareTitle(cx, taskPaneTitle(selected, title));
     }
 

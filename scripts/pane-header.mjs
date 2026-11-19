@@ -43,18 +43,20 @@ export function patchPaneHeader(source) {
   if (!imports) throw new PaneHeaderError('no import from "herdr"');
   const names = [...source.matchAll(NAME)];
   if (names.length !== 1) throw new PaneHeaderError(`expected one "const name =" line, found ${names.length}`);
-
+  // The helper adds a top-level paneTitle and uses the plain shared import, so neither may exist already.
+  if (/\bpaneTitle\b/.test(source)) throw new PaneHeaderError("it already has a paneTitle");
   const list = imports[1].split(",").map((name) => name.trim()).filter((name) => name !== "");
+  if (list.some((name) => /^shared\s+as\b/.test(name))) throw new PaneHeaderError("it imports shared under another name");
+  if (/\b(?:const|let|var|function|class)\s+shared\b/.test(source)) throw new PaneHeaderError("it declares its own shared");
   if (!list.includes("shared")) list.push("shared");
+
+  // Each part is replaced at its own position, so the same text elsewhere stays.
   const [line, indent, value] = names[0];
-  return (
-    source
-      .replace(imports[0], () => `import { ${list.join(", ")} } from "herdr";`)
-      .replace(line, () => `${indent}const name = paneTitle(p) ?? (${value});`)
-      .trimEnd() +
-    "\n" +
-    HELPER
-  );
+  const at = names[0].index;
+  const named = `${source.slice(0, at)}${indent}const name = paneTitle(p) ?? (${value});${source.slice(at + line.length)}`;
+  const importAt = named.indexOf(imports[0]);
+  const patched = `${named.slice(0, importAt)}import { ${list.join(", ")} } from "herdr";${named.slice(importAt + imports[0].length)}`;
+  return patched.trimEnd() + "\n" + HELPER;
 }
 
 /**

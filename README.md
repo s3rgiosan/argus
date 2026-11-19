@@ -41,7 +41,7 @@ Herdr places mods only through layouts, and it replaces its own layouts on every
 - a coffee-cup button at the right end of the tab bar, from `argus-stay-awake`, that keeps the display awake;
 - a toolbar beside the tab bar, with one button per installed mod that declares a panel. The buttons sort A to Z by label, or in the order set in `argus.json`;
 - a panel column on the right, hidden until a button opens it. It takes its width and drag limits from Herdr's own `panel` block in `main.json` (368 px, 280 to 900 px today);
-- the pane headers use `argus-pane`, a copy of Herdr's `pane` header that the script writes again on every run. A pull request or task pane shows the item it holds, for example "T12 · Fix the parser", in place of the mod name. Terminal panes look as before. When Herdr's header changes so that the copy cannot be made, the script says so and the layout keeps Herdr's header.
+- the pane headers use `argus-pane`, a copy of Herdr's `pane` header that the script writes again from Herdr's header on every run. A pull request or task pane shows the item it holds, for example "T12 · Fix the parser", in place of the mod name. Terminal panes look as before. When the copy cannot be made (Herdr's header changed, the patched copy does not parse, or its folder cannot be written), the script says so and the layout keeps Herdr's header. It never writes into an `argus-pane` folder that it did not create.
 
 The layout shows in Herdr's Settings under Look with a preview picture (`layouts/Argus.svg`). A layout written by an earlier version as `argus.json` is renamed to `Argus.json`, and the shown layout switches to it.
 

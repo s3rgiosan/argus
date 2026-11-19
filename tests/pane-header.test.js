@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PANE_HEADER, PaneHeaderError, paneHeaderManifest, patchPaneHeader, useHeader } from "../scripts/pane-header.mjs";
+import { PANE_HEADER, PaneHeaderError, ownsHeader, paneHeaderManifest, patchPaneHeader, useHeader } from "../scripts/pane-header.mjs";
 
 // The parts of Herdr's pane header that the patch changes, in the shape it ships.
 const SHIPPED = `import { View, div } from "gpui-kit";
@@ -69,4 +69,24 @@ test("useHeader: every pane header that uses the shipped mod uses the copy", () 
   assert.equal(out.children[1].content.mod, "pane");
   assert.equal(out.children[2].content.pane.header.content.mod, "custom");
   assert.equal(layout.children[0].content.pane.header.content.mod, "pane");
+});
+
+test("patchPaneHeader: refuses a header that already has a paneTitle or its own shared", () => {
+  assert.throws(() => patchPaneHeader(SHIPPED + "\nfunction paneTitle() {}\n"), PaneHeaderError);
+  assert.throws(() => patchPaneHeader(SHIPPED.replace("home, layout }", "home, layout, shared as read }")), PaneHeaderError);
+  assert.throws(() => patchPaneHeader(SHIPPED + "\nconst shared = 1;\n"), PaneHeaderError);
+});
+
+test("patchPaneHeader: changes the name line itself, not an earlier copy of its text", () => {
+  const line = SHIPPED.split("\n").find((l) => l.includes("const name ="));
+  const source = SHIPPED.replace("export default", `//${line}\nexport default`);
+  const out = patchPaneHeader(source);
+  assert.ok(out.includes(`//${line}\n`));
+  assert.match(out, /^    const name = paneTitle\(p\) \?\? \(\(\(p\.program/m);
+});
+
+test("ownsHeader: only a mod.json with the marker", () => {
+  assert.equal(ownsHeader({ generated_by: "argus" }), true);
+  assert.equal(ownsHeader({ generated_by: "someone" }), false);
+  assert.equal(ownsHeader(null), false);
 });

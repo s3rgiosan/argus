@@ -917,9 +917,11 @@ export default class PullRequests extends View {
     // A new selection arrives as a re-render; the read runs as a task.
     if (selected && this.shown?.key !== selected.key && !checking()) this.loadPr(cx, selected);
     if (!checking()) {
+      // The board comes first, because every pane copy sees the same board; a pane's own read
+      // can lag, and two copies with different titles would overwrite each other.
       const listed = selected ? (readBoard().prs.find((pr) => prKey(pr) === selected.key) ?? null) : null;
       const read = this.shown?.key === selected?.key ? (this.shown?.detail?.pr ?? null) : null;
-      shareTitle(cx, prPaneTitle(read ?? listed));
+      shareTitle(cx, prPaneTitle(listed ?? read));
     }
 
     const empty = (text) => frame(t, "argus-pull-requests-pr").rounded_none().border_0().child(note(t, text));

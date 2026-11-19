@@ -292,3 +292,7 @@ test("prPaneTitle: the number and title of the shown pull request, else the pane
   assert.equal(prPaneTitle({ number: 12, title: "Example title" }), "#12 · Example title");
   assert.equal(prPaneTitle(null), "Pull requests");
 });
+
+test("prPaneTitle: an empty title shows the number alone", () => {
+  assert.equal(prPaneTitle({ number: 12, title: "" }), "#12");
+});

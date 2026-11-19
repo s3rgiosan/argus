@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The Argus layout uses `argus-pane`, a copy of Herdr's pane header that `scripts/build-layout.mjs` writes again on every run. A pull request pane shows "#12 · <title>" and a task pane shows "T12 · <title>" in place of the mod name. When Herdr's header changes so that the copy cannot be made, the script says so and the layout keeps Herdr's header.
+- The Argus layout uses `argus-pane`, a copy of Herdr's pane header that `scripts/build-layout.mjs` writes again on every run. A pull request pane shows "#12 · <title>" and a task pane shows "T12 · <title>" in place of the mod name. When the copy cannot be made, the script says why and the layout keeps Herdr's header.
 
 ## [1.4.1] - 2026-11-19
 
