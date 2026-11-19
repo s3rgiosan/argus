@@ -5,6 +5,16 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- The `argus-pull-requests` mod shows GitHub and GitLab pull requests in a Pull requests panel, grouped into Ready to merge, Needs work, Waiting on review and Draft, with a scope picker for Needs my review, Mine, Follow space and each project.
+- A filter at the bottom of the `argus-pull-requests` panel matches the title, number, author and branch.
+- Clicking a pull request in `argus-pull-requests` opens a pane with its checks, reviews, merge state, description and conversation, with buttons to open it in the browser or check it out in a worktree.
+- `argus-pull-requests` reads through `gh` and `glab`, refreshes every 3 minutes by default, reads a project as soon as its space opens, and shows a note when a CLI is missing, signed out or rate limited.
+- `lib/follow.js` holds the focused-space helpers that `argus-tsk` and `argus-pull-requests` share.
+
 ## [1.2.0] - 2026-11-19
 
 ### Added

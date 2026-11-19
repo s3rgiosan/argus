@@ -10,6 +10,7 @@ Not affiliated with Herdr or Anthropic.
 |---|---|
 | [`argus-claude-usage`](mods/argus-claude-usage/README.md) | Claude plan usage for every Claude Code account on this computer: session, weekly and per-model limits with pace, usage by surface, extra usage, and a toast near a limit. |
 | [`argus-tsk`](mods/argus-tsk/README.md) | The [tsk](https://gettsk.sh) task board: a Tasks panel with sections and a scope picker, quick capture, and a task pane with status, steps, block and review cards. |
+| [`argus-pull-requests`](mods/argus-pull-requests/README.md) | GitHub and GitLab pull requests: a Pull requests panel with scopes, groups and a filter, and a pane with checks, reviews, merge state and conversation. |
 | [`argus-stay-awake`](mods/argus-stay-awake/README.md) | A coffee-cup button at the right end of the tab row that keeps the display awake. Right-click keeps it awake until no agent is working. |
 | [`argus-toolbar`](mods/argus-toolbar/README.md) | Buttons beside Herdr's tab bar that open this repo's panel mods in a panel on the right. |
 
@@ -20,6 +21,7 @@ Not affiliated with Herdr or Anthropic.
 - `argus-claude-usage`: Claude Code (tested on 2.1.327), signed in with a Claude plan.
 - `argus-stay-awake`: macOS only, because it runs `caffeinate`.
 - `argus-tsk`: [tsk](https://gettsk.sh) 0.13.0 or later; 0.14.0 or later to show and rename project titles.
+- `argus-pull-requests`: `gh` 2.x (tested on 2.104.0) and/or `glab` 1.x (tested on 1.131.0), signed in.
 
 ## Install
 
