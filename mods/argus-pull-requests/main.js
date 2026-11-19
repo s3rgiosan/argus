@@ -6,13 +6,13 @@ import { div, svg, View } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
 import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused } from "herdr";
 import { randomUUID } from "crypto";
-import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor } from "./remote.js";
+import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
 import { assembleBoard, normalizeBoard, pickPairs, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
-import { worktreeRoot, checkoutPlan, spaceFor } from "./worktree.js";
+import { worktreeRoot, checkoutPlan, spaceFor, gitError } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, iconButton, row, scrollArea, field, footer, sectionTitle, note, button } from "./ui.js";
@@ -43,6 +43,9 @@ export default class PullRequests extends View {
     this.view = props()?.view ?? "board";
     this.gate = createGate();
     this.force = false;
+    // The project keys that caused a forced read, or null when the force has no key list.
+    this.forceKeys = null;
+    this.probing = false;
     this.focused = null;
     // Folder -> {folder, top, main, remote}, or null when the folder is not a repository.
     this.repoCache = new Map();
@@ -65,7 +68,9 @@ export default class PullRequests extends View {
     if (this.view === "pr") {
       cx.timer.every(POLL, (cx) => {
         const selected = readSelected();
-        if (selected && this.shown?.key === selected.key && readBoard().readAt > this.shown.readAt) this.loadPr(cx, selected);
+        if (!selected || this.shown?.key !== selected.key) return;
+        const boardReadAt = readBoard().readAt;
+        if (boardReadAt > this.shown.readAt) this.loadPr(cx, selected);
       });
       return;
     }
@@ -73,9 +78,7 @@ export default class PullRequests extends View {
 
     this.startSync(cx);
     cx.timer.every(POLL, (cx) => {
-      const board = readBoard();
-      const known = new Set(board.folders);
-      if (localFolders(spaces(), panes()).some((folder) => !known.has(folder))) this.force = true;
+      this.watchFolders(cx);
       this.startSync(cx);
     });
     cx.timer.every(AGE_TICK, (cx) => cx.notify());
@@ -119,9 +122,37 @@ export default class PullRequests extends View {
     });
   }
 
+  /**
+   * Probes the folders the last read did not see, with git only. A project key the
+   * board does not have forces a read; any other folder waits for the next scheduled read.
+   */
+  watchFolders(cx) {
+    if (this.probing) return;
+    const known = new Set(readBoard().folders);
+    const unseen = localFolders(spaces(), panes()).filter((folder) => !known.has(folder));
+    if (unseen.length === 0) return;
+    this.probing = true;
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      try {
+        await Promise.all(unseen.filter((folder) => !this.repoCache.has(folder)).map((folder) => this.probe(folder)));
+        const entries = unseen.map((folder) => this.repoCache.get(folder) ?? null);
+        const fresh = newProjectKeys(entries, readBoard().projects);
+        if (fresh.length === 0) return;
+        if (!this.force) this.forceKeys = [];
+        if (this.forceKeys !== null) this.forceKeys = [...new Set([...this.forceKeys, ...fresh])];
+        this.force = true;
+        this.startSync(cx);
+      } finally {
+        this.probing = false;
+      }
+    });
+  }
+
   /** Asks for a read now, in this copy, even when the board looks fresh. */
   refresh(cx) {
     this.force = true;
+    this.forceKeys = null;
     this.startSync(cx);
     cx.notify();
   }
@@ -135,6 +166,11 @@ export default class PullRequests extends View {
 
     let read = false;
     try {
+      // Another copy may have read the project that asked for this force.
+      if (this.force && this.forceKeys !== null && missingProjectKeys(this.forceKeys, readBoard().projects).length === 0) {
+        this.force = false;
+        this.forceKeys = null;
+      }
       const startedAt = Date.now();
       const fetch = shouldFetch({
         now: startedAt,
@@ -153,6 +189,7 @@ export default class PullRequests extends View {
       setShared(LOCK_KEY, takeLock(this.owner, startedAt));
       if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
       this.force = false;
+      this.forceKeys = null;
       read = true;
 
       const next = await this.readBoard(startedAt);
@@ -197,24 +234,20 @@ export default class PullRequests extends View {
     return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt });
   }
 
-  /** Caches what `folder` is: a repository entry, or null. */
+  /** Caches what `folder` is: a repository entry, or null. A rejected probe caches nothing. */
   async probe(folder) {
     let entry = null;
     try {
       const top = await exec("git", revParseArgs(), { cwd: folder, timeout: GIT_TIMEOUT });
       const parsed = top.code === 0 ? parseRevParse(top.stdout) : null;
       if (parsed) {
-        let remote = null;
-        try {
-          const origin = await exec("git", remoteArgs(), { cwd: folder, timeout: GIT_TIMEOUT });
-          if (origin.code === 0 && origin.stdout.trim() !== "") remote = origin.stdout.trim();
-        } catch {
-          remote = null;
-        }
-        entry = { folder, top: parsed.top, main: parsed.main, remote };
+        const origin = await exec("git", remoteArgs(), { cwd: folder, timeout: GIT_TIMEOUT });
+        const remote = origin.code === 0 ? origin.stdout.trim() : "";
+        entry = { folder, top: parsed.top, main: parsed.main, remote: remote === "" ? null : remote };
       }
     } catch {
-      entry = null;
+      // A probe that timed out or could not start is tried again on the next read.
+      return;
     }
     this.repoCache.set(folder, entry);
   }
@@ -286,10 +319,12 @@ export default class PullRequests extends View {
   /** Searches, lists and fills in GitHub pull requests into `result`. */
   async readGitHub(gh, projects, result, notes) {
     const login = await this.ghLogin(gh, notes);
+    this.renewLock();
     const [needsPairs, minePairs] = await Promise.all([
       this.attempt("gh", gh, ghSearchArgs("needsReview"), parseGhSearch, notes),
       login === null ? null : this.attempt("gh", gh, ghSearchArgs("mine", login), parseGhSearch, notes),
     ]);
+    this.renewLock();
     const pairs = [...(needsPairs ?? []), ...(minePairs ?? [])];
 
     // Every project repo plus the repos the searches name, each listed once.
@@ -299,6 +334,7 @@ export default class PullRequests extends View {
     const listed = await Promise.all(
       [...repos].map(async ([key, repo]) => [key, await this.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes)]),
     );
+    this.renewLock();
     const all = [];
     for (const [key, prs] of listed) {
       if (prs === null) continue;
@@ -311,6 +347,7 @@ export default class PullRequests extends View {
       const filled = await Promise.all(
         missing.map((pair) => this.attempt("gh", gh, ghViewArgs(pair.repo, pair.number), (text) => parseGhDetail(text, pair.repo).pr, notes)),
       );
+      this.renewLock();
       return [...found, ...filled.filter((pr) => pr !== null)];
     };
     result.needsReview.push(...(await pick(needsPairs ?? [])));
@@ -338,6 +375,7 @@ export default class PullRequests extends View {
         if (prs !== null) result.projectPrs[project.key] = prs;
       }),
     ]);
+    this.renewLock();
   }
 
   openSettings(cx) {
@@ -405,6 +443,7 @@ export default class PullRequests extends View {
         // Looks for gh and glab again too, in case they were installed or updated.
         this.located = { gh: null, glab: null };
         this.login = null;
+        this.repoCache.clear();
         this.refresh(cx);
       }),
       iconButton(t, "settings", ICON("settings"), (_e, cx) => this.openSettings(cx)),
@@ -539,23 +578,24 @@ export default class PullRequests extends View {
     this.actionError = null;
     const open = openArgs(window().platform, pr.url);
     if (open === null) return;
-    exec(open[0], open[1]).then(
-      (reply) => {
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      try {
+        const reply = await exec(open[0], open[1]);
         if (reply.code === 0) return;
         this.actionError = cliError(open[0], reply);
-        cx.notify();
-      },
-      (error) => {
+      } catch (error) {
         this.actionError = error?.message ?? String(error);
-        cx.notify();
-      },
-    );
+      }
+      cx.notify();
+    });
   }
 
   /** Opens the space of the pull request's worktree, creating the worktree first when needed. */
   checkOut(cx, pr, localPath) {
     const key = prKey(pr);
     if (this.checkout.running) return;
+    this.actionError = null;
     this.checkout = { key, running: true, error: null };
     cx.notify();
     cx.spawn(async (cx) => {
@@ -576,13 +616,13 @@ export default class PullRequests extends View {
     const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
     if ("error" in resolved) return resolved.error;
     const list = await exec("git", ["worktree", "list", "--porcelain"], { cwd: localPath, timeout: GIT_TIMEOUT });
-    if (list.code !== 0) return cliError("git", list);
+    if (list.code !== 0) return gitError(list);
     const plan = checkoutPlan({ pr, localPath, root: resolved.root, porcelain: list.stdout });
     if (plan.kind === "create") {
       const fetched = await exec("git", plan.fetch, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
-      if (fetched.code !== 0) return cliError("git", fetched);
+      if (fetched.code !== 0) return gitError(fetched);
       const added = await exec("git", plan.add, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
-      if (added.code !== 0) return cliError("git", added);
+      if (added.code !== 0) return gitError(added);
       run("space.new", { folder: plan.path });
       return null;
     }
@@ -644,6 +684,7 @@ export default class PullRequests extends View {
             }),
           ),
       )
+      .when(checkout.running, (el) => el.child(div().text_size(11).text_color(t.muted).child("Checking out…")))
       .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")));
 
     const text = (value) => div().px(8).py(2).whitespace_normal().child(value);
@@ -678,7 +719,8 @@ export default class PullRequests extends View {
     parts.push(sectionTitle(t, "MERGE STATE"), text(MERGE_WORDS[detail.merge.state] ?? "Not checked yet"));
     if (detail.merge.reason) parts.push(div().px(8).py(2).text_size(12).text_color(t.muted).whitespace_normal().child(detail.merge.reason));
     parts.push(sectionTitle(t, "DESCRIPTION"));
-    parts.push(detail.body.trim() === "" ? note(t, "No description") : text(detail.body));
+    const body = detail.body.trim();
+    parts.push(body === "" ? note(t, "No description") : text(detail.body));
     parts.push(sectionTitle(t, "CONVERSATION"));
     if (detail.conversation.length === 0) parts.push(note(t, "No comments"));
     for (const [index, entry] of detail.conversation.entries()) {
