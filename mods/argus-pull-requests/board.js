@@ -11,10 +11,11 @@ export { compareNames };
  * @typedef {import("./model.js").Pr} Pr
  * @typedef {import("./model.js").Checks} Checks
  * @typedef {import("./remote.js").Project} Project
- * @typedef {{kind: "needsReview"} | {kind: "mine"} | {kind: "follow"} | {kind: "project", key: string}} Scope
+ * @typedef {"needsReview" | "mine" | "all"} Show
+ * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
  * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number}} Board
  * @typedef {"ready"|"needsWork"|"waiting"|"draft"} GroupId
- * @typedef {{key: string, label: string, scope: Scope, count: number}} Item
+ * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} Item
  */
 
 const GROUPS = [
@@ -131,27 +132,42 @@ export function withoutFailedRepos(pairs, failed) {
 
 // Scopes
 
+const SHOWS = /** @type {const} */ ([
+  ["needsReview", "Needs my review"],
+  ["mine", "Mine"],
+  ["all", "All open"],
+]);
+
 /**
+ * The scope: which pull requests to show (Show) and from which repos (In).
+ * Scopes saved as one `kind` map onto the two choices.
  * @param {unknown} value
  * @returns {Scope}
  */
 export function normalizeScope(value) {
-  if (isObject(value)) {
+  const fallback = /** @type {Scope} */ ({ show: "needsReview", where: "all" });
+  if (!isObject(value)) return fallback;
+  if (typeof value.kind === "string") {
     switch (value.kind) {
       case "mine":
-        return { kind: "mine" };
+        return { show: "mine", where: "all" };
       case "follow":
-        return { kind: "follow" };
+        return { show: "all", where: "follow" };
       case "project":
-        if (typeof value.key === "string" && value.key !== "") {
-          return { kind: "project", key: value.key };
-        }
-        break;
+        return typeof value.key === "string" && value.key !== "" ? { show: "all", where: "project", key: value.key } : fallback;
       default:
-        break;
+        return fallback;
     }
   }
-  return { kind: "needsReview" };
+  const show = SHOWS.some(([id]) => id === value.show) ? /** @type {Show} */ (value.show) : "needsReview";
+  switch (value.where) {
+    case "follow":
+      return { show, where: "follow" };
+    case "project":
+      return typeof value.key === "string" && value.key !== "" ? { show, where: "project", key: value.key } : { show, where: "all" };
+    default:
+      return { show, where: "all" };
+  }
 }
 
 /**
@@ -165,75 +181,92 @@ function prsByKeys(board, keys) {
 }
 
 /**
+ * The project key a scope limits to, null for all repos, or undefined when it
+ * follows a space that is not a project.
+ * @param {Scope} scope
+ * @param {?string} followed
+ * @returns {string|null|undefined}
+ */
+function whereKey(scope, followed) {
+  switch (scope.where) {
+    case "follow":
+      return followed ?? undefined;
+    case "project":
+      return scope.key;
+    default:
+      return null;
+  }
+}
+
+/**
  * @param {Board} board
  * @param {Scope} scope
  * @param {?string} followed Project key of the followed space.
  * @returns {Pr[]}
  */
 export function prsInScope(board, scope, followed) {
-  switch (scope.kind) {
+  const where = whereKey(scope, followed);
+  if (where === undefined) return [];
+  let prs;
+  switch (scope.show) {
     case "needsReview":
-      return prsByKeys(board, board.scopes.needsReview);
+      prs = prsByKeys(board, board.scopes.needsReview);
+      break;
     case "mine":
-      return prsByKeys(board, board.scopes.mine);
-    case "follow":
-      return followed === null ? [] : prsByKeys(board, board.scopes.projects[followed] ?? []);
+      prs = prsByKeys(board, board.scopes.mine);
+      break;
     default:
-      return prsByKeys(board, board.scopes.projects[scope.key] ?? []);
+      prs = where === null ? board.prs : prsByKeys(board, board.scopes.projects[where] ?? []);
   }
+  return where === null ? prs : prs.filter((pr) => projectKey(pr) === where);
 }
 
 /**
+ * The rows of the scope list: the Show choices, then In (all repos, follow space and
+ * each project). Each row's count keeps the other choice as it is, and picking it
+ * changes only its own choice.
  * @param {Board} board
  * @param {?string} followed
- * @returns {{needsReview: Item, mine: Item, follow: Item, projects: Item[]}}
+ * @param {Scope} scope The current scope.
+ * @returns {{show: Item[], where: Item[], projects: Item[]}}
  */
-export function scopeItems(board, followed) {
-  const count = (key) => board.scopes.projects[key]?.length ?? 0;
+export function scopeItems(board, followed, scope) {
+  const sameWhere = (next) => next.where === scope.where && (next.where !== "project" || next.key === scope.key);
+  const item = (key, label, next, current) => ({ key, label, scope: next, count: prsInScope(board, next, followed).length, current });
+  const keep = scope.where === "project" ? { where: "project", key: scope.key } : { where: scope.where };
+  const show = SHOWS.map(([id, label]) => item(id, label, /** @type {Scope} */ ({ show: id, ...keep }), scope.show === id));
+  const where = [
+    item("all", "All repos", { show: scope.show, where: "all" }, scope.where === "all"),
+    item("follow", "Follow space", { show: scope.show, where: "follow" }, scope.where === "follow"),
+  ];
   const projects = [...board.projects]
     .sort((a, b) => compareNames(a.repo, b.repo))
-    .map((project) => ({
-      key: project.key,
-      label: project.repo,
-      scope: { kind: "project", key: project.key },
-      count: count(project.key),
-    }));
-  return {
-    needsReview: {
-      key: "needsReview",
-      label: "Needs my review",
-      scope: { kind: "needsReview" },
-      count: board.scopes.needsReview.length,
-    },
-    mine: { key: "mine", label: "Mine", scope: { kind: "mine" }, count: board.scopes.mine.length },
-    follow: {
-      key: "follow",
-      label: "Follow space",
-      scope: { kind: "follow" },
-      count: followed === null ? 0 : count(followed),
-    },
-    projects,
-  };
+    .map((project) => {
+      const next = /** @type {Scope} */ ({ show: scope.show, where: "project", key: project.key });
+      return item(project.key, project.repo, next, sameWhere(next));
+    });
+  return { show, where, projects };
 }
 
 /**
+ * The scope button text: the Show choice, then the repo when In is not all repos.
  * @param {Scope} scope
  * @param {Board} board
  * @param {?string} followed
  * @returns {string}
  */
 export function scopeTitle(scope, board, followed) {
-  switch (scope.kind) {
-    case "needsReview":
-      return "Needs my review";
-    case "mine":
-      return "Mine";
+  const show = SHOWS.find(([id]) => id === scope.show)?.[1] ?? "Needs my review";
+  const repoOf = (key) => board.projects.find((p) => p.key === key)?.repo ?? null;
+  switch (scope.where) {
     case "follow": {
-      const project = board.projects.find((p) => p.key === followed);
-      return project ? `Follow space · ${project.repo}` : "Follow space";
+      const repo = followed === null ? null : repoOf(followed);
+      return `${show} · ${repo ?? "Follow space"}`;
     }
+    case "project":
+      return `${show} · ${repoOf(scope.key) ?? scope.key.split("/").slice(1).join("/")}`;
     default:
-      return board.projects.find((p) => p.key === scope.key)?.repo ?? scope.key.split("/").slice(1).join("/");
+      return show;
   }
 }
 

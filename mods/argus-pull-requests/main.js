@@ -473,7 +473,7 @@ export default class PullRequests extends View {
     const board = readBoard();
     const scope = readScope();
     const followed = followedOf(board);
-    const unfollowed = scope.kind === "follow" && followed === null;
+    const unfollowed = scope.where === "follow" && followed === null;
     const text = this.filterInput.value();
     const shown = prsInScope(board, scope, followed).filter((pr) => matchesFilter(pr, text));
     const selected = readSelected()?.key ?? null;
@@ -532,29 +532,33 @@ export default class PullRequests extends View {
 
   renderScopes(t) {
     const board = readBoard();
-    const items = scopeItems(board, followedOf(board));
-    const current = readScope();
+    const items = scopeItems(board, followedOf(board), readScope());
     const icon = iconResolver(MOD, this.found);
-    const entries = [items.needsReview, items.mine, items.follow, ...items.projects];
-    const active = this.at ?? startAt(entries.map((entry) => ({ current: sameScope(entry.scope, current) })));
+    const entries = [...items.show, ...items.where, ...items.projects];
+    const active = this.at ?? startAt(entries);
     const item = (entry, index) =>
-      menuRow(t, `scope-${entry.key}`, {
+      menuRow(t, `scope-${index}-${entry.key}`, {
         label: entry.label,
         count: String(entry.count),
         active: index === active,
-        current: sameScope(entry.scope, current),
+        current: entry.current,
         tick: icon("check"),
         onClick: () => pickScope(entry.scope),
       });
 
-    const parts = [item(items.needsReview, 0), item(items.mine, 1), item(items.follow, 2)];
+    // Show and In are separate choices; picking a row keeps the list open for the other one.
+    const parts = [sectionTitle(t, "Show")];
+    items.show.forEach((entry, index) => parts.push(item(entry, index)));
+    parts.push(sectionTitle(t, "In"));
+    items.where.forEach((entry, index) => parts.push(item(entry, items.show.length + index)));
     if (items.projects.length > 0) {
       parts.push(sectionTitle(t, "Projects"));
-      items.projects.forEach((entry, index) => parts.push(item(entry, 3 + index)));
+      items.projects.forEach((entry, index) => parts.push(item(entry, items.show.length + items.where.length + index)));
     }
     // A popup is as tall as its content, up to the height it was opened with,
-    // so the list gets an explicit height for its rows and section title.
-    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + entries.length * MENU_ROW + (items.projects.length > 0 ? 30 : 0));
+    // so the list gets an explicit height for its rows and section titles.
+    const titles = items.projects.length > 0 ? 3 : 2;
+    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + entries.length * MENU_ROW + titles * 30);
     return v_flex()
       .id("argus-pull-requests-scopes")
       .track_focus(this.handle)
@@ -1080,15 +1084,9 @@ function openScopes() {
   openOverlay({ mod: MOD, props: { view: "scopes" }, kind: "popup", width: SCOPES_WIDTH, height: SCOPES_HEIGHT });
 }
 
+/** Sets the scope; the list stays open so the other choice can be picked too. Escape or a click outside closes it. */
 function pickScope(scope) {
   setShared(SCOPE_KEY, scope);
-  const overlay = props()?.overlay;
-  if (overlay) closeOverlay(overlay);
-}
-
-function sameScope(a, b) {
-  if (a.kind !== b.kind) return false;
-  return a.kind !== "project" || a.key === b.key;
 }
 
 /**

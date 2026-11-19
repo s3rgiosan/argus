@@ -4,7 +4,7 @@ GitHub pull requests and GitLab merge requests in Herdr. Board in a panel on the
 
 - Four groups with counts: Ready to merge (checks pass, nothing running, mergeable, approved or no review needed), Needs work (a failed check, changes requested or a merge conflict), Waiting on review (everything else), Draft. Newest first inside a group.
 - Row: number, title, checks (`✓ 3/3`, `✗ 1/3` or `● running`), age, repo, branch and review state.
-- Scope button in the header: Needs my review, Mine, Follow space and each project, with counts. Follow space shows the project that holds the focused space's folder. The default scope is Needs my review. A project is a GitHub or GitLab repo found in an open space.
+- Scope button in the header, with two separate choices and counts. Show: Needs my review, Mine or All open. In: All repos, Follow space or one project. For example, Needs my review in Follow space lists the pull requests that need your review in the focused space's repo. The list stays open after a pick, so you can set both; Escape or a click outside closes it. Follow space uses the project that holds the focused space's folder. The default is Needs my review in All repos. A project is a GitHub or GitLab repo found in an open space.
 - Filter field at the bottom: matches the title, number (`#12` or `12`), author and branch.
 - Click a row: it opens in a pane on the right of the current tab, or the tab's open pull request pane shows it.
 - Pull request pane: Open in browser, Check out in a worktree, then Checks, Reviews, Merge state, Description and Conversation.
