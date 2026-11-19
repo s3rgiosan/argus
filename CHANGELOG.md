@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `scripts/build-layout.mjs` writes the pane header copy and the sidebar copy through one writer, with the same checks for both.
 
+### Fixed
+
+- In the `argus-pane` header, a long title shrinks and truncates, so the split, zoom and close buttons show on hover in a narrow pane.
+
 ## [1.5.0] - 2026-11-19
 
 ### Added

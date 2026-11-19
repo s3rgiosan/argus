@@ -13,6 +13,8 @@ const MARKER = "argus";
 const IMPORT = /^import \{([^}]*)\} from "herdr";$/m;
 // The indent is spaces and tabs only, so a blank line before the match stays out of it.
 const NAME = /^([ \t]*)const name = (.+);$/gm;
+// The element that shows the name: it does not shrink, so a long title would push the hover buttons out.
+const NAME_ELEMENT = /^[ \t]*\.child\(div\(\)\.flex_none\(\)\..*\.child\(name\)\);?$/gm;
 
 const HELPER = `
 // The title a mod shares for its own panes under \`<mod>.paneTitle\`, or null.
@@ -33,11 +35,12 @@ export class PaneHeaderError extends Error {
 
 /**
  * Herdr's pane header source with the title patch: the `herdr` import adds
- * `shared`, and the `name` line puts the shared title of a mod pane first.
+ * `shared`, the `name` line puts the shared title of a mod pane first, and the
+ * name element shrinks, so a long title leaves room for the hover buttons.
  *
  * @param {string} source The shipped `mods/pane/main.js`.
  * @returns {string}
- * @throws {PaneHeaderError} When the `herdr` import or a single `const name` line is not found.
+ * @throws {PaneHeaderError} When the `herdr` import, a single `const name` line or a single name element is not found.
  */
 export function patchPaneHeader(source) {
   const imports = source.match(IMPORT);
@@ -50,13 +53,20 @@ export function patchPaneHeader(source) {
   if (list.some((name) => /^shared\s+as\b/.test(name))) throw new PaneHeaderError("it imports shared under another name");
   if (/\b(?:const|let|var|function|class)\s+shared\b/.test(source)) throw new PaneHeaderError("it declares its own shared");
   if (!list.includes("shared")) list.push("shared");
+  const elements = [...source.matchAll(NAME_ELEMENT)];
+  if (elements.length !== 1) throw new PaneHeaderError(`expected one name element, found ${elements.length}`);
 
   // Each part is replaced at its own position, so the same text elsewhere stays.
   const [line, indent, value] = names[0];
   const at = names[0].index;
   const named = `${source.slice(0, at)}${indent}const name = paneTitle(p) ?? (${value});${source.slice(at + line.length)}`;
   const importAt = named.indexOf(imports[0]);
-  const patched = `${named.slice(0, importAt)}import { ${list.join(", ")} } from "herdr";${named.slice(importAt + imports[0].length)}`;
+  const imported = `${named.slice(0, importAt)}import { ${list.join(", ")} } from "herdr";${named.slice(importAt + imports[0].length)}`;
+  // The name element may shrink and truncate, so the hover buttons keep their room.
+  const element = elements[0][0];
+  const elementAt = imported.indexOf(element);
+  const shrinking = element.replace(".flex_none()", ".flex_initial().min_w(0)");
+  const patched = `${imported.slice(0, elementAt)}${shrinking}${imported.slice(elementAt + element.length)}`;
   return patched.trimEnd() + "\n" + HELPER;
 }
 

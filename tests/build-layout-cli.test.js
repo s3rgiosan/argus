@@ -158,6 +158,8 @@ const SHIPPED_HEADER = `import { panes, props, run, theme, home, layout } from "
 export default class Pane {
   render() {
     const name = p.title || "shell";
+    return div()
+      .child(div().flex_none().truncate().max_w(260).child(name));
   }
 }
 `;
