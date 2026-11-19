@@ -1,0 +1,44 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  GH_LIST_FIELDS,
+  GH_VIEW_FIELDS,
+  GL_DETAIL_QUERY,
+  GL_MR_FIELDS,
+  GL_PROJECT_QUERY,
+  GL_USER_QUERY,
+  fetchRef,
+  ghListArgs,
+  ghLoginArgs,
+  ghSearchArgs,
+  ghViewArgs,
+  glabArgs,
+} from "../mods/argus-pull-requests/forge.js";
+
+test("ghLoginArgs", () => {
+  assert.deepEqual(ghLoginArgs(), ["api", "user", "--jq", ".login"]);
+});
+test("ghSearchArgs", () => {
+  assert.deepEqual(ghSearchArgs("needsReview"), ["search", "prs", "--review-requested=@me", "--state=open", "--archived=false", "--limit", "100", "--json", "number,url"]);
+  assert.deepEqual(ghSearchArgs("mine", "octo-user"), ["search", "prs", "--author=octo-user", "--state=open", "--archived=false", "--limit", "100", "--json", "number,url"]);
+  assert.throws(() => ghSearchArgs("mine"));
+});
+test("ghListArgs / ghViewArgs", () => {
+  assert.deepEqual(ghListArgs("example-org/example-repo"), ["pr", "list", "--repo", "example-org/example-repo", "--state", "open", "--limit", "100", "--json", GH_LIST_FIELDS]);
+  assert.deepEqual(ghViewArgs("example-org/example-repo", 7), ["pr", "view", "7", "--repo", "example-org/example-repo", "--json", GH_VIEW_FIELDS]);
+});
+test("glabArgs passes the host, the query and string variables", () => {
+  assert.deepEqual(glabArgs("gitlab.example.com", GL_DETAIL_QUERY, { path: "example-group/example-project", iid: "12" }),
+    ["api", "graphql", "--hostname", "gitlab.example.com", "-f", `query=${GL_DETAIL_QUERY}`, "-f", "path=example-group/example-project", "-f", "iid=12"]);
+});
+test("queries ask for the fields the parsers read", () => {
+  for (const f of ["iid", "webUrl", "draft", "sourceBranch", "targetBranch", "updatedAt", "detailedMergeStatus", "conflicts", "approvedBy", "headPipeline", "targetProject"]) assert.match(GL_MR_FIELDS, new RegExp(`\\b${f}\\b`));
+  assert.match(GL_USER_QUERY, /reviewRequestedMergeRequests\(state: opened, first: 100\)/);
+  assert.match(GL_USER_QUERY, /authoredMergeRequests\(state: opened, first: 100\)/);
+  assert.match(GL_PROJECT_QUERY, /project\(fullPath: \$path\)/);
+  for (const f of ["description", "jobs", "reviewers", "mergeRequestInteraction", "notes", "system"]) assert.match(GL_DETAIL_QUERY, new RegExp(`\\b${f}\\b`));
+});
+test("fetchRef", () => {
+  assert.equal(fetchRef("github", 7), "refs/pull/7/head");
+  assert.equal(fetchRef("gitlab", 12), "refs/merge-requests/12/head");
+});
