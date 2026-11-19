@@ -21,7 +21,7 @@ Not affiliated with Herdr or Anthropic.
 - `argus-claude-usage`: Claude Code (tested on 2.1.327), signed in with a Claude plan.
 - `argus-stay-awake`: macOS only, because it runs `caffeinate`.
 - `argus-tsk`: [tsk](https://gettsk.sh) 0.13.0 or later; 0.14.0 or later to show and rename project titles.
-- `argus-pull-requests`: `gh` 2.x (tested on 2.104.0) and/or `glab` 1.x (tested on 1.131.0), signed in.
+- `argus-pull-requests`: `gh`, `glab` or both, signed in (tested on `gh` 2.104.0 and `glab` 1.131.0).
 
 ## Install
 

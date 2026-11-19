@@ -14,6 +14,9 @@ export const NO_BODY = "Write a comment first.";
 export const DRAFT_KEPT = "Your comment is kept as a pending review comment on the merge request.";
 
 /** GitHub's merge methods in fallback order, with the repo setting that allows each. */
+/** Every action the pane offers. */
+const KINDS = ["approve", "request_changes", "comment", "merge"];
+
 const GH_METHODS = [
   ["merge", "mergeCommitAllowed"],
   ["squash", "squashMergeAllowed"],
@@ -36,7 +39,8 @@ export function canAct(pr) {
  * @returns {string|null}
  */
 export function bodyError(kind, body) {
-  return NEEDS_BODY.has(kind) && String(body ?? "").trim() === "" ? NO_BODY : null;
+  const text = String(body ?? "").trim();
+  return NEEDS_BODY.has(kind) && text === "" ? NO_BODY : null;
 }
 
 /**
@@ -73,20 +77,26 @@ export function pickMergeMethod(text) {
  * `--body=` or `--message=` argument, so text that starts with `-` stays a value.
  * Approve on GitLab and Merge on both forges pin the head commit the pane read.
  * @param {{kind: ActionKind, detail: Detail, body: string, method?: MergeMethod|null}} input
- * A second command in `then` runs only after the first one succeeds.
+ * A second command in `then` runs only after the first one succeeds. `drafted` says
+ * a GitLab Request changes left its comment as a pending draft, so only the publish runs.
+ * @param {{kind: ActionKind, detail: Detail, body: string, method?: MergeMethod|null, drafted?: boolean}} input
  * @returns {{name: "gh"|"glab", args: string[], then?: string[]} | {error: string}}
  */
-export function actionCommand({ kind, detail, body, method = null }) {
-  if (!["approve", "request_changes", "comment", "merge"].includes(kind)) throw new Error(`unknown action: ${kind}`);
-  const refusal = bodyError(kind, body);
-  if (refusal !== null) return { error: refusal };
+export function actionCommand({ kind, detail, body, method = null, drafted = false }) {
+  if (!KINDS.includes(kind)) throw new Error(`unknown action: ${kind}`);
   const { pr, headSha } = detail;
+  const gitLab = pr.provider === "gitlab";
+  const publishOnly = drafted && gitLab && kind === "request_changes";
+  const refusal = publishOnly ? null : bodyError(kind, body);
+  if (refusal !== null) return { error: refusal };
   const number = String(pr.number);
-  const pinned = kind === "merge" || (kind === "approve" && pr.provider === "gitlab");
-  if (pinned && headSha === null) return { error: NO_SHA };
+  const pinned = kind === "merge" || (kind === "approve" && gitLab);
+  if (pinned && (typeof headSha !== "string" || headSha === "")) return { error: NO_SHA };
 
-  if (pr.provider === "gitlab") {
+  if (gitLab) {
     const repo = ["-R", `https://${pr.host}/${pr.repo}`];
+    const publish = ["mr", "note", "draft", "publish", number, ...repo, "--reviewer-state=requested_changes", "--yes"];
+    if (publishOnly) return { name: "glab", args: publish };
     switch (kind) {
       case "approve":
         return { name: "glab", args: ["mr", "approve", number, ...repo, "--sha", String(headSha)] };
@@ -95,7 +105,7 @@ export function actionCommand({ kind, detail, body, method = null }) {
         return {
           name: "glab",
           args: ["mr", "note", "draft", "create", number, ...repo, `--message=${body}`],
-          then: ["mr", "note", "draft", "publish", number, ...repo, "--reviewer-state=requested_changes", "--yes"],
+          then: publish,
         };
       case "comment":
         return { name: "glab", args: ["mr", "note", "create", number, ...repo, `--message=${body}`, "--resolvable=false"] };
@@ -116,24 +126,28 @@ export function actionCommand({ kind, detail, body, method = null }) {
     case "comment":
       return { name: "gh", args: [...review, "--comment", `--body=${body}`] };
     default:
-      if (method === null) return { error: NO_METHOD };
+      if (!GH_METHODS.some(([known]) => known === method)) return { error: NO_METHOD };
       return { name: "gh", args: ["pr", "merge", number, "--repo", pr.repo, `--${method}`, "--match-head-commit", String(headSha)] };
   }
 }
 
 /**
  * The merge confirm text: the pull request, its base branch and how it merges.
+ * GitLab merges send no method flag, so the text names a method only when the merge request squashes.
  * @param {Detail} detail
  * @param {MergeMethod|null} method GitHub's method; unused on GitLab.
  * @returns {string}
  */
 export function mergePrompt(detail, method) {
   const { pr } = detail;
-  let how;
+  let how = null;
   if (pr.provider === "gitlab") {
-    how = detail.squash ? "squash" : "the project's merge method";
+    how = detail.squash ? "squash" : null;
   } else {
     switch (method) {
+      case "merge":
+        how = "a merge commit";
+        break;
       case "squash":
         how = "squash";
         break;
@@ -141,10 +155,11 @@ export function mergePrompt(detail, method) {
         how = "rebase";
         break;
       default:
-        how = "a merge commit";
+        how = null;
     }
   }
-  return `Merge #${pr.number} into ${pr.baseRef} with ${how}?`;
+  const target = `Merge #${pr.number} into ${pr.baseRef}`;
+  return how === null ? `${target}?` : `${target} with ${how}?`;
 }
 
 /**
@@ -156,4 +171,28 @@ export function mergePrompt(detail, method) {
  */
 export function afterAction(kind, ok) {
   return { reread: true, clearComment: ok && NEEDS_BODY.has(kind) };
+}
+
+/**
+ * The error text for a failed action; `drafted` adds that the comment stays a pending draft.
+ * @param {string} error
+ * @param {boolean} drafted
+ * @returns {string}
+ */
+export function actionFailure(error, drafted) {
+  return drafted ? `${error} ${DRAFT_KEPT}` : error;
+}
+
+/**
+ * The action state a pull request keeps when the pane moves to another one, or null when
+ * nothing is worth keeping. The typed text, the open comment box, a kept draft and a
+ * running action stay; the merge confirm and an error already shown go.
+ * @param {{running: ActionKind|null, error: string|null, composing: string|null, confirm: object|null, text: string, drafted: boolean}} state
+ * @param {string} text The comment box text at the time of the move.
+ */
+export function leavePr(state, text) {
+  const running = state.running !== null;
+  const next = { ...state, confirm: null, error: running ? state.error : null, text };
+  const empty = !running && next.composing === null && text === "" && !next.drafted;
+  return empty ? null : next;
 }

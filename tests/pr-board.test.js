@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ageText,
+  fetchedAtOf,
+  keepStale,
+  markStale,
   assembleBoard,
   buildGroups,
   checksText,
@@ -233,4 +236,21 @@ test("withoutFailedRepos drops the pairs of repos whose list failed", () => {
   assert.deepEqual(withoutFailedRepos(pairs, new Set(["github.com/example-org/example-repo"])).map((pair) => pair.number), [2]);
   assert.deepEqual(withoutFailedRepos(pairs, new Set()).map((pair) => pair.number), [1, 2, 3]);
   assert.deepEqual(withoutFailedRepos([], new Set(["x"])), []);
+});
+
+test("markStale makes the board due for a read", () => {
+  const board = { ...normalizeBoard(null), readAt: 1000 };
+  assert.equal(fetchedAtOf(board), 1000);
+  assert.equal(fetchedAtOf(markStale(board, 2000)), 0);
+  assert.equal(fetchedAtOf({ ...board, staleAt: 500 }), 1000);
+  assert.equal(fetchedAtOf({ ...board, staleAt: "x" }), 1000);
+});
+
+test("keepStale carries a mark made while a read ran", () => {
+  const next = { ...normalizeBoard(null), readAt: 1000 };
+  // Marked after the read started: the new board is still due.
+  assert.equal(fetchedAtOf(keepStale(next, markStale(next, 1500), 1000)), 0);
+  // Marked before the read started: this read covers it.
+  assert.deepEqual(keepStale(next, markStale(next, 900), 1000), next);
+  assert.deepEqual(keepStale(next, normalizeBoard(null), 1000), next);
 });

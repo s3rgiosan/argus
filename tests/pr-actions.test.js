@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NEEDS_BODY, NO_METHOD, NO_SHA, actionCommand, afterAction, bodyError, canAct, ghMethodArgs, mergePrompt, pickMergeMethod } from "../mods/argus-pull-requests/actions.js";
+import { DRAFT_KEPT, NEEDS_BODY, NO_METHOD, NO_SHA, actionCommand, actionFailure, afterAction, bodyError, canAct, ghMethodArgs, leavePr, mergePrompt, pickMergeMethod } from "../mods/argus-pull-requests/actions.js";
 
 const GL_URL = "https://gitlab.example.com/example-group/example-sub/example-project";
 
@@ -133,7 +133,7 @@ test("mergePrompt", () => {
   assert.equal(mergePrompt(gh, "merge"), "Merge #12 into main with a merge commit?");
   assert.equal(mergePrompt(gh, "squash"), "Merge #12 into main with squash?");
   assert.equal(mergePrompt(gh, "rebase"), "Merge #12 into main with rebase?");
-  assert.equal(mergePrompt(gl, null), "Merge #12 into main with the project's merge method?");
+  assert.equal(mergePrompt(gl, null), "Merge #12 into main?");
   assert.equal(mergePrompt({ ...gl, squash: true }, null), "Merge #12 into main with squash?");
 });
 
@@ -160,4 +160,60 @@ test("afterAction re-reads after every action and clears the comment only after 
   assert.deepEqual(afterAction("request_changes", true), { reread: true, clearComment: true });
   assert.deepEqual(afterAction("comment", false), { reread: true, clearComment: false });
   assert.deepEqual(afterAction("merge", false), { reread: true, clearComment: false });
+});
+
+test("a kept GitLab draft is only published on retry", () => {
+  assert.deepEqual(actionCommand({ kind: "request_changes", detail: gl, body: "", drafted: true }), {
+    name: "glab",
+    args: ["mr", "note", "draft", "publish", "12", "-R", GL_URL, "--reviewer-state=requested_changes", "--yes"],
+  });
+  // Only GitLab Request changes has a draft step.
+  assert.deepEqual(actionCommand({ kind: "comment", detail: gl, body: "", drafted: true }), { error: "Write a comment first." });
+});
+
+test("actionFailure says when the draft is kept", () => {
+  assert.equal(actionFailure("glab: boom", false), "glab: boom");
+  assert.equal(actionFailure("glab: boom", true), `glab: boom ${DRAFT_KEPT}`);
+});
+
+test("a missing or empty sha refuses like null", () => {
+  for (const headSha of [undefined, ""]) {
+    assert.deepEqual(actionCommand({ kind: "merge", detail: { ...gh, headSha }, body: "", method: "merge" }), { error: NO_SHA });
+    assert.deepEqual(actionCommand({ kind: "approve", detail: { ...gl, headSha }, body: "" }), { error: NO_SHA });
+  }
+});
+
+test("an unknown merge method refuses", () => {
+  for (const method of ["admin", "close", undefined, "SQUASH"]) {
+    assert.deepEqual(actionCommand({ kind: "merge", detail: gh, body: "", method }), { error: NO_METHOD });
+  }
+});
+
+test("mergePrompt for GitHub without a method names no method", () => {
+  assert.equal(mergePrompt(gh, null), "Merge #12 into main?");
+});
+
+test("pickMergeMethod handles odd replies", () => {
+  const r = (o) => JSON.stringify({ mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, ...o });
+  assert.equal(pickMergeMethod(r({ viewerDefaultMergeMethod: "squash" })), "squash");
+  assert.equal(pickMergeMethod(r({ viewerDefaultMergeMethod: "FAST_FORWARD" })), "merge");
+  assert.equal(pickMergeMethod("[]"), null);
+  assert.equal(pickMergeMethod(JSON.stringify({ mergeCommitAllowed: "true", squashMergeAllowed: false, rebaseMergeAllowed: true })), "rebase");
+});
+
+test("afterAction after a failed request changes keeps the comment", () => {
+  assert.deepEqual(afterAction("request_changes", false), { reread: true, clearComment: false });
+});
+
+test("leavePr keeps the typed text and a running action, and drops the rest", () => {
+  const idle = { running: null, error: null, composing: null, confirm: null, text: "", drafted: false };
+  assert.equal(leavePr(idle, ""), null);
+  assert.equal(leavePr({ ...idle, error: "gh: old" }, ""), null);
+  assert.equal(leavePr({ ...idle, confirm: { method: "merge" } }, ""), null);
+  assert.deepEqual(leavePr({ ...idle, composing: "comment", error: "gh: old" }, "half a comment"), { ...idle, composing: "comment", text: "half a comment" });
+  // A running action keeps its state, so its result still lands there.
+  assert.deepEqual(leavePr({ ...idle, running: "comment", composing: "comment", confirm: { method: "merge" } }, "sent text"), {
+    ...idle, running: "comment", composing: "comment", text: "sent text",
+  });
+  assert.deepEqual(leavePr({ ...idle, drafted: true, composing: "request_changes" }, ""), { ...idle, drafted: true, composing: "request_changes" });
 });

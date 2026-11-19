@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The `argus-pull-requests` pane has Approve, Request changes, Comment and Merge buttons for an open pull request, run through `gh` or `glab`. The pane reads the pull request again after each action and shows the CLI's message when one fails.
 - Request changes and Comment open a comment box, and an empty comment is not sent.
-- Merge asks first, naming the pull request, the base branch and the merge method. It uses your default method for a GitHub repo, and the project's method with the merge request's squash setting on GitLab.
+- Merge asks first, naming the pull request, the base branch and the merge method. On GitHub it uses your default method when the repo allows it, else the first allowed of merge commit, squash and rebase. On GitLab it sends no method flag, only `--squash` when the merge request is set to squash.
 - Merge, and Approve on GitLab, go through only when the pull request head is still the commit the pane shows.
 - `lib/ui.js` has a shared multi-line text box, used by `argus-tsk` and `argus-pull-requests`.
 

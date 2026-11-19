@@ -12,7 +12,7 @@ export { compareNames };
  * @typedef {import("./model.js").Checks} Checks
  * @typedef {import("./remote.js").Project} Project
  * @typedef {{kind: "needsReview"} | {kind: "mine"} | {kind: "follow"} | {kind: "project", key: string}} Scope
- * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[]}} Board
+ * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number}} Board
  * @typedef {"ready"|"needsWork"|"waiting"|"draft"} GroupId
  * @typedef {{key: string, label: string, scope: Scope, count: number}} Item
  */
@@ -337,4 +337,37 @@ export function reviewLabel(decision) {
  */
 export function shortRepo(repo) {
   return repo.split("/").pop() ?? repo;
+}
+
+/**
+ * The board with a mark that makes it due for a read, for example after a review action.
+ * @param {Board} board
+ * @param {number} now
+ * @returns {Board}
+ */
+export function markStale(board, now) {
+  return { ...board, staleAt: now };
+}
+
+/**
+ * When the board counts as read: its `readAt`, or 0 when a stale mark is newer.
+ * @param {Board} board
+ * @returns {number}
+ */
+export function fetchedAtOf(board) {
+  const staleAt = typeof board.staleAt === "number" ? board.staleAt : 0;
+  return staleAt > board.readAt ? 0 : board.readAt;
+}
+
+/**
+ * The board to write after a read that started at `startedAt`. A stale mark made
+ * while the read ran stays on it, so the next tick reads again.
+ * @param {Board} next
+ * @param {Board} current The board in `shared` when the read ends.
+ * @param {number} startedAt
+ * @returns {Board}
+ */
+export function keepStale(next, current, startedAt) {
+  const staleAt = typeof current.staleAt === "number" ? current.staleAt : 0;
+  return staleAt > startedAt ? { ...next, staleAt } : next;
 }

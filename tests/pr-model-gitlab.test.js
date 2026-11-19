@@ -134,3 +134,14 @@ test("parseGlabDetail reads the head sha and squash", () => {
   assert.equal(d.headSha, "89abcdef0123456789abcdef0123456789abcdef");
   assert.equal(d.squash, true);
 });
+
+test("parseGlabDetail reads squash only when it is true", () => {
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  raw.data.project.mergeRequest.squashOnMerge = false;
+  assert.equal(parseGlabDetail(JSON.stringify(raw), host).squash, false);
+  delete raw.data.project.mergeRequest.squashOnMerge;
+  raw.data.project.mergeRequest.diffHeadSha = 42;
+  const d = parseGlabDetail(JSON.stringify(raw), host);
+  assert.equal(d.squash, false);
+  assert.equal(d.headSha, null);
+});

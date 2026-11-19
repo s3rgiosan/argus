@@ -8,10 +8,10 @@ import { exec, home, appHome, readTextFile, window, checking, theme, shared, set
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
-import { NO_METHOD, DRAFT_KEPT, canAct, actionCommand, afterAction, ghMethodArgs, pickMergeMethod, mergePrompt } from "./actions.js";
+import { NO_METHOD, canAct, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
-import { assembleBoard, normalizeBoard, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
+import { assembleBoard, normalizeBoard, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
@@ -65,7 +65,7 @@ export default class PullRequests extends View {
     this.checkouts = new Map();
     // The failed open in browser action: {key, text}, shown on that pull request only.
     this.actionError = null;
-    // PR key -> {running, error, composing, confirm} for the review and merge actions of each pull request.
+    // PR key -> {running, error, composing, confirm, text, drafted} for the review and merge actions of each pull request.
     this.actions = new Map();
 
     const settings = readSettings();
@@ -205,7 +205,7 @@ export default class PullRequests extends View {
       const startedAt = Date.now();
       const fetch = shouldFetch({
         now: startedAt,
-        fetchedAt: readBoard().readAt,
+        fetchedAt: fetchedAtOf(readBoard()),
         lock: shared(LOCK_KEY),
         intervalMs: readSettings().interval * 60_000,
         owner: this.owner,
@@ -227,7 +227,7 @@ export default class PullRequests extends View {
 
       const next = await this.readBoard(startedAt);
       if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-      setShared(BOARD_KEY, next);
+      setShared(BOARD_KEY, keepStale(next, readBoard(), startedAt));
     } finally {
       this.reading = false;
       this.releaseLock();
@@ -616,9 +616,8 @@ export default class PullRequests extends View {
     const seq = ++this.prSeq;
     const readAt = Date.now();
     const switched = this.shown?.key !== selected.key;
+    const left = switched ? (this.shown?.key ?? null) : null;
     if (switched) {
-      // The composer and the merge confirm belong to the pull request they were opened on.
-      if (this.shown) this.setAction(this.shown.key, { composing: null, confirm: null });
       this.shown = { key: selected.key, kind: "loading", detail: null, error: null, readAt };
       this.actionError = null;
     } else {
@@ -627,7 +626,7 @@ export default class PullRequests extends View {
     if (checking()) return;
     cx.spawn(async (cx) => {
       await cx.sleep(0);
-      if (switched) this.bodyInput?.set_value("");
+      if (switched) this.swapComment(left, selected.key);
       let next;
       try {
         next = { kind: "ok", detail: await this.readDetail(selected), error: null };
@@ -727,7 +726,20 @@ export default class PullRequests extends View {
 
   /** The review and merge state of one pull request in this pane. */
   actionState(key) {
-    return this.actions.get(key) ?? { running: null, error: null, composing: null, confirm: null };
+    return this.actions.get(key) ?? { running: null, error: null, composing: null, confirm: null, text: "", drafted: false };
+  }
+
+  /**
+   * Keeps the comment typed for the pull request the pane leaves, and shows the one
+   * kept for the pull request it opens.
+   */
+  swapComment(left, key) {
+    if (left !== null) {
+      const kept = leavePr(this.actionState(left), this.bodyInput?.value() ?? "");
+      if (kept === null) this.actions.delete(left);
+      else this.actions.set(left, kept);
+    }
+    this.bodyInput?.set_value(this.actionState(key).text);
   }
 
   setAction(key, patch) {
@@ -772,7 +784,8 @@ export default class PullRequests extends View {
           const method = reply.code === 0 ? pickMergeMethod(reply.stdout) : null;
           if (reply.code !== 0) patch = { error: cliError("gh", reply) };
           else if (method === null) patch = { error: NO_METHOD };
-          else patch = { confirm: { method } };
+          // A merge confirm shows only on the pull request it was asked for.
+          else patch = this.shown?.key === key ? { confirm: { method } } : {};
         }
       } catch (error) {
         patch = { error: error?.message ?? String(error) };
@@ -788,7 +801,7 @@ export default class PullRequests extends View {
    */
   runAction(cx, key, kind, detail, body, method) {
     if (this.actionState(key).running !== null) return;
-    const command = actionCommand({ kind, detail, body, method });
+    const command = actionCommand({ kind, detail, body, method, drafted: this.actionState(key).drafted });
     if ("error" in command) {
       this.setAction(key, { error: command.error });
       cx.notify();
@@ -799,6 +812,8 @@ export default class PullRequests extends View {
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       let error = null;
+      // Whether the comment is a pending GitLab draft once this run ends.
+      let drafted = this.actionState(key).drafted;
       try {
         const cli = await this.locate(command.name);
         if (cli === null) {
@@ -808,8 +823,9 @@ export default class PullRequests extends View {
           if (reply.code !== 0) {
             error = cliError(command.name, reply);
           } else if (command.then) {
+            drafted = true;
             const next = await exec(cli, command.then, { timeout: CLI_TIMEOUT });
-            if (next.code !== 0) error = `${cliError(command.name, next)} ${DRAFT_KEPT}`;
+            if (next.code !== 0) error = cliError(command.name, next);
           }
         }
       } catch (caught) {
@@ -817,11 +833,12 @@ export default class PullRequests extends View {
       }
       const after = afterAction(kind, error === null);
       if (error !== null) {
-        this.setAction(key, { running: null, error });
+        this.setAction(key, { running: null, error: actionFailure(error, drafted), drafted });
       } else {
-        this.setAction(key, { running: null, error: null, confirm: null, ...(after.clearComment ? { composing: null } : {}) });
+        const done = kind === "request_changes" ? { drafted: false } : {};
+        this.setAction(key, { running: null, error: null, confirm: null, ...done, ...(after.clearComment ? { composing: null, text: "" } : {}) });
         if (after.clearComment && this.shown?.key === key) this.bodyInput?.set_value("");
-        setShared(BOARD_KEY, { ...readBoard(), readAt: 0 });
+        setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
       }
       // A refused head pin shows the new head after this read.
       const selected = readSelected();
@@ -968,6 +985,9 @@ export default class PullRequests extends View {
         v_flex()
           .gap(6)
           .child(div().text_size(12).font_semibold().child(act.composing === "request_changes" ? "Request changes" : "Comment"))
+          .when(act.composing === "request_changes" && act.drafted, (el) =>
+            el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Your comment is already a pending review comment. Submit publishes it.")),
+          )
           .child(textBox(t, "body", this.bodyInput, this.focused === "body"))
           .child(
             h_flex()

@@ -124,3 +124,9 @@ test("parseGhDetail without headRefOid gives null", () => {
   delete raw.headRefOid;
   assert.equal(parseGhDetail(JSON.stringify(raw), repo).headSha, null);
 });
+
+test("parseGhDetail reads an empty headRefOid as null", () => {
+  const raw = JSON.parse(fixture("pr-gh-view.json"));
+  raw.headRefOid = "";
+  assert.equal(parseGhDetail(JSON.stringify(raw), repo).headSha, null);
+});
