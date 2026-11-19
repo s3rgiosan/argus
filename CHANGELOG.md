@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clicking a pull request in `argus-pull-requests` opens a pane with its checks, reviews, merge state, description and conversation, with buttons to open it in the browser or check it out in a worktree.
 - `argus-pull-requests` reads through `gh` and `glab`, refreshes every 3 minutes by default, reads a project as soon as its space opens, and shows a note when a CLI is missing, signed out or rate limited.
 - `lib/follow.js` holds the focused-space helpers that `argus-tsk` and `argus-pull-requests` share.
+- The toolbar shows its buttons as icons, labels or both, set with `toolbar.display` in `argus.json` in Herdr's app folder. The default is both. The toolbar block resizes to fit when the value changes.
 
 ## [1.2.0] - 2026-11-19
 

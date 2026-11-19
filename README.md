@@ -48,15 +48,16 @@ Theme picks are kept per layout, so pick your theme once in `Argus`.
 
 ## Settings file
 
-Argus reads `~/.config/herdr-app/argus.json`. The install script does not create it. Without it, every setting has its default: the toolbar buttons sort A to Z by label.
+Argus reads `~/.config/herdr-app/argus.json`. The install script does not create it. Without it, every setting has its default: the toolbar buttons sort A to Z by label and show an icon and a label.
 
 ```json
-{ "toolbar": { "order": ["argus-tsk", "argus-claude-usage"] } }
+{ "toolbar": { "order": ["argus-tsk", "argus-claude-usage"], "display": "icons" } }
 ```
 
 - `toolbar.order`: the panel mod names in the order their toolbar buttons show. A button not in the list follows, sorted A to Z by label. A name that matches no button is ignored. The toolbar follows the file as you save it.
+- `toolbar.display`: how the toolbar buttons show. `"icons"` shows the icon only, with the label as a tooltip. `"labels"` shows the label only. `"both"` shows the icon and the label. The default is `"both"`. A button without an icon shows its label in every mode. The toolbar block resizes to fit the buttons when the value changes.
 
-When the file is not valid JSON or has a value of the wrong type, a toast says so and the default order shows.
+When the file is not valid JSON, a toast says so and the defaults show. A value of the wrong type or an unknown `display` shows the same toast and the default for that setting only; the other setting keeps its valid value.
 
 ## Update
 

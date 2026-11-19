@@ -1,6 +1,8 @@
 // What the toolbar shows as open and what a click does. No Herdr imports, so
 // Node can test it.
 
+import { DISPLAYS } from "./toolbar-width.js";
+
 /**
  * Whether `target` is the panel shown now.
  *
@@ -32,27 +34,39 @@ export function clickCommands(tree, ids, target) {
 }
 
 /**
- * The button order in the text of `argus.json`: `{ "toolbar": { "order": [ids] } }`.
- * A missing, empty or blank file, or a missing key, gives `order: null` (the default order). Text
- * that is not JSON, or a value of the wrong type, gives an `error`.
+ * The toolbar settings in the text of `argus.json`:
+ * `{ "toolbar": { "order": [ids], "display": "icons" | "labels" | "both" } }`.
+ * A missing, empty or blank file, or a missing key, gives the defaults
+ * (`order: null`, `display: "both"`). Text that is not JSON gives the
+ * defaults and an `error`. A value of the wrong type or an unknown `display`
+ * gives an `error` and the default for that setting only; the other setting
+ * keeps its valid value.
  *
  * @param {string | null | undefined} text
- * @returns {{ order: string[] | null, error: string | null }}
+ * @returns {{ order: string[] | null, display: "icons" | "labels" | "both", error: string | null }}
  */
-export function toolbarOrder(text) {
-  if (text === null || text === undefined || text.trim() === "") return { order: null, error: null };
+export function toolbarSettings(text) {
+  const result = { order: null, display: "both", error: null };
+  if (text === null || text === undefined || text.trim() === "") return result;
   let data;
   try {
     data = JSON.parse(text);
   } catch (error) {
-    return { order: null, error: error.message };
+    return { ...result, error: error.message };
   }
-  if (!isObject(data)) return { order: null, error: "the file is not an object" };
-  if (!("toolbar" in data)) return { order: null, error: null };
-  if (!isObject(data.toolbar)) return { order: null, error: "toolbar is not an object" };
-  if (!("order" in data.toolbar)) return { order: null, error: null };
-  if (!Array.isArray(data.toolbar.order)) return { order: null, error: "toolbar.order is not a list" };
-  return { order: data.toolbar.order.filter((id) => typeof id === "string" && id !== ""), error: null };
+  if (!isObject(data)) return { ...result, error: "the file is not an object" };
+  if (!("toolbar" in data)) return result;
+  const toolbar = data.toolbar;
+  if (!isObject(toolbar)) return { ...result, error: "toolbar is not an object" };
+  if ("order" in toolbar) {
+    if (Array.isArray(toolbar.order)) result.order = toolbar.order.filter((id) => typeof id === "string" && id !== "");
+    else result.error = "toolbar.order is not a list";
+  }
+  if ("display" in toolbar) {
+    if (DISPLAYS.includes(toolbar.display)) result.display = toolbar.display;
+    else result.error ??= 'toolbar.display is not "icons", "labels" or "both"';
+  }
+  return result;
 }
 
 /**
