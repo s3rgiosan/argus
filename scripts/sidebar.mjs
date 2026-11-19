@@ -9,8 +9,9 @@ export const SHIPPED_SIDEBAR = "spaces";
 
 const MARKER = "argus";
 
-const METHOD = /^(\s*)gitTail\(/gm;
-const WHERE = /^(\s*)const where = (.+);$/gm;
+// The indent is spaces and tabs only, so a blank line before a match stays out of it.
+const METHOD = /^([ \t]*)gitTail\(/gm;
+const WHERE = /^([ \t]*)const where = (.+);$/gm;
 
 /** Herdr's sidebar no longer has the lines the patch changes. */
 export class SidebarError extends Error {
@@ -42,7 +43,7 @@ export function patchSidebar(source) {
 
   const [line, indent] = wheres[0];
   const at = start + wheres[0].index;
-  const patched = `${indent}// Argus leaves out the repo and branch text; the ahead and behind counts stay.\n${indent}const where = "";`;
+  const patched = `${indent}// Argus leaves out the repo and branch text; the ahead and behind counts stay. The locals above\n${indent}// stay unused, so the copy differs from Herdr's sidebar on this line only.\n${indent}const where = "";`;
   return source.slice(0, at) + patched + source.slice(at + line.length);
 }
 

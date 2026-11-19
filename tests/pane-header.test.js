@@ -90,3 +90,8 @@ test("ownsHeader: only a mod.json with the marker", () => {
   assert.equal(ownsHeader({ generated_by: "someone" }), false);
   assert.equal(ownsHeader(null), false);
 });
+
+test("patchPaneHeader: a blank line before the name line keeps the indent", () => {
+  const out = patchPaneHeader(SHIPPED.replace("    const name =", "\n    const name ="));
+  assert.match(out, /\n\n    const name = paneTitle\(p\)/);
+});

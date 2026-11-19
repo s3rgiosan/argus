@@ -58,3 +58,13 @@ test("useSidebar: every block that shows the shipped sidebar shows the copy", ()
   assert.equal(out.children[1].content.mod, "agents");
   assert.equal(layout.children[0].content.mod, "spaces");
 });
+
+test("patchSidebar: a blank line before gitTail or its where line keeps the indent", () => {
+  const spaced = SHIPPED.replace("  gitTail(", "\n  gitTail(").replace("    const where = [repo", "\n    const where = [repo");
+  const out = patchSidebar(spaced);
+  assert.match(out, /\n\n    \/\/ Argus leaves out[^\n]*\n    \/\/ [^\n]*\n    const where = "";\n/);
+});
+
+test("patchSidebar: refuses a gitTail with two where lines", () => {
+  assert.throws(() => patchSidebar(SHIPPED.replace('    const where = [repo', '    const where = "";\n    const where = [repo')), SidebarError);
+});

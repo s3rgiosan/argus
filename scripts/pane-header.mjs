@@ -11,7 +11,8 @@ export const SHIPPED_HEADER = "pane";
 const MARKER = "argus";
 
 const IMPORT = /^import \{([^}]*)\} from "herdr";$/m;
-const NAME = /^(\s*)const name = (.+);$/gm;
+// The indent is spaces and tabs only, so a blank line before the match stays out of it.
+const NAME = /^([ \t]*)const name = (.+);$/gm;
 
 const HELPER = `
 // The title a mod shares for its own panes under \`<mod>.paneTitle\`, or null.

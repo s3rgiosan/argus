@@ -181,7 +181,12 @@ function writeCopy({ shipped, copy: name, what, patch, manifest, owns, PatchErro
   }
   const copy = join(modsDir, name);
   if (existsSync(copy)) {
-    const empty = statSync(copy).isDirectory() && readdirSync(copy).length === 0;
+    let empty;
+    try {
+      empty = statSync(copy).isDirectory() && readdirSync(copy).length === 0;
+    } catch (error) {
+      return { written: false, error: `cannot read ${copy} (${error.message})` };
+    }
     if (!empty && !owns(readJson(join(copy, "mod.json")))) {
       return { written: false, error: `${copy} exists and was not written by this script` };
     }
