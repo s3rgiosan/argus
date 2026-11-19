@@ -11,11 +11,14 @@ A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, button
 - A click on a closed button selects its mod in the panel stack (`layout.select { stack, child }`) and shows the panel column (`layout.show { id }`). A click on the open one hides the column (`layout.hide { id }`).
 - The open state comes from the shown layout (`layout()`): the column not hidden and the stack's `active` child.
 
+- Order: the buttons come from `sortButtons(buttons, shared("argus-toolbar.order"))` (`order.js`): the saved ids first, then the rest A to Z by label. Setting the shared key re-renders the toolbar.
+- A right click on a button calls `cx.stop_propagation()` and opens a popup (200 by 42 px) of the `argus-settings` mod with `props { view: "menu" }`.
+
 ## Built from
 
 - `mod.json`: `{ "place": "none", "title": "Argus toolbar" }`.
 - `main.js` reads `props()`: `{ panel: "argus-panel", stack: "argus-panels", buttons: [{ id, label, icon }] }`. `icon` is a path under `~/.config/herdr-app` (`mods/<mod>/<file>.svg`).
-- `toolbar-logic.js`: `isOpen`, `clickCommands`.
+- `toolbar-logic.js`: `isOpen`, `clickCommands`. `order.js`: a copy of `lib/order.js`.
 - `scripts/build-layout.mjs` (repo) places it: the `tabs` block becomes the first child of row `argus-tabs-row`, followed by this block (width `10 + Σ(32 + 7 × label length + 3)` px); column `argus-panel` (440 px, drags between 280 and 900 px, hidden) with stack `argus-panels` goes last in `work-body`. A mod gets a button by declaring `"panel": { "label", "icon" }` in its `mod.json`.
 
 ## Watch out
