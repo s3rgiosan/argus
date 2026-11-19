@@ -3,7 +3,7 @@
 // beside the terminals) and the status list (a popup). Every change goes through the `tsk` CLI.
 
 import { div, svg, View } from "gpui-kit";
-import { h_flex, v_flex, Input, InputState, TextareaState, Textarea } from "gpui-base";
+import { h_flex, v_flex, Input, InputState, TextareaState } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder, layout, focused } from "herdr";
 import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
@@ -17,7 +17,7 @@ import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, row, scrollArea, field, button, footer, sectionTitle, note, toggle, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -1394,20 +1394,6 @@ function inlineField(t, id, state, focused) {
     .hover((s) => s.border_color(focused ? t.accent : t.border))
     .cursor_text()
     .child(Input.new(state).w_full().text_color(t.foreground));
-}
-
-/** A multi-line text box around a `TextareaState`; `focused` draws the accent border. */
-function textBox(t, id, state, focused) {
-  return div()
-    .id(id)
-    .w_full()
-    .px(10)
-    .py(6)
-    .rounded(8)
-    .border_1()
-    .border_color(focused ? t.accent : t.border)
-    .cursor_text()
-    .child(Textarea.new(state).w_full().text_color(t.foreground));
 }
 
 /** Indents an element to line up with rows and section titles. */
