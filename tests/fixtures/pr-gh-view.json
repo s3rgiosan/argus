@@ -1,0 +1,75 @@
+{
+  "number": 102,
+  "title": "Example title",
+  "url": "https://github.com/example-org/example-repo/pull/102",
+  "author": {
+    "login": "octo-user"
+  },
+  "headRefName": "feature/102",
+  "baseRefName": "main",
+  "isDraft": false,
+  "state": "OPEN",
+  "reviewDecision": "REVIEW_REQUIRED",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "name": "build",
+      "status": "COMPLETED",
+      "conclusion": "FAILURE"
+    },
+    {
+      "__typename": "CheckRun",
+      "name": "test",
+      "status": "IN_PROGRESS",
+      "conclusion": ""
+    }
+  ],
+  "mergeable": "MERGEABLE",
+  "mergeStateStatus": "BLOCKED",
+  "updatedAt": "2026-11-12T08:00:00Z",
+  "body": "Example body.",
+  "latestReviews": [
+    {
+      "author": {
+        "login": "review-user"
+      },
+      "state": "CHANGES_REQUESTED"
+    }
+  ],
+  "reviewRequests": [
+    {
+      "login": "octo-reviewer"
+    },
+    {
+      "slug": "example-team",
+      "name": "Example Team"
+    }
+  ],
+  "reviews": [
+    {
+      "author": {
+        "login": "review-user"
+      },
+      "state": "CHANGES_REQUESTED",
+      "body": "Please fix the build.",
+      "submittedAt": "2026-11-12T09:00:00Z"
+    },
+    {
+      "author": {
+        "login": "review-user"
+      },
+      "state": "COMMENTED",
+      "body": "",
+      "submittedAt": "2026-11-12T09:05:00Z"
+    }
+  ],
+  "comments": [
+    {
+      "author": {
+        "login": "octo-user"
+      },
+      "body": "Example comment.",
+      "createdAt": "2026-11-12T08:30:00Z"
+    }
+  ]
+}
