@@ -87,7 +87,7 @@ node scripts/sync-lib.mjs --check      # exit 1 when a copy differs
 ```
 
 - Each mod lives in `mods/<name>/` with a `README.md` for people and a `RECIPE.md` for an agent rebuilding it.
-- `lib/` holds code shared by mods: `ui.js` (frame, header, rows, fields, buttons, meters in the sizes of Herdr's own panels), `gate.js` (one run at a time, with one queued), `sync.js` (which open copy runs a shared read) and `order.js` (sort the toolbar buttons). `argus-claude-usage` and `argus-tsk` import `ui.js`, `gate.js` and `sync.js`; `argus-toolbar` imports `order.js`; `argus-stay-awake` imports none. Herdr loads a mod's files from its own folder only, so each mod carries a copy of the lib files it imports; a test fails when a copy differs.
+- `lib/` holds code shared by mods: `ui.js` (frame, headers, count badge, rows, menu rows, fields, buttons, switch, segmented control and meters in the sizes of Herdr's own panels), `icons.js` (load Herdr's icon files with a fallback to a mod's own copy), `menu.js` (Up, Down, Enter and Escape in a menu), `gate.js` (one run at a time, with one queued), `sync.js` (which open copy runs a shared read) and `order.js` (sort the toolbar buttons). `argus-claude-usage`, `argus-pull-requests` and `argus-tsk` import `ui.js`, `icons.js`, `gate.js` and `sync.js`, and the last two also `menu.js` (`argus-claude-usage` has no menu); `argus-toolbar` imports `order.js`; `argus-stay-awake` imports none. Herdr loads a mod's files from its own folder only, so each mod carries a copy of the lib files it imports; a test fails when a copy differs.
 - A mod gets a toolbar button by declaring `"panel": { "label": "Usage", "icon": "icons/chart-line.svg" }` in its `mod.json`.
 
 ## Credits

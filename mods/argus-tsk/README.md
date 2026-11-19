@@ -2,9 +2,9 @@
 
 The [tsk](https://gettsk.sh) board in Herdr. Board in a panel on the right, task in a pane beside the terminals.
 
-- Three sections with counts: NEEDS YOU (blocked or in review, waiting on you or on a task that is no longer live), IN MOTION (started, or waiting on a live task or an agent), ON DECK (ready, then open).
+- Three sections with counts: Needs you (blocked or in review, waiting on you or on a task that is no longer live), In motion (started, or waiting on a live task or an agent), On deck (ready, then open).
 - Scope button in the header: Follow space, Desk, All Projects, each project, thread and assignee, with counts. Follow space (the default) shows the tsk project that holds the focused space's folder, or the desk when no project does. It knows only projects that already have tasks on the board, so a folder whose project has no tasks shows the desk, and so does a space on another machine; the button reads "Follow space · <project>". A project shows under its tsk title, else its folder name. Names sort A-Z, ignoring case.
-- Rename a project: the pencil on its row in the scope list turns the row into a field, with the project's full path under it. Enter or Save sets the title, Clear or an empty field removes it, Esc cancels. Needs tsk 0.14.0 or newer.
+- Rename a project: the square-pen icon on its row in the scope list turns the row into a field, with the project's full path under it. Enter or Save sets the title, Clear or an empty field removes it, Esc cancels. Needs tsk 0.14.0 or newer.
 - Capture: type a title in the bottom bar, press Enter or Add. A project scope captures into that project (Follow space into the project it shows, else onto the desk), a thread or assignee scope onto the desk with that thread or assignee, Desk and All Projects onto the desk.
 - Expand icon in the header: widens the Tasks panel to 900 px; again: back to the width it had. Shown only in the `Argus` layout's panel.
 - Click a task: it opens in a pane on the right of the current tab, or the tab's open task pane shows it.
@@ -18,7 +18,7 @@ Gear icon in the header:
 - tsk command: empty uses `tsk` from PATH, else `~/.local/bin/tsk`, `/opt/homebrew/bin/tsk`, `/usr/local/bin/tsk`, `/home/linuxbrew/.linuxbrew/bin/tsk`.
 - Store folder: empty uses `TSK_STATE_DIR`, else `~/.tsk`.
 
-Needs tsk 0.13.0 or newer; project titles need 0.14.0. A missing or older tsk shows one note in the panel; the refresh icon looks again. With tsk 0.13, projects show their folder names and the pencil is hidden.
+Needs tsk 0.13.0 or newer; project titles need 0.14.0. A missing or older tsk shows one note in the panel; the refresh icon looks again. With tsk 0.13, projects show their folder names and the square-pen icon is hidden.
 
 ## Open it
 

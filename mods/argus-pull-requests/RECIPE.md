@@ -6,12 +6,12 @@ GitHub pull requests and GitLab merge requests as a Herdr panel, with one pull r
 
 - `mod.json`: `{ "place": "none", "title": "Pull requests", "overlay": { "width": 360, "height": 640 }, "panel": { "label": "Pull requests", "icon": "icons/git-pull-request.svg" } }`. The `argus` layout (`scripts/build-layout.mjs`) gives it a toolbar button and a panel.
 - One mod, views picked by `props().view`: none or `"board"` (the panel, with a settings page), `"scopes"` (popup), `"pr"` (pane).
-- Board, drawn with `ui.js` (a copy of `lib/ui.js`): header with "Pull requests", the scope button, the count, refresh and settings icon buttons; scroll area; bottom bar with the filter field. Notes show at the top of the scroll area.
-- Group titles: "READY TO MERGE · n", "NEEDS WORK · n", "WAITING ON REVIEW · n", "DRAFT · n". Empty groups are left out.
+- Board, drawn with `ui.js` (a copy of `lib/ui.js`): header with "Pull requests", the count badge (Herdr's Changes pill: 10 px `muted`, 1 px `border`, radius 4), the scope button, refresh (it turns while this copy reads) and settings icon buttons; scroll area; bottom bar with the filter field. Notes show at the top of the scroll area.
+- Group titles: "Ready to merge · n", "Needs work · n", "Waiting on review · n", "Draft · n", titled like Herdr's group headings (11.5 px, medium, `dim`). Empty groups are left out.
 - Row: number, title, checks, age, then repo and branch and the review state. The selected row is on `selected`.
-- Scopes popup: Needs my review, Mine, Follow space, then a Projects section. Each row shows its count. A pick sets the scope and closes the popup.
-- Pull request pane: header with repo, number and state, branch line, title, the "No local checkout" note when the repo has no local clone, the Open in browser and Check out in a worktree buttons, then CHECKS, REVIEWS, MERGE STATE, DESCRIPTION and CONVERSATION.
-- Settings view: gh command and glab command fields, and the refresh interval choices.
+- Scopes popup: Needs my review, Mine, Follow space, then a Projects section. Rows use Herdr's menu metrics (31 px, 8 px side padding, radius 7, 12.8 px text, 5 px around the list); the count shows dim on the right and the chosen scope has an `accent` tick. Up and Down move the highlight, Enter picks, Escape closes, a click picks. A pick sets the scope and closes the popup.
+- Pull request pane: header with repo, number and state, branch line, title, the "No local checkout" note when the repo has no local clone, the Open in browser and Check out in a worktree buttons, then Checks, Reviews, Merge state, Description and Conversation.
+- Settings view: gh command and glab command fields, and the refresh interval as Herdr's Settings segmented control (1 / 5 / 15 min). Icons Herdr ships with the same drawing (chevron-left, chevron-down, settings, check) load from Herdr's `mods/workspace-chrome/` folder when it exists, probed once in `init`; the Lucide copies in `icons/` show otherwise.
 
 ## How it behaves
 
@@ -21,7 +21,7 @@ GitHub pull requests and GitLab merge requests as a Herdr panel, with one pull r
 - GitLab calls (`glab api graphql --hostname <host>`): one query for the user's review-requested and authored merge requests per host, one per project, one detail query for the pane.
 - A failed call adds one note and leaves the rest of the board. `gh` or `glab` missing, signed out or rate limited each give a note.
 - Lock: the copy that takes `argus-pull-requests.lock` (`lib/sync.js`, `lib/gate.js`) reads. The board is read again when it is older than the interval, on refresh, and when a space shows a folder the last read did not know (checked every 5 seconds).
-- Groups (`groupOf`): draft first; then NEEDS WORK when a check failed, changes are requested or the merge conflicts; then READY TO MERGE when the review is approved or absent, no check runs and the merge state is mergeable; else WAITING ON REVIEW.
+- Groups (`groupOf`): draft first; then "Needs work" when a check failed, changes are requested or the merge conflicts; then "Ready to merge" when the review is approved or absent, no check runs and the merge state is mergeable; else "Waiting on review".
 - Follow space: the folder of the focused space (`follow.js`, a copy of `lib/follow.js`) picks the project that holds it. No match shows "This space is not a GitHub or GitLab repo."
 - Filter: case-insensitive match on title, author and branch, and on the number with or without `#` (`matchesFilter`).
 - Row click: sets `argus-pull-requests.selected`. If the shown tab has a pane of this mod, `pane.focus` it; else `pane.split { direction: "right", mod: "argus-pull-requests", props: { view: "pr" } }`.
