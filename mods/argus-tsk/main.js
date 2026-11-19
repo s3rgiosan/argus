@@ -957,6 +957,8 @@ export default class Tasks extends View {
       ["Assignees", model.assignees.length > 1 ? model.assignees : []],
     ].filter(([, entries]) => entries.length > 0);
     const entries = groups.flatMap(([, list]) => list);
+    // A rename whose project left the list draws no field, so the keys stay with the list.
+    const renaming = rename !== null && entries.some((entry) => projectOf(entry) === rename.project);
     const active = this.at ?? startAt(entries);
     // Height the rename field adds over the row it replaces.
     let extra = 0;
@@ -973,7 +975,11 @@ export default class Tasks extends View {
         active: index === active,
         current: entry.current,
         tick: this.icon("check"),
-        onClick: () => pickScope(entry.scope),
+        // The keyboard highlight follows a click, so Up and Down start from the picked row.
+        onClick: () => {
+          this.at = index;
+          pickScope(entry.scope);
+        },
         trailing:
           this.canTitle && project !== null
             ? iconButton(t, `rename-${index}`, this.icon("square-pen"), (_e, cx) => {
@@ -1002,8 +1008,8 @@ export default class Tasks extends View {
       .text_color(t.foreground)
       .text_size(12.8)
       .on_key_down((e, cx) => {
-        // Keys in the rename field belong to the field.
-        if (rename) return;
+        // Keys in the rename field belong to the field, while the field shows.
+        if (renaming) return;
         const next = menuKey(active, e.key, entries.length);
         if (!next.handled) return;
         this.at = next.at;

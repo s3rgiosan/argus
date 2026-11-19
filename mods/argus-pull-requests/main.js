@@ -8,7 +8,7 @@ import { exec, home, appHome, readTextFile, window, checking, theme, shared, set
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
-import { NO_METHOD, OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt } from "./actions.js";
+import { NO_METHOD, OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
 import { assembleBoard, normalizeBoard, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
@@ -26,6 +26,8 @@ const SCOPE_KEY = "argus-pull-requests.scope";
 const SELECTED_KEY = "argus-pull-requests.selected";
 const SETTINGS_KEY = "argus-pull-requests.settings";
 const LOCK_KEY = "argus-pull-requests.lock";
+// PR key -> {kind, at} for the review and merge actions running in any copy.
+const RUNNING_KEY = "argus-pull-requests.running";
 const MOD = "argus-pull-requests";
 const CLI_TIMEOUT = 30_000;
 const GIT_TIMEOUT = 15_000;
@@ -65,8 +67,11 @@ export default class PullRequests extends View {
     this.checkouts = new Map();
     // The failed open in browser action: {key, text}, shown on that pull request only.
     this.actionError = null;
-    // PR key -> {running, error, composing, confirm, text, drafted} for the review and merge actions of each pull request.
+    // PR key -> {running, error, composing, confirm, text, draftText} for the review and merge actions of each pull
+    // request. `draftText` is the comment this pane left as a pending GitLab draft.
     this.actions = new Map();
+    // The PR key whose comment the comment box holds now.
+    this.boxKey = null;
 
     const settings = readSettings();
     // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
@@ -336,16 +341,19 @@ export default class PullRequests extends View {
     }
   }
 
-  /** The signed-in GitHub login, kept per gh command setting. */
-  async ghLogin(gh, notes) {
+  /**
+   * The signed-in GitHub login, kept per gh command setting for LOGIN_TTL. `keepFailure`
+   * keeps a failed read too, so the pane does not ask again before every detail read.
+   */
+  async ghLogin(gh, notes, keepFailure = false) {
     const setting = readSettings().gh;
-    if (this.login?.setting === setting) return this.login.value;
+    if (loginFresh(this.login, setting, Date.now())) return this.login.value;
     const value = await this.attempt("gh", gh, ghLoginArgs(), (text) => {
       const login = text.trim();
       if (login === "") throw new Error("no login returned");
       return login;
     }, notes);
-    if (value !== null) this.login = { setting, value };
+    if (value !== null || keepFailure) this.login = { setting, value, at: Date.now() };
     return value;
   }
 
@@ -544,7 +552,11 @@ export default class PullRequests extends View {
         active: index === active,
         current: entry.current,
         tick: icon("check"),
-        onClick: () => pickScope(entry.scope),
+        // The keyboard highlight follows a click, so Up and Down start from the picked row.
+        onClick: () => {
+          this.at = index;
+          pickScope(entry.scope);
+        },
       });
 
     // Show and In are separate choices; picking a row keeps the list open for the other one.
@@ -619,7 +631,6 @@ export default class PullRequests extends View {
     const seq = ++this.prSeq;
     const readAt = Date.now();
     const switched = this.shown?.key !== selected.key;
-    const left = switched ? (this.shown?.key ?? null) : null;
     if (switched) {
       this.shown = { key: selected.key, kind: "loading", detail: null, error: null, readAt };
       this.actionError = null;
@@ -629,7 +640,7 @@ export default class PullRequests extends View {
     if (checking()) return;
     cx.spawn(async (cx) => {
       await cx.sleep(0);
-      if (switched) this.swapComment(left, selected.key);
+      if (switched) this.swapComment(selected.key);
       let next;
       try {
         next = { kind: "ok", detail: await this.readDetail(selected), error: null };
@@ -652,7 +663,7 @@ export default class PullRequests extends View {
       ? glabArgs(selected.host, GL_DETAIL_QUERY, { path: selected.repo, iid: String(selected.number) })
       : ghViewArgs(selected.repo, selected.number);
     // The pane needs the GitHub login to turn off the review buttons on your own pull request.
-    if (!gitLab) await this.ghLogin(command, []);
+    if (!gitLab) await this.ghLogin(command, [], true);
     const reply = await exec(command, args, { timeout: CLI_TIMEOUT });
     if (reply.code !== 0) throw new Error(cliError(name, reply));
     return gitLab ? parseGlabDetail(reply.stdout, selected.host) : parseGhDetail(reply.stdout, selected.repo);
@@ -731,20 +742,39 @@ export default class PullRequests extends View {
 
   /** The review and merge state of one pull request in this pane. */
   actionState(key) {
-    return this.actions.get(key) ?? { running: null, error: null, composing: null, confirm: null, text: "", drafted: false };
+    return this.actions.get(key) ?? { running: null, error: null, composing: null, confirm: null, text: "", draftText: null };
+  }
+
+  /** The action running on a pull request in this copy or in another copy of the mod, or null. */
+  runningOn(key) {
+    return this.actionState(key).running ?? runningOf(shared(RUNNING_KEY), key, Date.now());
+  }
+
+  /** Marks an action as running in this copy and in shared state, so other copies wait. */
+  startRunning(key, kind) {
+    this.setAction(key, { running: kind });
+    setShared(RUNNING_KEY, withRunning(shared(RUNNING_KEY), key, kind, Date.now()));
+  }
+
+  finishRunning(key, patch) {
+    this.setAction(key, { running: null, ...patch });
+    setShared(RUNNING_KEY, withoutRunning(shared(RUNNING_KEY), key));
   }
 
   /**
-   * Keeps the comment typed for the pull request the pane leaves, and shows the one
-   * kept for the pull request it opens.
+   * Keeps the comment typed for the pull request whose comment the box holds, and
+   * shows the one kept for the pull request the pane opens.
    */
-  swapComment(left, key) {
+  swapComment(key) {
+    const left = this.boxKey;
+    if (left === key) return;
     if (left !== null) {
       const kept = leavePr(this.actionState(left), this.bodyInput?.value() ?? "");
       if (kept === null) this.actions.delete(left);
       else this.actions.set(left, kept);
     }
     this.bodyInput?.set_value(this.actionState(key).text);
+    this.boxKey = key;
   }
 
   setAction(key, patch) {
@@ -763,15 +793,18 @@ export default class PullRequests extends View {
     const shown = this.shown;
     if (shown?.kind !== "ok") return;
     const state = this.actionState(shown.key);
-    if (state.composing === null) return;
+    // Until the box holds this pull request's comment, it holds the one left behind.
+    if (state.composing === null || this.boxKey !== shown.key) return;
     this.runAction(cx, shown.key, state.composing, shown.detail, this.bodyInput?.value() ?? "", null);
   }
 
   /** Shows the merge confirm; on GitHub it reads the repo's merge method first. */
   askMerge(cx, key, detail) {
-    if (this.actionState(key).running !== null) return;
+    if (this.runningOn(key) !== null) return;
+    // The confirm keeps the head it was shown for; a merge of a newer head fails.
+    const headSha = detail.headSha;
     if (detail.pr.provider === "gitlab") {
-      this.setAction(key, { confirm: { method: null }, composing: null, error: null });
+      this.setAction(key, { confirm: { method: null, headSha }, composing: null, error: null });
       cx.notify();
       return;
     }
@@ -790,7 +823,7 @@ export default class PullRequests extends View {
           if (reply.code !== 0) patch = { error: cliError("gh", reply) };
           else if (method === null) patch = { error: NO_METHOD };
           // A merge confirm shows only on the pull request it was asked for.
-          else patch = this.shown?.key === key ? { confirm: { method } } : {};
+          else patch = this.shown?.key === key ? { confirm: { method, headSha } } : {};
         }
       } catch (error) {
         patch = { error: error?.message ?? String(error) };
@@ -801,36 +834,57 @@ export default class PullRequests extends View {
   }
 
   /**
-   * Runs one review or merge action, then reads the pull request again. On success it
-   * closes the confirm (and the composer after its own action) and marks the board stale so a board copy reads it.
+   * Runs one review or merge action, then reads the pull request again and marks the board
+   * stale so a board copy reads it. On success it closes the confirm, and the composer after
+   * its own action while the box still holds the sent text.
    */
   runAction(cx, key, kind, detail, body, method) {
-    if (this.actionState(key).running !== null) return;
-    const command = actionCommand({ kind, detail, body, method, drafted: this.actionState(key).drafted });
+    if (this.runningOn(key) !== null) return;
+    const command = actionCommand({ kind, detail, body, method });
     if ("error" in command) {
       this.setAction(key, { error: command.error });
       cx.notify();
       return;
     }
-    this.setAction(key, { running: kind, error: null });
+    const kept = this.actionState(key).draftText;
+    // A GitLab Request changes reads the user's pending comments first (`draftPlan`).
+    const draftStep = kind === "request_changes" && detail.pr.provider === "gitlab";
+    this.startRunning(key, kind);
+    this.setAction(key, { error: null });
     cx.notify();
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       let error = null;
-      // Whether the comment is a pending GitLab draft once this run ends.
-      let drafted = this.actionState(key).drafted;
+      // The comment left as a pending GitLab draft once this run ends, and whether this run drafted it.
+      let draftText = kept;
+      let drafted = false;
       try {
         const cli = await this.locate(command.name);
         if (cli === null) {
           error = command.name === "glab" ? GLAB_MISSING : GH_MISSING;
         } else {
-          const reply = await exec(cli, command.args, { timeout: CLI_TIMEOUT });
-          if (reply.code !== 0) {
-            error = cliError(command.name, reply);
-          } else if (command.then) {
-            drafted = true;
-            const next = await exec(cli, command.then, { timeout: CLI_TIMEOUT });
-            if (next.code !== 0) error = cliError(command.name, next);
+          let run = command;
+          if (draftStep) {
+            const list = await exec(cli, draftListArgs(detail), { timeout: CLI_TIMEOUT });
+            const plan = list.code === 0 ? draftPlan(list.stdout, kept, body) : { error: cliError(command.name, list) };
+            if ("error" in plan) {
+              error = plan.error;
+            } else {
+              // No pending comment means a kept draft is gone, so it is drafted again.
+              if (!plan.publishOnly) draftText = null;
+              run = actionCommand({ kind, detail, body, method, publishOnly: plan.publishOnly });
+            }
+          }
+          if (error === null) {
+            const reply = await exec(cli, run.args, { timeout: CLI_TIMEOUT });
+            if (reply.code !== 0) {
+              error = cliError(command.name, reply);
+            } else if (run.then) {
+              draftText = body;
+              drafted = true;
+              const next = await exec(cli, run.then, { timeout: CLI_TIMEOUT });
+              if (next.code !== 0) error = cliError(command.name, next);
+            }
           }
         }
       } catch (caught) {
@@ -838,13 +892,17 @@ export default class PullRequests extends View {
       }
       const after = afterAction(kind, error === null);
       if (error !== null) {
-        this.setAction(key, { running: null, error: actionFailure(error, drafted), drafted });
+        this.finishRunning(key, { error: actionFailure(error, drafted), draftText });
       } else {
-        const done = kind === "request_changes" ? { drafted: false } : {};
-        this.setAction(key, { running: null, error: null, confirm: null, ...done, ...(after.clearComment ? { composing: null, text: "" } : {}) });
-        if (after.clearComment && this.shown?.key === key) this.bodyInput?.set_value("");
-        setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
+        const done = kind === "request_changes" ? { draftText: null } : {};
+        const inBox = this.boxKey === key;
+        const current = inBox ? (this.bodyInput?.value() ?? "") : this.actionState(key).text;
+        const clear = clearsComment(after, body, current);
+        this.finishRunning(key, { error: null, confirm: null, ...done, ...(clear ? { composing: null, text: "" } : {}) });
+        if (clear && inBox) this.bodyInput?.set_value("");
       }
+      // A failed action may still have reached the forge (a timeout), so the board reads it again either way.
+      setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
       // A refused head pin shows the new head after this read.
       const selected = readSelected();
       if (after.reread && selected?.key === key) this.loadPr(cx, selected);
@@ -876,7 +934,7 @@ export default class PullRequests extends View {
     const now = Date.now();
     const checkout = this.checkouts.get(shown.key) ?? { running: false, error: null };
     const act = this.actionState(shown.key);
-    const busy = act.running !== null;
+    const busy = this.runningOn(shown.key) !== null;
     const error = (this.actionError?.key === shown.key ? this.actionError.text : null) ?? checkout.error;
     const small = (text) => div().text_size(12).text_color(t.muted).child(text);
 
@@ -969,7 +1027,7 @@ export default class PullRequests extends View {
 
   /** Approve, Request changes, Comment and Merge, with the open composer or merge confirm under them. */
   reviewActions(t, key, detail, act) {
-    const enabled = act.running === null;
+    const enabled = this.runningOn(key) === null;
     // A null login leaves the buttons on; GitHub's own message then explains a refusal.
     const own = ownPr(detail.pr, this.login?.value ?? null);
     const cancel = (patch) => (_e, cx) => {
@@ -993,7 +1051,7 @@ export default class PullRequests extends View {
         v_flex()
           .gap(6)
           .child(div().text_size(12).font_semibold().child(act.composing === "request_changes" ? "Request changes" : "Comment"))
-          .when(act.composing === "request_changes" && act.drafted, (el) =>
+          .when(act.composing === "request_changes" && act.draftText !== null, (el) =>
             el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Your comment is already a pending review comment. Submit publishes it.")),
           )
           .child(textBox(t, "body", this.bodyInput, this.focused === "body"))
@@ -1014,7 +1072,7 @@ export default class PullRequests extends View {
           .child(
             h_flex()
               .gap(8)
-              .child(button(t, "confirm-merge", "Merge", (_e, cx) => this.runAction(cx, key, "merge", detail, "", method), { primary: true, enabled }))
+              .child(button(t, "confirm-merge", "Merge", (_e, cx) => this.runAction(cx, key, "merge", confirmedDetail(detail, act.confirm), "", method), { primary: true, enabled }))
               .child(button(t, "cancel-merge", "Cancel", cancel({ confirm: null }))),
           ),
       );
