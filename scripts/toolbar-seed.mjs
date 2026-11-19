@@ -16,31 +16,20 @@ const CHAR = 7;
 const GAP = 3;
 
 /**
- * The toolbar's estimated width in px: 10 px of padding, then per button its padding,
- * the icon (icons and both modes), about 7 px per label character (labels
- * and both modes) and a 3 px gap. A button without an icon shows its label
- * in every mode.
+ * The toolbar's estimated width in px: 10 px of padding, then per button its
+ * padding, the icon (when the panel has one and the mode is not labels) and
+ * about 7 px per label character (labels and both modes), and a 3 px gap
+ * between two buttons. A button without an icon shows its label in every mode.
  *
  * @param {{ label: string, icon?: string | null }[]} panels
  * @param {string} display "icons", "labels" or "both"; anything else counts as "both".
  */
 export function toolbarWidthFor(panels, display) {
   const mode = DISPLAYS.includes(display) ? display : "both";
-  return (
-    BAR_PAD +
-    panels.reduce((sum, panel) => {
-      const withIcon = mode === "both" || (mode === "icons" && Boolean(panel.icon));
-      const withLabel = mode !== "icons" || !panel.icon;
-      return sum + BUTTON_PAD + (withIcon ? ICON_SLOT : 0) + (withLabel ? CHAR * panel.label.length : 0) + GAP;
-    }, 0)
-  );
-}
-
-/**
- * The toolbar's width for buttons that show icon and label.
- *
- * @param {{ label: string }[]} panels
- */
-export function toolbarWidth(panels) {
-  return toolbarWidthFor(panels, "both");
+  const buttons = panels.reduce((sum, panel) => {
+    const withIcon = Boolean(panel.icon) && mode !== "labels";
+    const withLabel = mode !== "icons" || !panel.icon;
+    return sum + BUTTON_PAD + (withIcon ? ICON_SLOT : 0) + (withLabel ? CHAR * panel.label.length : 0);
+  }, 0);
+  return BAR_PAD + buttons + GAP * Math.max(0, panels.length - 1);
 }

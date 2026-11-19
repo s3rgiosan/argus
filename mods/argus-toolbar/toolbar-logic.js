@@ -3,6 +3,13 @@
 
 /** The ways a button shows: icon only, label only, or both. */
 export const DISPLAYS = ["icons", "labels", "both"];
+/** Errors that leave the other setting valid. */
+const ORDER_ERROR = "toolbar.order is not a list";
+const DISPLAY_ERROR = 'toolbar.display is not "icons", "labels" or "both"';
+/** How long to wait for a burst of changes to end before reading the file. */
+export const SETTLE_MS = 300;
+/** How long to wait between reads when the folder watch is not available. */
+export const POLL_MS = 5000;
 /** The toolbar's padding to the right of its buttons. */
 const BAR_PAD = 10;
 
@@ -63,11 +70,11 @@ export function toolbarSettings(text) {
   if (!isObject(toolbar)) return { ...result, error: "toolbar is not an object" };
   if ("order" in toolbar) {
     if (Array.isArray(toolbar.order)) result.order = toolbar.order.filter((id) => typeof id === "string" && id !== "");
-    else result.error = "toolbar.order is not a list";
+    else result.error = ORDER_ERROR;
   }
   if ("display" in toolbar) {
     if (DISPLAYS.includes(toolbar.display)) result.display = toolbar.display;
-    else result.error ??= 'toolbar.display is not "icons", "labels" or "both"';
+    else result.error ??= DISPLAY_ERROR;
   }
   return result;
 }
@@ -87,6 +94,40 @@ export function touchesFile(paths, dir, file) {
     const clean = path.replace(/\/+$/, "");
     return clean === root || clean === `${root}/${file}`;
   });
+}
+
+/**
+ * How long to wait after a batch from `watchFolder` before the next watch
+ * starts: a burst of changes to `file` settles first, an empty batch (the
+ * watch was given up) waits for the poll, and a batch about other files does
+ * not wait. The file is read when each new watch starts, so a save made during
+ * the wait is never missed.
+ *
+ * @param {string[]} paths
+ * @param {string} dir
+ * @param {string} file
+ * @returns {number} Milliseconds.
+ */
+export function waitAfter(paths, dir, file) {
+  if (paths.length === 0) return POLL_MS;
+  return touchesFile(paths, dir, file) ? SETTLE_MS : 0;
+}
+
+/**
+ * The toast for a settings `error` from `toolbarSettings`. An invalid
+ * `order` or `display` alone leaves the other setting as written; any other
+ * error means the whole file uses the defaults.
+ *
+ * @param {string} error
+ * @returns {{ title: string, body: string, level: "warning" }}
+ */
+export function badFileToast(error) {
+  const partial = error === ORDER_ERROR || error === DISPLAY_ERROR;
+  return {
+    title: partial ? "argus.json has invalid settings; using defaults for them" : "argus.json could not be read; using the default settings",
+    body: error,
+    level: "warning",
+  };
 }
 
 function isObject(value) {

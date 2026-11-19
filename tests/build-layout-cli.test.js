@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,4 +105,36 @@ test("keeps an existing layout state file", () => {
   writeFileSync(join(dir, "layouts", ".state", "argus.json"), '{"theme":"x"}');
   assert.equal(run(dir).status, 0);
   assert.equal(readFileSync(join(dir, "layouts", ".state", "argus.json"), "utf8"), '{"theme":"x"}');
+});
+
+const toolbarPx = (dir) => {
+  const find = (node) => (node.id === "argus-toolbar" ? node : (node.children ?? []).map(find).find(Boolean));
+  return find(JSON.parse(readFileSync(join(dir, "layouts", "Argus.json"), "utf8"))).size.px;
+};
+const withPanel = (dir, label = "Usage") => {
+  mkdirSync(join(dir, "mods", "argus-claude-usage"));
+  writeFileSync(join(dir, "mods", "argus-claude-usage", "mod.json"), JSON.stringify({ panel: { label, icon: "icons/x.svg" } }));
+};
+
+test("sizes the toolbar for the display set in argus.json", () => {
+  const dir = home();
+  withPanel(dir);
+  assert.equal(run(dir).status, 0);
+  const both = toolbarPx(dir);
+  rmSync(join(dir, "layouts", "Argus.json"));
+  writeFileSync(join(dir, "argus.json"), JSON.stringify({ toolbar: { display: "icons" } }));
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(toolbarPx(dir), 10 + 16 + 16);
+  assert.equal(both, 10 + 16 + 16 + 7 * 5);
+});
+
+test("an unreadable argus.json gives the default display and a warning", () => {
+  const dir = home();
+  withPanel(dir);
+  writeFileSync(join(dir, "argus.json"), "{bad");
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(toolbarPx(dir), 10 + 16 + 16 + 7 * 5);
+  assert.match(r.stderr, /^build-layout: argus\.json: .*; an invalid setting uses its default/m);
 });

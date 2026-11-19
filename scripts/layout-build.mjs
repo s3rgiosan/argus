@@ -3,6 +3,7 @@
 // tab bar and a panel column for this repo's panel mods.
 
 import { toolbarWidthFor } from "./toolbar-seed.mjs";
+import { compareNames } from "../lib/follow.js";
 
 export const TOOLBAR_ID = "argus-toolbar";
 /** The generated layout's name, which Herdr shows in Settings. */
@@ -74,7 +75,7 @@ export function panelsFromManifests(entries) {
       label: manifest.panel.label.trim(),
       icon: safeIcon(manifest.panel.icon) ? `mods/${name}/${manifest.panel.icon}` : null,
     }))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort((a, b) => compareNames(a.id, b.id));
 }
 
 /**
@@ -112,9 +113,10 @@ export function buildLayout(main, panels, { stayAwake = true, display = "both" }
         id: TOOLBAR_ID,
         type: "block",
         size: { px: toolbarWidthFor(panels, display) },
+        window_drag: true,
         content: { mod: TOOLBAR_ID, props: { panel: PANEL_ID, stack: STACK_ID, buttons: panels } },
       },
-      ...(stayAwake ? [{ id: STAY_AWAKE_ID, type: "block", size: { px: STAY_AWAKE_WIDTH }, content: { mod: STAY_AWAKE_ID } }] : []),
+      ...(stayAwake ? [{ id: STAY_AWAKE_ID, type: "block", size: { px: STAY_AWAKE_WIDTH }, window_drag: true, content: { mod: STAY_AWAKE_ID } }] : []),
     ],
   };
 

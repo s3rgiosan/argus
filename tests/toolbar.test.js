@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isOpen, clickCommands, toolbarSettings, touchesFile, measuredResize, DISPLAYS } from "../mods/argus-toolbar/toolbar-logic.js";
+import { isOpen, clickCommands, toolbarSettings, touchesFile, measuredResize, DISPLAYS, waitAfter, badFileToast, SETTLE_MS, POLL_MS } from "../mods/argus-toolbar/toolbar-logic.js";
 
 const tree = (hidden, active) => ({
   id: "root",
@@ -148,4 +148,38 @@ test("measuredResize: null without the block, without a usable measure or withou
   for (const bad of [0, -5, NaN, Infinity, null, undefined, "200"]) assert.equal(measuredResize(sized(100), "argus-toolbar", bad), null, String(bad));
   assert.equal(measuredResize({ id: "root", children: [{ id: "argus-toolbar", size: { weight: 1 } }] }, "argus-toolbar", 200), 210);
   assert.equal(measuredResize(null, "argus-toolbar", 200), null);
+});
+
+const DIR = "/home/x/.config/herdr-app";
+
+test("waitAfter: a batch that names the file or the folder settles first", () => {
+  assert.equal(waitAfter([`${DIR}/argus.json`], DIR, "argus.json"), SETTLE_MS);
+  assert.equal(waitAfter([DIR], DIR, "argus.json"), SETTLE_MS);
+});
+
+test("waitAfter: an empty batch (the watch was given up) waits for the poll", () => {
+  assert.equal(waitAfter([], DIR, "argus.json"), POLL_MS);
+});
+
+test("waitAfter: a batch about other files does not wait", () => {
+  assert.equal(waitAfter([`${DIR}/shared.json`], DIR, "argus.json"), 0);
+});
+
+test("badFileToast: invalid JSON or shape falls back for the whole file and shows the reason", () => {
+  for (const text of ["{bad", "[]", '{ "toolbar": 3 }']) {
+    const result = toolbarSettings(text);
+    const toast = badFileToast(result.error);
+    assert.equal(toast.title, "argus.json could not be read; using the default settings", text);
+    assert.equal(toast.body, result.error, text);
+    assert.equal(toast.level, "warning");
+  }
+});
+
+test("badFileToast: one invalid setting says only the invalid settings use defaults", () => {
+  for (const text of ['{ "toolbar": { "order": "a" } }', '{ "toolbar": { "display": "text" } }']) {
+    const result = toolbarSettings(text);
+    const toast = badFileToast(result.error);
+    assert.equal(toast.title, "argus.json has invalid settings; using defaults for them", text);
+    assert.equal(toast.body, result.error, text);
+  }
 });
