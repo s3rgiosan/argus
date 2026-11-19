@@ -60,7 +60,7 @@ const names = (dir) => readdirSync(join(dir, "layouts")).sort();
 test("writes layouts/Argus.json", () => {
   const dir = home();
   assert.equal(run(dir).status, 0);
-  assert.deepEqual(names(dir), ["Argus.json", "main.json"]);
+  assert.deepEqual(names(dir), ["Argus.json", "Argus.svg", "main.json"]);
   assert.equal(JSON.parse(readFileSync(join(dir, "layouts", "Argus.json"), "utf8")).generated_by, "argus");
 });
 
@@ -69,7 +69,7 @@ test("renames a generated argus.json to Argus.json and leaves one file", () => {
   writeFileSync(join(dir, "layouts", "argus.json"), JSON.stringify({ id: "old", generated_by: "argus" }));
   const r = run(dir);
   assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(names(dir), ["Argus.json", "main.json"]);
+  assert.deepEqual(names(dir), ["Argus.json", "Argus.svg", "main.json"]);
   assert.equal(JSON.parse(readFileSync(join(dir, "layouts", "Argus.json"), "utf8")).id, "root");
 });
 
@@ -81,4 +81,11 @@ test("refuses an argus.json it did not write", () => {
   assert.match(r.stderr, /argus\.json was not written by this script/);
   assert.deepEqual(names(dir), ["argus.json", "main.json"]);
   assert.equal(JSON.parse(readFileSync(join(dir, "layouts", "argus.json"), "utf8")).id, "mine");
+});
+
+test("sets the preview picture and copies it next to the layout", () => {
+  const dir = home();
+  assert.equal(run(dir).status, 0);
+  assert.equal(JSON.parse(readFileSync(join(dir, "layouts", "Argus.json"), "utf8")).preview, "layouts/Argus.svg");
+  assert.match(readFileSync(join(dir, "layouts", "Argus.svg"), "utf8"), /^<svg /);
 });

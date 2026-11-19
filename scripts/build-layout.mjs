@@ -6,10 +6,11 @@
 //
 //   node scripts/build-layout.mjs [--name Argus] [--switch]
 
-import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync, copyFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildLayout, panelsFromManifests, planLayoutFile, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";
 
 const MARKER = "argus";
@@ -97,7 +98,9 @@ if (plan.migrate) {
 }
 if (plan.removeLegacy) rmSync(join(layouts, `${LEGACY_NAME}.json`));
 
-writeFileSync(target, JSON.stringify({ ...layout, generated_by: MARKER }, null, 2) + "\n");
+const preview = `layouts/${name}.svg`;
+copyFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "layouts", "Argus.svg"), join(layouts, `${name}.svg`));
+writeFileSync(target, JSON.stringify({ ...layout, preview, generated_by: MARKER }, null, 2) + "\n");
 console.log(`${name}: ${panels.length} panel(s): ${panels.map((p) => p.label).join(", ") || "none"}`);
 
 // A shown layout that was just renamed would no longer exist, so show the new one.

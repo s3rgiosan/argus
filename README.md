@@ -40,7 +40,7 @@ Herdr places mods only through layouts, and it replaces its own layouts on every
 - a toolbar beside the tab bar, with one button per installed mod that declares a panel. The buttons sort A to Z by label; right-click a button and pick Argus Settings to set another order;
 - a panel column on the right, hidden until a button opens it. It opens 440 px wide, and you can drag it between 280 and 900 px.
 
-A layout written by an earlier version as `argus.json` is renamed to `Argus.json`, and the shown layout switches to it.
+The layout shows in Herdr's Settings under Look with a preview picture (`layouts/Argus.svg`). A layout written by an earlier version as `argus.json` is renamed to `Argus.json`, and the shown layout switches to it.
 
 Theme picks are kept per layout, so pick your theme once in `Argus`.
 
@@ -58,7 +58,7 @@ Run `build-layout.mjs` again after a Herdr update too: it rebuilds from Herdr's 
 
 ```sh
 herdr-app do layout.switch '{"name":"main"}'
-rm ~/.config/herdr-app/layouts/Argus.json
+rm ~/.config/herdr-app/layouts/Argus.json ~/.config/herdr-app/layouts/Argus.svg
 rm -r ~/.config/herdr-app/mods/argus-stay-awake ~/.config/herdr-app/mods/argus-claude-usage ~/.config/herdr-app/mods/argus-toolbar ~/.config/herdr-app/mods/argus-tsk
 ```
 

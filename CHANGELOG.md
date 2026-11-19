@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Argus layout has a preview picture in Herdr's Settings under Look, drawn in `layouts/Argus.svg` and copied next to the layout by `scripts/build-layout.mjs`.
 - The `argus-settings` mod adds an Argus Settings popup with a Toolbar section, where you move each panel button up or down and save the order.
 - Right-clicking a toolbar button opens a menu with Argus Settings.
 - The toolbar sorts its buttons by the saved order, and by label from A to Z when no order is saved or for a button not in it.
