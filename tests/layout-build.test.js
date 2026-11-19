@@ -62,7 +62,8 @@ test("adds a hidden panel column with one block per panel", () => {
   const body = find(out, "work-body");
   assert.deepEqual(body.children.map((c) => c.id), ["main", "panel", "argus-panel"]);
   const column = find(out, "argus-panel");
-  assert.deepEqual([column.type, column.size, column.hidden], ["column", { px: 440 }, true]);
+  assert.deepEqual([column.type, column.size, column.hidden], ["column", { px: 368 }, true]);
+  assert.deepEqual([column.min, column.max], [280, 900]);
   const stack = find(out, "argus-panels");
   assert.equal(stack.type, "stack");
   assert.equal(stack.active, "argus-claude-usage");
@@ -70,6 +71,33 @@ test("adds a hidden panel column with one block per panel", () => {
     ["argus-claude-usage", { mod: "argus-claude-usage" }],
     ["ports", { mod: "ports" }],
   ]);
+});
+
+test("the panel column copies size, min and max from Herdr's panel block", () => {
+  const source = main();
+  Object.assign(find(source, "panel"), { size: { px: 412 }, min: 300, max: 760 });
+  const column = find(buildLayout(source, panels), "argus-panel");
+  assert.deepEqual([column.size, column.min, column.max], [{ px: 412 }, 300, 760]);
+});
+
+test("the panel column falls back to 368, 280 and 900 without a Herdr panel block", () => {
+  const source = main();
+  const body = find(source, "work-body");
+  body.children = body.children.filter((child) => child.id !== "panel");
+  const column = find(buildLayout(source, panels), "argus-panel");
+  assert.deepEqual([column.size, column.min, column.max], [{ px: 368 }, 280, 900]);
+});
+
+test("a Herdr panel block with only a size keeps the default min and max", () => {
+  const column = find(buildLayout(main(), panels), "argus-panel");
+  assert.deepEqual([column.size, column.min, column.max], [{ px: 368 }, 280, 900]);
+});
+
+test("the copied panel size does not share objects with the input", () => {
+  const source = main();
+  const column = find(buildLayout(source, panels), "argus-panel");
+  column.size.px = 1;
+  assert.equal(find(source, "panel").size.px, 368);
 });
 
 test("toolbar width follows the labels", () => {

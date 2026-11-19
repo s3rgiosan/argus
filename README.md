@@ -40,7 +40,7 @@ Herdr places mods only through layouts, and it replaces its own layouts on every
 
 - a coffee-cup button at the right end of the tab bar, from `argus-stay-awake`, that keeps the display awake;
 - a toolbar beside the tab bar, with one button per installed mod that declares a panel. The buttons sort A to Z by label, or in the order set in `argus.json`;
-- a panel column on the right, hidden until a button opens it. It opens 440 px wide, and you can drag it between 280 and 900 px.
+- a panel column on the right, hidden until a button opens it. It takes its width and drag limits from Herdr's own `panel` block in `main.json` (368 px, 280 to 900 px today).
 
 The layout shows in Herdr's Settings under Look with a preview picture (`layouts/Argus.svg`). A layout written by an earlier version as `argus.json` is renamed to `Argus.json`, and the shown layout switches to it.
 

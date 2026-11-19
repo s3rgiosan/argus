@@ -13,8 +13,8 @@ export const STAY_AWAKE_ID = "argus-stay-awake";
 export const PANEL_ID = "argus-panel";
 export const STACK_ID = "argus-panels";
 const ROW_ID = "argus-tabs-row";
-// The panel opens at PANEL_WIDTH and drags between PANEL_MIN and PANEL_MAX.
-const PANEL_WIDTH = 440;
+// The panel column's size, min and max used when Herdr's layout has no panel block (or leaves one out).
+const PANEL_WIDTH = 368;
 const PANEL_MIN = 280;
 const PANEL_MAX = 900;
 /** The keep-awake block's width in px: one 30 px icon button and 10 px of padding. */
@@ -80,7 +80,8 @@ export function panelsFromManifests(entries) {
 /**
  * Returns a new layout: `main` with the keep-awake button and the toolbar
  * beside its `tabs` block and a hidden panel column at the end of its
- * `work-body` row.
+ * `work-body` row. The column copies its size, min and max from Herdr's own
+ * `panel` block.
  *
  * @param {object} main Herdr's layouts/main.json.
  * @param {{ id: string, label: string, icon: string | null }[]} panels
@@ -120,9 +121,7 @@ export function buildLayout(main, panels, { stayAwake = true, display = "both" }
   body.children.push({
     id: PANEL_ID,
     type: "column",
-    size: { px: PANEL_WIDTH },
-    min: PANEL_MIN,
-    max: PANEL_MAX,
+    ...panelSize(find(main, "panel")),
     hidden: true,
     children: [
       {
@@ -135,6 +134,23 @@ export function buildLayout(main, panels, { stayAwake = true, display = "both" }
   });
 
   return out;
+}
+
+/**
+ * The size, min and max of the panel column: copied from Herdr's `panel`
+ * block, and the defaults for whatever that block leaves out.
+ *
+ * @param {object | null} herdrPanel
+ * @returns {{ size: object, min: number, max: number }}
+ */
+function panelSize(herdrPanel) {
+  const size = herdrPanel?.size;
+  const usable = size && typeof size === "object" && !Array.isArray(size);
+  return {
+    size: usable ? structuredClone(size) : { px: PANEL_WIDTH },
+    min: Number.isFinite(herdrPanel?.min) ? herdrPanel.min : PANEL_MIN,
+    max: Number.isFinite(herdrPanel?.max) ? herdrPanel.max : PANEL_MAX,
+  };
 }
 
 /** An icon path that stays inside the mod's folder. */
