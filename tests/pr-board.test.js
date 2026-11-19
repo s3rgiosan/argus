@@ -88,10 +88,10 @@ test("buildGroups orders groups and rows", () => {
   assert.deepEqual(
     groups.map((g) => [g.id, g.title]),
     [
-      ["ready", "READY TO MERGE"],
-      ["needsWork", "NEEDS WORK"],
-      ["waiting", "WAITING ON REVIEW"],
-      ["draft", "DRAFT"],
+      ["ready", "Ready to merge"],
+      ["needsWork", "Needs work"],
+      ["waiting", "Waiting on review"],
+      ["draft", "Draft"],
     ],
   );
   assert.deepEqual(groups[0].prs.map((p) => p.number), [6, 5, 4]);

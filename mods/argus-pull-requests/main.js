@@ -15,7 +15,9 @@ import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, iconButton, row, scrollArea, field, footer, sectionTitle, note, button } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, scrollArea, field, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { probeIcons, iconResolver } from "./icons.js";
+import { menuKey, startAt } from "./menu.js";
 
 const BOARD_KEY = "argus-pull-requests.board";
 const SCOPE_KEY = "argus-pull-requests.scope";
@@ -31,7 +33,7 @@ const LOCK_RETRY = 1_000;
 const GIT_LONG_TIMEOUT = 600_000;
 const SCOPES_WIDTH = 280;
 const SCOPES_HEIGHT = 420;
-const ICON = (name) => `mods/argus-pull-requests/icons/${name}.svg`;
+const ICON = (name) => `mods/${MOD}/icons/${name}.svg`;
 
 /**
  * The board lives in `shared` (`argus-pull-requests.board`), so every open copy draws one
@@ -59,12 +61,25 @@ export default class PullRequests extends View {
     this.actionError = null;
 
     const settings = readSettings();
+    // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
+    this.found = new Set();
+    // Whether this copy is reading the board now.
+    this.reading = false;
+    // The scope list's highlighted row; null until a key moves it.
+    this.at = null;
+    this.handle = cx.focus_handle();
     this.filterInput = this.input("filter", { placeholder: "Filter by title, number, author or branch" }, () => {});
     this.filterInput.on("change", (_e, cx) => cx.notify());
     this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
 
     if (checking()) return;
+    if (this.view === "scopes") this.handle.focus();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      this.found = await probeIcons(readTextFile, appHome());
+      cx.notify();
+    });
     if (this.view === "pr") {
       cx.timer.every(POLL, (cx) => {
         const selected = readSelected();
@@ -191,11 +206,14 @@ export default class PullRequests extends View {
       this.force = false;
       this.forceKeys = null;
       read = true;
+      this.reading = true;
+      cx.notify();
 
       const next = await this.readBoard(startedAt);
       if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
       setShared(BOARD_KEY, next);
     } finally {
+      this.reading = false;
       this.releaseLock();
       const again = this.gate.finish();
       if (read) cx.notify();
@@ -420,12 +438,13 @@ export default class PullRequests extends View {
     const selected = readSelected()?.key ?? null;
     const now = Date.now();
 
+    const icon = iconResolver(MOD, this.found);
     const scopeButton = h_flex()
       .id("scope")
       .h(26)
       .px(8)
       .gap(4)
-      .flex_none()
+      .min_w(0)
       .items_center()
       .rounded(6)
       .max_w(150)
@@ -435,19 +454,22 @@ export default class PullRequests extends View {
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click(() => openScopes())
       .child(div().min_w(0).truncate().child(scopeTitle(scope, board, followed)))
-      .child(svg(ICON("chevron-down")).size(12).flex_none());
-    const head = header(t, "Pull requests", [
-      scopeButton,
-      div().flex_none().text_size(11).text_color(t.dim).child(String(unfollowed ? 0 : shown.length)),
-      iconButton(t, "refresh", ICON("refresh-cw"), (_e, cx) => {
+      .child(svg(icon("chevron-down")).size(12).flex_none());
+    const refresh = iconButton(
+      t,
+      "refresh",
+      ICON("refresh-cw"),
+      (_e, cx) => {
         // Looks for gh and glab again too, in case they were installed or updated.
         this.located = { gh: null, glab: null };
         this.login = null;
         this.repoCache.clear();
         this.refresh(cx);
-      }),
-      iconButton(t, "settings", ICON("settings"), (_e, cx) => this.openSettings(cx)),
-    ]);
+      },
+      { busy: this.reading },
+    );
+    const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx));
+    const head = header(t, "Pull requests", [scopeButton, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
 
     const parts = board.notes.map((message, index) => div().id(`note-${index}`).px(8).py(6).text_size(12).text_color(t.blocked).whitespace_normal().child(message));
     if (unfollowed) {
@@ -471,37 +493,53 @@ export default class PullRequests extends View {
     const board = readBoard();
     const items = scopeItems(board, followedOf(board));
     const current = readScope();
-    const item = (entry) =>
-      row(t, `scope-${entry.key}`, { selected: sameScope(entry.scope, current) })
-        .cursor_pointer()
-        .on_click(() => pickScope(entry.scope))
-        .child(div().flex_1().min_w(0).truncate().child(entry.label))
-        .child(div().flex_none().text_size(11).text_color(t.dim).child(String(entry.count)));
+    const icon = iconResolver(MOD, this.found);
+    const entries = [items.needsReview, items.mine, items.follow, ...items.projects];
+    const active = this.at ?? startAt(entries.map((entry) => ({ current: sameScope(entry.scope, current) })));
+    const item = (entry, index) =>
+      menuRow(t, `scope-${entry.key}`, {
+        label: entry.label,
+        count: String(entry.count),
+        active: index === active,
+        current: sameScope(entry.scope, current),
+        tick: icon("check"),
+        onClick: () => pickScope(entry.scope),
+      });
 
-    const parts = [item(items.needsReview), item(items.mine), item(items.follow)];
+    const parts = [item(items.needsReview, 0), item(items.mine, 1), item(items.follow, 2)];
     if (items.projects.length > 0) {
       parts.push(sectionTitle(t, "Projects"));
-      for (const entry of items.projects) parts.push(item(entry));
+      items.projects.forEach((entry, index) => parts.push(item(entry, 3 + index)));
     }
     // A popup is as tall as its content, up to the height it was opened with,
     // so the list gets an explicit height for its rows and section title.
-    const height = Math.min(SCOPES_HEIGHT, 12 + (3 + items.projects.length) * 28 + (items.projects.length > 0 ? 30 : 0));
+    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + entries.length * MENU_ROW + (items.projects.length > 0 ? 30 : 0));
     return v_flex()
       .id("argus-pull-requests-scopes")
+      .track_focus(this.handle)
       .w_full()
       .h(height)
       .bg(t.popover)
       .text_color(t.foreground)
-      .text_size(13)
-      .child(scrollArea("argus-pull-requests-scope-list", parts, { padding: 6 }));
+      .text_size(12.8)
+      .on_key_down((e, cx) => {
+        const next = menuKey(active, e.key, entries.length);
+        if (!next.handled) return;
+        this.at = next.at;
+        if (next.action === "pick") pickScope(entries[next.at].scope);
+        else if (next.action === "close") closeOverlay(props()?.overlay);
+        cx.notify();
+      })
+      .child(scrollArea("argus-pull-requests-scope-list", parts, { padding: MENU_PAD }));
   }
 
   renderSettings(t) {
     const settings = readSettings();
-    const back = iconButton(t, "back", ICON("chevron-left"), (_e, cx) => {
+    const icon = iconResolver(MOD, this.found);
+    const back = (_e, cx) => {
       this.view = "board";
       cx.notify();
-    });
+    };
     const hint = (text) => div().px(8).text_size(11).text_color(t.dim).child(text);
     const parts = [
       sectionTitle(t, "gh command"),
@@ -514,21 +552,18 @@ export default class PullRequests extends View {
       h_flex()
         .px(8)
         .py(4)
-        .gap(4)
-        .children(
-          INTERVALS.map((minutes) =>
-            row(t, `interval-${minutes}`, { selected: minutes === settings.interval })
-              .cursor_pointer()
-              .px(10)
-              .text_size(12)
-              .text_color(minutes === settings.interval ? t.foreground : t.muted)
-              .on_click(() => setShared(SETTINGS_KEY, { ...readSettings(), interval: minutes }))
-              .child(`${minutes} min`),
+        .child(
+          segmented(
+            t,
+            "interval",
+            INTERVALS.map((minutes) => ({ value: minutes, label: `${minutes} min` })),
+            settings.interval,
+            (minutes) => setShared(SETTINGS_KEY, { ...readSettings(), interval: minutes }),
           ),
         ),
     ];
     return frame(t, "argus-pull-requests-settings")
-      .child(h_flex().h(42).flex_none().pl(8).pr(14).gap(4).items_center().border_b(1).border_color(t.border).child(back).child(div().font_semibold().child("Settings")))
+      .child(subHeader(t, back, "Settings", icon("chevron-left")))
       .child(scrollArea("argus-pull-requests-settings-list", parts, { padding: 6 }));
   }
 
@@ -688,7 +723,7 @@ export default class PullRequests extends View {
       .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")));
 
     const text = (value) => div().px(8).py(2).whitespace_normal().child(value);
-    const parts = [sectionTitle(t, "CHECKS")];
+    const parts = [sectionTitle(t, "Checks")];
     if (detail.checks.length === 0) parts.push(note(t, "No checks"));
     for (const [index, check] of detail.checks.entries()) {
       const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.muted;
@@ -703,7 +738,7 @@ export default class PullRequests extends View {
           .child(div().flex_1().min_w(0).whitespace_normal().child(check.name)),
       );
     }
-    parts.push(sectionTitle(t, "REVIEWS"));
+    parts.push(sectionTitle(t, "Reviews"));
     if (detail.reviewers.length === 0) parts.push(note(t, "No reviews yet"));
     for (const [index, reviewer] of detail.reviewers.entries()) {
       parts.push(
@@ -716,12 +751,12 @@ export default class PullRequests extends View {
           .child(div().flex_none().text_color(reviewer.state === "changes_requested" ? t.blocked : t.muted).child(REVIEW_WORDS[reviewer.state] ?? reviewer.state)),
       );
     }
-    parts.push(sectionTitle(t, "MERGE STATE"), text(MERGE_WORDS[detail.merge.state] ?? "Not checked yet"));
+    parts.push(sectionTitle(t, "Merge state"), text(MERGE_WORDS[detail.merge.state] ?? "Not checked yet"));
     if (detail.merge.reason) parts.push(div().px(8).py(2).text_size(12).text_color(t.muted).whitespace_normal().child(detail.merge.reason));
-    parts.push(sectionTitle(t, "DESCRIPTION"));
+    parts.push(sectionTitle(t, "Description"));
     const body = detail.body.trim();
     parts.push(body === "" ? note(t, "No description") : text(detail.body));
-    parts.push(sectionTitle(t, "CONVERSATION"));
+    parts.push(sectionTitle(t, "Conversation"));
     if (detail.conversation.length === 0) parts.push(note(t, "No comments"));
     for (const [index, entry] of detail.conversation.entries()) {
       parts.push(

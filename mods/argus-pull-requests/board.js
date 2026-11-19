@@ -18,10 +18,10 @@ export { compareNames };
  */
 
 const GROUPS = [
-  { id: "ready", title: "READY TO MERGE" },
-  { id: "needsWork", title: "NEEDS WORK" },
-  { id: "waiting", title: "WAITING ON REVIEW" },
-  { id: "draft", title: "DRAFT" },
+  { id: "ready", title: "Ready to merge" },
+  { id: "needsWork", title: "Needs work" },
+  { id: "waiting", title: "Waiting on review" },
+  { id: "draft", title: "Draft" },
 ];
 
 const MINUTE = 60;
