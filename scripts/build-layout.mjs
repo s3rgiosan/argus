@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Writes the Argus layout: Herdr's shipped main layout plus a keep-awake
 // button and a toolbar beside the tab bar, a panel column for the installed
-// panel mods, and Argus's copy of the pane header (`argus-pane`). Run it again after a Herdr update or after installing
+// panel mods, and Argus's copies of the pane header (`argus-pane`) and the
+// sidebar (`argus-spaces`). Run it again after a Herdr update or after installing
 // a mod.
 //
 //   node scripts/build-layout.mjs [--name Argus] [--switch]
@@ -13,6 +14,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { toolbarSettings } from "../mods/argus-toolbar/toolbar-logic.js";
 import { PANE_HEADER, SHIPPED_HEADER, PaneHeaderError, ownsHeader, paneHeaderManifest, patchPaneHeader, useHeader } from "./pane-header.mjs";
+import { SIDEBAR, SHIPPED_SIDEBAR, SidebarError, ownsSidebar, sidebarManifest, patchSidebar, useSidebar } from "./sidebar.mjs";
 import { buildLayout, panelsFromManifests, planLayoutFile, planStateFile, ArgusBlocksError, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";
 
 const MARKER = "argus";
@@ -163,38 +165,45 @@ function syntaxError(source) {
 }
 
 /**
- * Writes Argus's pane header again from Herdr's shipped one, so a Herdr update
- * reaches it on the next run. No shipped header writes nothing and is no error.
- * The copy's folder may be missing, empty, or one this script wrote.
+ * Writes an Argus copy of a shipped mod again from the shipped files, so a Herdr
+ * update reaches it on the next run. A missing shipped mod writes nothing and is
+ * no error. The copy's folder may be missing, empty, or one this script wrote.
+ * @param {{ shipped: string, copy: string, what: string, patch: (source: string) => string,
+ *   manifest: (shipped: object) => object, owns: (manifest: object | null) => boolean, PatchError: Function }} spec
  * @returns {{ written: boolean, error: string | null }}
  */
-function writePaneHeader() {
+function writeCopy({ shipped, copy: name, what, patch, manifest, owns, PatchError }) {
   let source;
   try {
-    source = readFileSync(join(modsDir, SHIPPED_HEADER, "main.js"), "utf8");
+    source = readFileSync(join(modsDir, shipped, "main.js"), "utf8");
   } catch {
     return { written: false, error: null };
   }
-  const copy = join(modsDir, PANE_HEADER);
+  const copy = join(modsDir, name);
   if (existsSync(copy)) {
-    const empty = statSync(copy).isDirectory() && readdirSync(copy).length === 0;
-    if (!empty && !ownsHeader(readJson(join(copy, "mod.json")))) {
+    let empty;
+    try {
+      empty = statSync(copy).isDirectory() && readdirSync(copy).length === 0;
+    } catch (error) {
+      return { written: false, error: `cannot read ${copy} (${error.message})` };
+    }
+    if (!empty && !owns(readJson(join(copy, "mod.json")))) {
       return { written: false, error: `${copy} exists and was not written by this script` };
     }
   }
   let patched;
   try {
-    patched = patchPaneHeader(source);
+    patched = patch(source);
   } catch (error) {
-    if (error instanceof PaneHeaderError) return { written: false, error: error.message };
+    if (error instanceof PatchError) return { written: false, error: error.message };
     throw error;
   }
   const parse = syntaxError(patched);
-  if (parse !== null) return { written: false, error: `the patched pane header does not parse (${parse})` };
+  if (parse !== null) return { written: false, error: `the patched ${what} does not parse (${parse})` };
   try {
     mkdirSync(copy, { recursive: true });
     // mod.json goes first: its marker lets the next run repair a copy that stopped half way.
-    writeFileSync(join(copy, "mod.json"), JSON.stringify(paneHeaderManifest(readJson(join(modsDir, SHIPPED_HEADER, "mod.json")) ?? {}), null, 2) + "\n");
+    writeFileSync(join(copy, "mod.json"), JSON.stringify(manifest(readJson(join(modsDir, shipped, "mod.json")) ?? {}), null, 2) + "\n");
     writeFileSync(join(copy, "main.js"), patched);
   } catch (error) {
     return { written: false, error: `cannot write ${copy} (${error.message})` };
@@ -202,9 +211,21 @@ function writePaneHeader() {
   return { written: true, error: null };
 }
 
-const header = writePaneHeader();
-if (header.error !== null) console.error(`build-layout: ${header.error}; the layout uses Herdr's pane header`);
-if (header.written) layout = useHeader(layout, PANE_HEADER);
+const copies = [
+  {
+    spec: { shipped: SHIPPED_HEADER, copy: PANE_HEADER, what: "pane header", patch: patchPaneHeader, manifest: paneHeaderManifest, owns: ownsHeader, PatchError: PaneHeaderError },
+    use: (out) => useHeader(out, PANE_HEADER),
+  },
+  {
+    spec: { shipped: SHIPPED_SIDEBAR, copy: SIDEBAR, what: "sidebar", patch: patchSidebar, manifest: sidebarManifest, owns: ownsSidebar, PatchError: SidebarError },
+    use: (out) => useSidebar(out, SIDEBAR),
+  },
+];
+for (const { spec, use } of copies) {
+  const result = writeCopy(spec);
+  if (result.error !== null) console.error(`build-layout: ${result.error}; the layout uses Herdr's ${spec.what}`);
+  if (result.written) layout = use(layout);
+}
 
 const preview = `layouts/${name}.svg`;
 copyFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "layouts", "Argus.svg"), join(layouts, `${name}.svg`));

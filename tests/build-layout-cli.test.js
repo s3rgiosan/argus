@@ -158,6 +158,8 @@ const SHIPPED_HEADER = `import { panes, props, run, theme, home, layout } from "
 export default class Pane {
   render() {
     const name = p.title || "shell";
+    return div()
+      .child(div().flex_none().truncate().max_w(260).child(name));
   }
 }
 `;
@@ -264,4 +266,126 @@ test("pane header: no shipped header leaves the layout as it is", () => {
   assert.equal(r.status, 0);
   assert.equal(r.stderr, "");
   assert.equal(headerMod(dir), "pane");
+});
+
+// Argus's copy of the sidebar
+const SIDEBAR_MAIN = {
+  id: "root",
+  type: "row",
+  children: [
+    { id: "spaces", type: "block", content: { mod: "spaces" } },
+    { id: "work", type: "column", children: [{ id: "tabs", type: "block" }, { id: "work-body", type: "row", children: [] }] },
+  ],
+};
+const SHIPPED_SIDEBAR = `export default class Spaces {
+  gitTail(g) {
+    const where = [g.name, g.branch].filter(Boolean).join(" · ");
+    return [where, g.ahead, g.behind];
+  }
+}
+`;
+function withSidebar(source = SHIPPED_SIDEBAR) {
+  const dir = home({ main: SIDEBAR_MAIN });
+  mkdirSync(join(dir, "mods", "spaces"));
+  writeFileSync(join(dir, "mods", "spaces", "main.js"), source);
+  writeFileSync(join(dir, "mods", "spaces", "mod.json"), JSON.stringify({ place: "none", title: "Spaces" }));
+  return dir;
+}
+const sidebarMod = (dir) => JSON.parse(readFileSync(join(dir, "layouts", "Argus.json"), "utf8")).children[0].content.mod;
+
+test("sidebar: writes the copy and points the layout at it", () => {
+  const dir = withSidebar();
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(readFileSync(join(dir, "mods", "argus-spaces", "main.js"), "utf8"), /^    const where = "";$/m);
+  assert.equal(JSON.parse(readFileSync(join(dir, "mods", "argus-spaces", "mod.json"), "utf8")).title, "Spaces (Argus)");
+  assert.equal(sidebarMod(dir), "argus-spaces");
+});
+
+test("sidebar: a changed shipped sidebar keeps the shipped one, with a message", () => {
+  const dir = withSidebar(SHIPPED_SIDEBAR.replace("gitTail(g)", "tail(g)"));
+  const r = run(dir);
+  assert.equal(r.status, 0);
+  assert.match(r.stderr, /^build-layout: Herdr's sidebar changed .*; the layout uses Herdr's sidebar/m);
+  assert.equal(existsSync(join(dir, "mods", "argus-spaces")), false);
+  assert.equal(sidebarMod(dir), "spaces");
+});
+
+test("sidebar: a folder this script did not write is left alone", () => {
+  const dir = withSidebar();
+  mkdirSync(join(dir, "mods", "argus-spaces"));
+  writeFileSync(join(dir, "mods", "argus-spaces", "main.js"), "// someone else's");
+  const r = run(dir);
+  assert.match(r.stderr, /argus-spaces exists and was not written by this script; the layout uses Herdr's sidebar/);
+  assert.equal(readFileSync(join(dir, "mods", "argus-spaces", "main.js"), "utf8"), "// someone else's");
+  assert.equal(sidebarMod(dir), "spaces");
+});
+
+test("sidebar: no shipped sidebar leaves the layout as it is", () => {
+  const dir = home({ main: SIDEBAR_MAIN });
+  const r = run(dir);
+  assert.equal(r.status, 0);
+  assert.equal(r.stderr, "");
+  assert.equal(existsSync(join(dir, "mods", "argus-spaces")), false);
+  assert.equal(sidebarMod(dir), "spaces");
+});
+
+// Both copies in one run
+const BOTH_MAIN = {
+  id: "root",
+  type: "row",
+  children: [
+    { id: "spaces", type: "block", content: { mod: "spaces" } },
+    HEADER_MAIN.children[0],
+  ],
+};
+function withBoth({ header = SHIPPED_HEADER, sidebar = SHIPPED_SIDEBAR } = {}) {
+  const dir = home({ main: BOTH_MAIN });
+  for (const [name, source, title] of [["pane", header, "Pane header"], ["spaces", sidebar, "Spaces"]]) {
+    mkdirSync(join(dir, "mods", name));
+    writeFileSync(join(dir, "mods", name, "main.js"), source);
+    writeFileSync(join(dir, "mods", name, "mod.json"), JSON.stringify({ place: "none", title }));
+  }
+  return dir;
+}
+const bothMods = (dir) => {
+  const layout = JSON.parse(readFileSync(join(dir, "layouts", "Argus.json"), "utf8"));
+  return [layout.children[0].content.mod, layout.children[1].children[1].children[0].content.pane.header.content.mod];
+};
+
+test("both copies: one run writes both and the layout uses both", () => {
+  const dir = withBoth();
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(bothMods(dir), ["argus-spaces", "argus-pane"]);
+});
+
+test("both copies: a failing pane header still writes the sidebar", () => {
+  const dir = withBoth({ header: SHIPPED_HEADER.replace("const name =", "const label =") });
+  const r = run(dir);
+  assert.equal(r.status, 0);
+  assert.match(r.stderr, /the layout uses Herdr's pane header/);
+  assert.doesNotMatch(r.stderr, /sidebar/);
+  assert.deepEqual(bothMods(dir), ["argus-spaces", "pane"]);
+});
+
+test("both copies: a failing sidebar still writes the pane header", () => {
+  const dir = withBoth({ sidebar: SHIPPED_SIDEBAR.replace("gitTail(g)", "tail(g)") });
+  const r = run(dir);
+  assert.equal(r.status, 0);
+  assert.match(r.stderr, /the layout uses Herdr's sidebar/);
+  assert.deepEqual(bothMods(dir), ["spaces", "argus-pane"]);
+});
+
+test("both copies: a copy folder it cannot read keeps that shipped mod, and the other copy is written", () => {
+  const dir = withBoth();
+  mkdirSync(join(dir, "mods", "argus-spaces"));
+  writeFileSync(join(dir, "mods", "argus-spaces", "mod.json"), JSON.stringify({ generated_by: "argus" }));
+  chmodSync(join(dir, "mods", "argus-spaces"), 0o000);
+  const r = run(dir);
+  chmodSync(join(dir, "mods", "argus-spaces"), 0o755);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /^build-layout: cannot read .*argus-spaces.*; the layout uses Herdr's sidebar/m);
+  assert.doesNotMatch(r.stderr, /\n\s+at /);
+  assert.deepEqual(bothMods(dir), ["spaces", "argus-pane"]);
 });

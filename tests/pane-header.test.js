@@ -10,7 +10,9 @@ export default class Pane extends View {
   render(cx) {
     const p = this.me();
     const name = ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || p.program?.name || "shell";
-    return div().child(name);
+    return div()
+      .child(div().flex_none().truncate().max_w(260).font_medium().child(name))
+      .child(div().flex_1().truncate().child("~/folder"));
   }
 }
 `;
@@ -89,4 +91,19 @@ test("ownsHeader: only a mod.json with the marker", () => {
   assert.equal(ownsHeader({ generated_by: "argus" }), true);
   assert.equal(ownsHeader({ generated_by: "someone" }), false);
   assert.equal(ownsHeader(null), false);
+});
+
+test("patchPaneHeader: a blank line before the name line keeps the indent", () => {
+  const out = patchPaneHeader(SHIPPED.replace("    const name =", "\n    const name ="));
+  assert.match(out, /\n\n    const name = paneTitle\(p\)/);
+});
+
+test("patchPaneHeader: the name shrinks, so a long title leaves room for the hover buttons", () => {
+  const out = patchPaneHeader(SHIPPED);
+  assert.match(out, /^      \.child\(div\(\)\.flex_initial\(\)\.min_w\(0\)\.truncate\(\)\.max_w\(260\)\.font_medium\(\)\.child\(name\)\)$/m);
+  assert.doesNotMatch(out, /flex_none\(\)\.truncate\(\)\.max_w\(260\)/);
+});
+
+test("patchPaneHeader: refuses a header whose name element changed", () => {
+  assert.throws(() => patchPaneHeader(SHIPPED.replace(".flex_none().truncate().max_w(260)", ".truncate()")), PaneHeaderError);
 });
