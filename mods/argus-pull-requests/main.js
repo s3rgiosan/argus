@@ -3,11 +3,12 @@
 // and a pull request (a pane beside the terminals). Reads go through `git`, `gh` and `glab`.
 
 import { div, svg, View } from "gpui-kit";
-import { h_flex, v_flex, InputState } from "gpui-base";
+import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
 import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused } from "herdr";
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
+import { NO_METHOD, canAct, actionCommand, ghMethodArgs, pickMergeMethod, mergePrompt } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
 import { assembleBoard, normalizeBoard, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
@@ -16,7 +17,7 @@ import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusa
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, scrollArea, field, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -64,6 +65,8 @@ export default class PullRequests extends View {
     this.checkouts = new Map();
     // The failed open in browser action: {key, text}, shown on that pull request only.
     this.actionError = null;
+    // PR key -> {running, error, composing, confirm} for the review and merge actions of each pull request.
+    this.actions = new Map();
 
     const settings = readSettings();
     // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
@@ -77,6 +80,8 @@ export default class PullRequests extends View {
     this.filterInput.on("change", (_e, cx) => cx.notify());
     this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
+    // The body of a review comment, for Request changes and Comment.
+    this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Write a comment" }, (cx) => this.submitBody(cx), { multiline: true }) : null;
 
     if (checking()) return;
     if (this.view === "scopes") this.handle.focus();
@@ -104,10 +109,16 @@ export default class PullRequests extends View {
     cx.timer.every(AGE_TICK, (cx) => cx.notify());
   }
 
-  /** A text input that tracks focus for its border. `onSubmit` runs on Enter, and on blur with `saveOnBlur`. */
-  input(id, options, onSubmit, { saveOnBlur = false } = {}) {
-    const state = InputState.new(options);
-    state.on("submit", (_e, cx) => onSubmit(cx));
+  /**
+   * A text input that tracks focus for its border. `onSubmit` runs on Enter, and on blur
+   * with `saveOnBlur`. A `multiline` input is a textarea: Return adds a line, and only ⌘Return submits.
+   */
+  input(id, options, onSubmit, { saveOnBlur = false, multiline = false } = {}) {
+    const state = multiline ? TextareaState.new(options) : InputState.new(options);
+    state.on("submit", (e, cx) => {
+      if (multiline && !e?.secondary) return;
+      onSubmit(cx);
+    });
     state.on("focus", (_e, cx) => {
       this.focused = id;
       cx.notify();
@@ -604,7 +615,10 @@ export default class PullRequests extends View {
   loadPr(cx, selected) {
     const seq = ++this.prSeq;
     const readAt = Date.now();
-    if (this.shown?.key !== selected.key) {
+    const switched = this.shown?.key !== selected.key;
+    if (switched) {
+      // The composer and the merge confirm belong to the pull request they were opened on.
+      if (this.shown) this.setAction(this.shown.key, { composing: null, confirm: null });
       this.shown = { key: selected.key, kind: "loading", detail: null, error: null, readAt };
       this.actionError = null;
     } else {
@@ -613,6 +627,7 @@ export default class PullRequests extends View {
     if (checking()) return;
     cx.spawn(async (cx) => {
       await cx.sleep(0);
+      if (switched) this.bodyInput?.set_value("");
       let next;
       try {
         next = { kind: "ok", detail: await this.readDetail(selected), error: null };
@@ -710,6 +725,105 @@ export default class PullRequests extends View {
     return null;
   }
 
+  /** The review and merge state of one pull request in this pane. */
+  actionState(key) {
+    return this.actions.get(key) ?? { running: null, error: null, composing: null, confirm: null };
+  }
+
+  setAction(key, patch) {
+    this.actions.set(key, { ...this.actionState(key), ...patch });
+  }
+
+  /** Opens the composer for Request changes or Comment. */
+  compose(cx, key, kind) {
+    this.setAction(key, { composing: kind, confirm: null, error: null });
+    cx.timer.after(0, () => this.bodyInput?.focus());
+    cx.notify();
+  }
+
+  /** Runs the composer's action with the typed body. */
+  submitBody(cx) {
+    const shown = this.shown;
+    if (shown?.kind !== "ok") return;
+    const state = this.actionState(shown.key);
+    if (state.composing === null) return;
+    this.runAction(cx, shown.key, state.composing, shown.detail, this.bodyInput?.value() ?? "", null);
+  }
+
+  /** Shows the merge confirm; on GitHub it reads the repo's merge method first. */
+  askMerge(cx, key, detail) {
+    if (this.actionState(key).running !== null) return;
+    if (detail.pr.provider === "gitlab") {
+      this.setAction(key, { confirm: { method: null }, composing: null, error: null });
+      cx.notify();
+      return;
+    }
+    this.setAction(key, { running: "merge", composing: null, confirm: null, error: null });
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let patch;
+      try {
+        const gh = await this.locate("gh");
+        if (gh === null) {
+          patch = { error: GH_MISSING };
+        } else {
+          const reply = await exec(gh, ghMethodArgs(detail.pr.repo), { timeout: CLI_TIMEOUT });
+          const method = reply.code === 0 ? pickMergeMethod(reply.stdout) : null;
+          if (reply.code !== 0) patch = { error: cliError("gh", reply) };
+          else if (method === null) patch = { error: NO_METHOD };
+          else patch = { confirm: { method } };
+        }
+      } catch (error) {
+        patch = { error: error?.message ?? String(error) };
+      }
+      this.setAction(key, { running: null, ...patch });
+      cx.notify();
+    });
+  }
+
+  /**
+   * Runs one review or merge action. On success it closes the composer and the
+   * confirm, reads the pull request again and marks the board stale so a board copy reads it.
+   */
+  runAction(cx, key, kind, detail, body, method) {
+    if (this.actionState(key).running !== null) return;
+    const command = actionCommand({ kind, detail, body, method });
+    if ("error" in command) {
+      this.setAction(key, { error: command.error });
+      cx.notify();
+      return;
+    }
+    this.setAction(key, { running: kind, error: null });
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let error = null;
+      try {
+        const cli = await this.locate(command.name);
+        if (cli === null) {
+          error = command.name === "glab" ? GLAB_MISSING : GH_MISSING;
+        } else {
+          const reply = await exec(cli, command.args, { timeout: CLI_TIMEOUT });
+          if (reply.code !== 0) error = cliError(command.name, reply);
+        }
+      } catch (caught) {
+        error = caught?.message ?? String(caught);
+      }
+      if (error !== null) {
+        this.setAction(key, { running: null, error });
+        cx.notify();
+        return;
+      }
+      this.setAction(key, { running: null, error: null, composing: null, confirm: null });
+      if (this.shown?.key === key) this.bodyInput?.set_value("");
+      setShared(BOARD_KEY, { ...readBoard(), readAt: 0 });
+      const selected = readSelected();
+      if (selected?.key === key) this.loadPr(cx, selected);
+      cx.notify();
+    });
+  }
+
   /** The pull request pane: header, actions and the five sections. */
   renderPr(t, cx) {
     const selected = readSelected();
@@ -733,6 +847,8 @@ export default class PullRequests extends View {
     const localPath = localPathFor(readBoard().projects, pr.host, pr.repo);
     const now = Date.now();
     const checkout = this.checkouts.get(shown.key) ?? { running: false, error: null };
+    const act = this.actionState(shown.key);
+    const busy = act.running !== null;
     const error = (this.actionError?.key === shown.key ? this.actionError.text : null) ?? checkout.error;
     const small = (text) => div().text_size(12).text_color(t.muted).child(text);
 
@@ -763,7 +879,10 @@ export default class PullRequests extends View {
           ),
       )
       .when(checkout.running, (el) => el.child(div().text_size(11).text_color(t.muted).child("Checking out…")))
-      .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")));
+      .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")))
+      .when(canAct(pr), (el) => el.child(this.reviewActions(t, shown.key, detail, act)))
+      .when(busy, (el) => el.child(div().text_size(11).text_color(t.muted).child("Working…")))
+      .when(act.error !== null, (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(act.error ?? "")));
 
     const text = (value) => div().px(8).py(2).whitespace_normal().child(value);
     const parts = [sectionTitle(t, "Checks")];
@@ -818,6 +937,55 @@ export default class PullRequests extends View {
       .border_0()
       .child(head)
       .child(scrollArea("argus-pull-requests-pr-detail", parts, { padding: 6 }));
+  }
+
+  /** Approve, Request changes, Comment and Merge, with the open composer or merge confirm under them. */
+  reviewActions(t, key, detail, act) {
+    const enabled = act.running === null;
+    const cancel = (patch) => (_e, cx) => {
+      this.setAction(key, { ...patch, error: null });
+      cx.notify();
+    };
+    let box = v_flex()
+      .gap(6)
+      .child(
+        h_flex()
+          .flex_wrap()
+          .gap(8)
+          .child(button(t, "approve", "Approve", (_e, cx) => this.runAction(cx, key, "approve", detail, "", null), { enabled }))
+          .child(button(t, "request-changes", "Request changes", (_e, cx) => this.compose(cx, key, "request_changes"), { enabled }))
+          .child(button(t, "comment", "Comment", (_e, cx) => this.compose(cx, key, "comment"), { enabled }))
+          .child(button(t, "merge", "Merge", (_e, cx) => this.askMerge(cx, key, detail), { enabled })),
+      );
+    if (act.composing !== null && this.bodyInput) {
+      box = box.child(
+        v_flex()
+          .gap(6)
+          .child(div().text_size(12).font_semibold().child(act.composing === "request_changes" ? "Request changes" : "Comment"))
+          .child(textBox(t, "body", this.bodyInput, this.focused === "body"))
+          .child(
+            h_flex()
+              .gap(8)
+              .child(button(t, "submit-body", "Submit", (_e, cx) => this.submitBody(cx), { primary: true, enabled }))
+              .child(button(t, "cancel-body", "Cancel", cancel({ composing: null }))),
+          ),
+      );
+    }
+    if (act.confirm !== null) {
+      const method = act.confirm.method;
+      box = box.child(
+        v_flex()
+          .gap(6)
+          .child(div().text_size(12).whitespace_normal().child(mergePrompt(detail, method)))
+          .child(
+            h_flex()
+              .gap(8)
+              .child(button(t, "confirm-merge", "Merge", (_e, cx) => this.runAction(cx, key, "merge", detail, "", method), { primary: true, enabled }))
+              .child(button(t, "cancel-merge", "Cancel", cancel({ confirm: null }))),
+          ),
+      );
+    }
+    return box;
   }
 }
 
