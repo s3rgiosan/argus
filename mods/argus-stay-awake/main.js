@@ -6,10 +6,9 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { exec, agents, checking, notify, theme } from "herdr";
-import { anyWorking, leftClick, rightClick, tick, caffeinateArgs, shouldRun, TICK_MS, EXEC_TIMEOUT_MS } from "./stay-awake.js";
+import { anyWorking, iconFor, leftClick, rightClick, tick, caffeinateArgs, shouldRun, TICK_MS, EXEC_TIMEOUT_MS } from "./stay-awake.js";
 
 const TOOLTIP = "Keep the display awake · Right-click: until agents finish";
-const ICON = "mods/argus-stay-awake/icons/coffee.svg";
 const NEEDS_CAFFEINATE = "Keep awake needs caffeinate (macOS)";
 
 export default class StayAwake extends View {
@@ -61,7 +60,7 @@ export default class StayAwake extends View {
             if (result.toast) notify({ title: result.toast, level: "info" });
             this.apply(result.mode, cx);
           })
-          .child(svg(ICON).size(14))
+          .child(svg(iconFor(this.mode)).size(14))
           .when(this.mode === "agents", (el) =>
             el.child(div().absolute().top(4).right(4).size(5).rounded_full().bg(t.accent)),
           ),

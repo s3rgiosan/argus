@@ -74,3 +74,12 @@ export function tick(mode, working) {
 export function shouldRun(keepAwake, runs) {
   return keepAwake && runs < MAX_RUNS;
 }
+
+/**
+ * The button icon: an empty cup while off, a full cup while the display is kept awake.
+ * @param {string} mode One of MODES.
+ * @returns {string}
+ */
+export function iconFor(mode) {
+  return mode === "off" ? "mods/argus-stay-awake/icons/coffee.svg" : "mods/argus-stay-awake/icons/coffee-full.svg";
+}
