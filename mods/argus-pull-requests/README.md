@@ -2,7 +2,7 @@
 
 GitHub pull requests and GitLab merge requests in Herdr. Board in a panel on the right, one pull request in a pane beside the terminals. The mod only reads: it never writes to GitHub or GitLab.
 
-- Four groups with counts: READY TO MERGE (checks pass, nothing running, mergeable, approved or no review needed), NEEDS WORK (a failed check, changes requested or a merge conflict), WAITING ON REVIEW (everything else), DRAFT. Newest first inside a group.
+- Four groups with counts: Ready to merge (checks pass, nothing running, mergeable, approved or no review needed), Needs work (a failed check, changes requested or a merge conflict), Waiting on review (everything else), Draft. Newest first inside a group.
 - Row: number, title, checks (`✓ 3/3`, `✗ 1/3` or `● running`), age, repo, branch and review state.
 - Scope button in the header: Needs my review, Mine, Follow space and each project, with counts. Follow space shows the project that holds the focused space's folder. The default scope is Needs my review. A project is a GitHub or GitLab repo found in an open space.
 - Filter field at the bottom: matches the title, number (`#12` or `12`), author and branch.

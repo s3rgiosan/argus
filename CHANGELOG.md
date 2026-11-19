@@ -5,6 +5,22 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-11-19
+
+### Changed
+
+- The `argus-panel` column copies its width and its drag limits from the `panel` block in Herdr's `main.json` layout, and falls back to 368, 280 and 900 px when that block is missing. The expand button of `argus-tsk` still goes to the column's maximum and returns to the saved width, else to 368 px.
+- The toolbar measures its rendered buttons and resizes its block to that width, so the block fits any font size or label. Its buttons stop the left mouse-down like Herdr's own buttons.
+- The keep-awake button is Herdr's square 26 px icon button and toggles on click. When on, it uses the highlight of Herdr's open Files and Changes buttons.
+- Section titles use Herdr's group heading style (11.5 px, medium, `dim`) and sentence case in every mod, for example "Needs you", "In motion", "On deck" and "Ready to merge".
+- Count badges in the Pull requests and Tasks headers use the pill from Herdr's Changes header.
+- Settings pages share one sub-header with Herdr's 14 px side padding, Herdr's Settings switch for toggles, and Herdr's Settings segmented control for "Refresh every".
+- Secondary buttons use Herdr's raised style with a border and a hover, and text fields use 12 px text.
+- The scope and status popups use Herdr's menu metrics and an accent check tick for the chosen row. Up and Down move the highlight, Enter picks the row and Escape closes the popup.
+- A refresh in progress turns the refresh icon, as Herdr turns its own spinner, in place of the "updating" text.
+- The chevron, settings, panel, check, x and square-pen icons load from Herdr's `workspace-chrome` mod when the app folder has them, and from each mod's bundled copy otherwise. The project rename button in `argus-tsk` uses `square-pen`.
+- The `argus-tsk` header uses 14 px side padding like Herdr's headers.
+
 ## [1.3.0] - 2026-11-19
 
 ### Added
@@ -66,7 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.3.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.3.1...HEAD
+[1.3.1]: https://github.com/s3rgiosan/argus/compare/1.3.0...1.3.1
 [1.3.0]: https://github.com/s3rgiosan/argus/compare/1.2.0...1.3.0
 [1.2.0]: https://github.com/s3rgiosan/argus/compare/1.1.0...1.2.0
 [1.1.0]: https://github.com/s3rgiosan/argus/compare/1.0.0...1.1.0

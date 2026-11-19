@@ -110,3 +110,21 @@ test("GitLab parsers throw on errors, signed-out and missing project", () => {
   assert.throws(() => parseGlabProject('{"data":{"project":{}}}', host), { message: "unexpected glab output" });
   assert.throws(() => parseGlabMr({}, host), { message: "unexpected glab output" });
 });
+
+test("parseGlabMr rejects an empty, zero or non-numeric iid", () => {
+  for (const iid of ["", "0", "abc", "1.5", "-3", null, undefined, {}]) {
+    assert.throws(() => parseGlabMr({ iid, targetProject: { fullPath: path } }, host), { message: "unexpected glab output" }, String(iid));
+  }
+  assert.equal(parseGlabMr({ iid: 7, targetProject: { fullPath: path } }, host).number, 7);
+});
+
+test("GitLab lists drop a merge request without a usable iid and keep the rest", () => {
+  const node = (iid) => ({ iid, title: "t", targetProject: { fullPath: path } });
+  const nodes = [node(""), node("4"), node("abc"), node(null), node("5")];
+  const user = JSON.stringify({ data: { currentUser: { reviewRequestedMergeRequests: { nodes }, authoredMergeRequests: { nodes: [node("")] } } } });
+  const project = JSON.stringify({ data: { project: { mergeRequests: { nodes } } } });
+  const parsed = parseGlabUser(user, host);
+  assert.deepEqual(parsed.needsReview.map((pr) => pr.number), [4, 5]);
+  assert.deepEqual(parsed.mine, []);
+  assert.deepEqual(parseGlabProject(project, host).map((pr) => pr.number), [4, 5]);
+});

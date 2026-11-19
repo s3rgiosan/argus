@@ -10,6 +10,7 @@ import {
   normalizeBoard,
   normalizeScope,
   pickPairs,
+  withoutFailedRepos,
   prsInScope,
   reviewLabel,
   scopeItems,
@@ -88,10 +89,10 @@ test("buildGroups orders groups and rows", () => {
   assert.deepEqual(
     groups.map((g) => [g.id, g.title]),
     [
-      ["ready", "READY TO MERGE"],
-      ["needsWork", "NEEDS WORK"],
-      ["waiting", "WAITING ON REVIEW"],
-      ["draft", "DRAFT"],
+      ["ready", "Ready to merge"],
+      ["needsWork", "Needs work"],
+      ["waiting", "Waiting on review"],
+      ["draft", "Draft"],
     ],
   );
   assert.deepEqual(groups[0].prs.map((p) => p.number), [6, 5, 4]);
@@ -221,4 +222,15 @@ test("reviewLabel and shortRepo", () => {
   assert.equal(reviewLabel("review_required"), "review required");
   assert.equal(reviewLabel(null), null);
   assert.equal(shortRepo("example-group/example-sub/example-project"), "example-project");
+});
+
+test("withoutFailedRepos drops the pairs of repos whose list failed", () => {
+  const pairs = [
+    { host: "github.com", repo: "Example-Org/Example-Repo", number: 1 },
+    { host: "github.com", repo: "example-org/other", number: 2 },
+    { host: "github.com", repo: "example-org/example-repo", number: 3 },
+  ];
+  assert.deepEqual(withoutFailedRepos(pairs, new Set(["github.com/example-org/example-repo"])).map((pair) => pair.number), [2]);
+  assert.deepEqual(withoutFailedRepos(pairs, new Set()).map((pair) => pair.number), [1, 2, 3]);
+  assert.deepEqual(withoutFailedRepos([], new Set(["x"])), []);
 });

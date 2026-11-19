@@ -2,7 +2,7 @@
 // section per account. Usage comes from Claude Code itself through usage.sh, so the
 // mod never touches a sign-in token.
 
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, closeOverlay, notify } from "herdr";
 import { readdir, readFile } from "fs/promises";
@@ -15,7 +15,8 @@ import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { accountTitle } from "./title.js";
 import { dueAlerts } from "./alerts.js";
-import { frame, header, iconButton, row, scrollArea, field, button, footer, sectionTitle, note, meter } from "./ui.js";
+import { frame, header, subHeader, iconButton, row, scrollArea, field, button, footer, sectionTitle, note, meter, toggle, segmented } from "./ui.js";
+import { probeIcons, iconResolver } from "./icons.js";
 
 const SETTINGS_KEY = "argus-claude-usage.settings";
 const FOLDED_KEY = "argus-claude-usage.folded";
@@ -27,7 +28,8 @@ const EXEC_TIMEOUT = 25_000;
 const STATUS_URL = "https://status.anthropic.com";
 const ALERTS_KEY = "argus-claude-usage.alerts";
 const ALERT_THRESHOLD = 80;
-const ICON = (name) => `mods/argus-claude-usage/icons/${name}.svg`;
+const MOD = "argus-claude-usage";
+const ICON = (name) => `mods/${MOD}/icons/${name}.svg`;
 
 /**
  * Every open copy (a pane, a popup) draws the usage kept in `shared`. The
@@ -51,8 +53,15 @@ export default class ClaudeUsage extends View {
       saveOnBlur: true,
     });
 
+    // The icons Herdr ships that this panel can load; the panel's own copies show until the probe ends.
+    this.found = new Set();
     if (checking()) return;
 
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      this.found = await probeIcons(readTextFile, appHome());
+      cx.notify();
+    });
     cx.spawn(async (cx) => this.sync(cx));
     cx.timer.every(TICK, (cx) => {
       if (this.view === "settings" && this.ensureNameInputs()) cx.notify();
@@ -165,10 +174,11 @@ export default class ClaudeUsage extends View {
 
   renderUsagePanel(t) {
     const fetching = Boolean(readData().fetching);
+    const icon = iconResolver(MOD, this.found);
     const actions = [
-      iconButton(t, "refresh", ICON("refresh-cw"), (_e, cx) => this.requestRefresh(cx)),
-      ...(props()?.overlay ? [iconButton(t, "as-pane", ICON("panel-right"), () => openAsPane())] : []),
-      iconButton(t, "settings", ICON("settings"), (_e, cx) => this.openSettings(cx)),
+      iconButton(t, "refresh", ICON("refresh-cw"), (_e, cx) => this.requestRefresh(cx), { busy: fetching }),
+      ...(props()?.overlay ? [iconButton(t, "as-pane", icon("panel-right"), () => openAsPane())] : []),
+      iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx)),
     ];
     const link = (id, label, url) =>
       row(t, id)
@@ -179,7 +189,7 @@ export default class ClaudeUsage extends View {
         .child(label);
 
     return frame(t, "argus-claude-usage")
-      .child(header(t, fetching ? "Claude usage · updating…" : "Claude usage", actions))
+      .child(header(t, "Claude usage", actions))
       .child(scrollArea("argus-claude-usage-list", [this.renderAccounts(t)].flat(), { padding: 6 }))
       .child(footer(t).p(6).gap(2).child(link("status", "Status page", STATUS_URL)));
   }
@@ -311,10 +321,11 @@ export default class ClaudeUsage extends View {
     const dir = home();
     const settings = readSettings();
     const profiles = readData().profiles;
-    const back = iconButton(t, "back", ICON("chevron-left"), (_e, cx) => {
+    const icon = iconResolver(MOD, this.found);
+    const back = (_e, cx) => {
       this.view = "usage";
       cx.notify();
-    });
+    };
 
     const parts = [sectionTitle(t, "Accounts")];
     if (profiles.length === 0) parts.push(note(t, "No Claude Code accounts found"));
@@ -324,9 +335,12 @@ export default class ClaudeUsage extends View {
         row(t, `account-toggle-${index}`)
           .cursor_pointer()
           .on_click((_e, cx) => this.toggleAccount(profile.folder, cx))
-          .child(checkbox(t, shown))
           .child(div().flex_1().min_w(0).truncate().text_color(shown ? t.foreground : t.muted).child(profile.label))
-          .child(div().flex_none().max_w(150).truncate().text_size(11).text_color(t.dim).child(tildePath(profile.folder, dir))),
+          .child(div().flex_none().max_w(110).truncate().text_size(11).text_color(t.dim).child(tildePath(profile.folder, dir)))
+          .child(toggle(t, `account-switch-${index}`, shown, (_e, cx) => {
+            cx.stop_propagation();
+            this.toggleAccount(profile.folder, cx);
+          })),
       );
       // A folder found after settings opened gets its field on the next tick.
       const input = this.nameInputs.get(profile.folder);
@@ -335,7 +349,7 @@ export default class ClaudeUsage extends View {
           h_flex()
             .px(8)
             .pb(4)
-            .pl(32)
+            .pl(8)
             .gap(8)
             .items_center()
             .child(div().flex_none().text_size(11).text_color(t.dim).child("Display name"))
@@ -377,16 +391,13 @@ export default class ClaudeUsage extends View {
       h_flex()
         .px(8)
         .py(4)
-        .gap(4)
-        .children(
-          INTERVALS.map((minutes) =>
-            row(t, `interval-${minutes}`, { selected: minutes === settings.interval })
-              .cursor_pointer()
-              .px(10)
-              .text_size(12)
-              .text_color(minutes === settings.interval ? t.foreground : t.muted)
-              .on_click((_e, cx) => this.saveSettings({ ...readSettings(), interval: minutes }, cx))
-              .child(`${minutes} min`),
+        .child(
+          segmented(
+            t,
+            "interval",
+            INTERVALS.map((minutes) => ({ value: minutes, label: `${minutes} min` })),
+            settings.interval,
+            (minutes, cx) => this.saveSettings({ ...readSettings(), interval: minutes }, cx),
           ),
         ),
     );
@@ -396,19 +407,28 @@ export default class ClaudeUsage extends View {
     parts.push(div().px(8).text_size(11).text_color(t.dim).child("Leave empty to use claude from PATH. Saved on Enter or when you leave the field."));
 
     return frame(t, "argus-claude-usage-settings")
-      .child(h_flex().h(42).flex_none().pl(8).pr(14).gap(4).items_center().border_b(1).border_color(t.border).child(back).child(div().font_semibold().child("Settings")))
+      .child(subHeader(t, back, "Settings", icon("chevron-left")))
       .child(scrollArea("argus-claude-usage-settings-list", parts, { padding: 6 }));
   }
 }
 
 function renderUsage(t, reply, updatedAt, loading) {
   const now = Date.now();
-  const parts = [div().px(8).text_size(11).text_color(t.dim).child(loading ? "Updating…" : `Updated ${formatAgo(now - updatedAt)}`)];
+  const parts = [
+    h_flex()
+      .px(8)
+      .gap(6)
+      .items_center()
+      .text_size(11)
+      .text_color(t.dim)
+      .when(loading, (el) => el.child(svg(ICON("refresh-cw")).size(11).flex_none().spin(900)))
+      .child(`Updated ${formatAgo(now - updatedAt)}`),
+  ];
 
   reply.windows.forEach((window) => parts.push(renderWindow(t, window, now)));
 
   if (reply.surfaces.length > 0) {
-    parts.push(div().px(8).pt(6).text_size(11).font_semibold().text_color(t.muted).child("This week by surface"));
+    parts.push(sectionTitle(t, "This week by surface"));
     reply.surfaces.forEach((surface) => {
       parts.push(
         h_flex()
@@ -531,23 +551,6 @@ function renderWindow(t, window, now) {
     )
     .child(meter(t, 100 - window.used, p ? p.timeLeft : null))
     .when(Boolean(text), (el) => el.child(div().text_size(11).text_color(t.muted).child(text)));
-}
-
-/** A 14 px check box. */
-function checkbox(t, checked) {
-  return div()
-    .size(14)
-    .flex_none()
-    .flex()
-    .items_center()
-    .justify_center()
-    .rounded(4)
-    .border_1()
-    .border_color(checked ? t.accent : t.border)
-    .bg(checked ? t.accent : t.background)
-    .text_color(t.accent_foreground)
-    .text_size(10)
-    .child(checked ? "✓" : "");
 }
 
 function extraText(extra) {

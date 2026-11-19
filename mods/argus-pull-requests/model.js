@@ -313,6 +313,13 @@ function glNodes(connection) {
   return connection.nodes;
 }
 
+/** The merge requests of a list connection; one without a usable iid is left out. */
+function glMergeRequests(connection, host) {
+  return glNodes(connection)
+    .filter((node) => isObject(node) && glIid(node) !== null)
+    .map((node) => parseGlabMr(node, host));
+}
+
 function glPipelineState(status) {
   const value = upper(status);
   if (GL_PASSED.has(value)) return "passed";
@@ -354,13 +361,26 @@ function glReason(status) {
 }
 
 /**
+ * The merge request number of `node`: a positive whole number, as a number or a string of digits.
+ * @param {object} node
+ * @returns {?number}
+ */
+function glIid(node) {
+  const iid = node.iid;
+  const text = typeof iid === "number" ? String(iid) : typeof iid === "string" ? iid : "";
+  if (!/^\d+$/.test(text)) return null;
+  const number = Number(text);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+/**
  * @param {object} node One merge request from the GitLab GraphQL API.
  * @param {string} host
  * @returns {Pr}
  */
 export function parseGlabMr(node, host) {
-  const number = isObject(node) ? Number(node.iid) : NaN;
-  if (!Number.isInteger(number)) throw glUnexpected();
+  const number = isObject(node) ? glIid(node) : null;
+  if (number === null) throw glUnexpected();
   return {
     provider: "gitlab",
     host,
@@ -392,8 +412,8 @@ export function parseGlabUser(text, host) {
   if (!isObject(data.currentUser)) throw glUnexpected();
   const user = data.currentUser;
   return {
-    needsReview: glNodes(user.reviewRequestedMergeRequests).map((node) => parseGlabMr(node, host)),
-    mine: glNodes(user.authoredMergeRequests).map((node) => parseGlabMr(node, host)),
+    needsReview: glMergeRequests(user.reviewRequestedMergeRequests, host),
+    mine: glMergeRequests(user.authoredMergeRequests, host),
   };
 }
 
@@ -406,7 +426,7 @@ export function parseGlabProject(text, host) {
   const data = glReply(text);
   if (data.project === null) throw new Error("project not found");
   if (!isObject(data.project)) throw glUnexpected();
-  return glNodes(data.project.mergeRequests).map((node) => parseGlabMr(node, host));
+  return glMergeRequests(data.project.mergeRequests, host);
 }
 
 function glJobChecks(node) {

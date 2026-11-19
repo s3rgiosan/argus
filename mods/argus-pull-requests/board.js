@@ -3,7 +3,7 @@
 
 import { compareNames } from "./follow.js";
 import { prKey } from "./model.js";
-import { localPathFor } from "./remote.js";
+import { localPathFor, projectKey } from "./remote.js";
 
 export { compareNames };
 
@@ -18,10 +18,10 @@ export { compareNames };
  */
 
 const GROUPS = [
-  { id: "ready", title: "READY TO MERGE" },
-  { id: "needsWork", title: "NEEDS WORK" },
-  { id: "waiting", title: "WAITING ON REVIEW" },
-  { id: "draft", title: "DRAFT" },
+  { id: "ready", title: "Ready to merge" },
+  { id: "needsWork", title: "Needs work" },
+  { id: "waiting", title: "Waiting on review" },
+  { id: "draft", title: "Draft" },
 ];
 
 const MINUTE = 60;
@@ -117,6 +117,16 @@ export function pickPairs(prs, pairs) {
     else missing.push(pair);
   }
   return { found, missing };
+}
+
+/**
+ * The pairs whose repo did not fail to list. A repo that failed already has a
+ * note, and asking for its pull requests one by one would fail the same way.
+ * @param {Array<{host: string, repo: string, number: number}>} pairs
+ * @param {Set<string>} failed Project keys (`projectKey`) of the repos whose list failed.
+ */
+export function withoutFailedRepos(pairs, failed) {
+  return pairs.filter((pair) => !failed.has(projectKey(pair)));
 }
 
 // Scopes

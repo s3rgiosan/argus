@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { toolbarSettings } from "../mods/argus-toolbar/toolbar-logic.js";
 import { buildLayout, panelsFromManifests, planLayoutFile, planStateFile, ArgusBlocksError, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";
 
 const MARKER = "argus";
@@ -98,9 +99,19 @@ const entries = readdirSync(modsDir, { withFileTypes: true })
   });
 const panels = panelsFromManifests(entries);
 
+// The toolbar's first width follows the display set in argus.json; the toolbar mod measures it again once it shows.
+let argusText = null;
+try {
+  argusText = readFileSync(join(appHome, "argus.json"), "utf8");
+} catch {
+  argusText = null;
+}
+const settings = toolbarSettings(argusText);
+if (settings.error !== null) console.error(`build-layout: argus.json: ${settings.error}; an invalid setting uses its default`);
+
 let layout;
 try {
-  layout = buildLayout(main, panels, { stayAwake: existsSync(join(modsDir, "argus-stay-awake", "main.js")) });
+  layout = buildLayout(main, panels, { stayAwake: existsSync(join(modsDir, "argus-stay-awake", "main.js")), display: settings.display });
 } catch (error) {
   const reason = error instanceof ArgusBlocksError ? error.message : `Herdr's main layout changed shape (${error.message})`;
   console.error(`build-layout: ${reason}; nothing written`);

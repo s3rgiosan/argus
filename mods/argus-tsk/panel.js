@@ -2,7 +2,7 @@
 // layout tree and picks the width a click moves it to.
 
 /** Width the panel goes back to when no earlier width is known. */
-export const DEFAULT_WIDTH = 440;
+export const DEFAULT_WIDTH = 368;
 /** Max width used when the column sets none. */
 const DEFAULT_MAX = 900;
 /** A panel this close to its max counts as expanded. */
@@ -42,7 +42,7 @@ export function isExpanded(size) {
 /**
  * What a click on the expand button does. A panel that is not expanded goes
  * to its max, and its width is kept in `save` (null when unknown). An
- * expanded panel goes back to `saved`, else to 440 px.
+ * expanded panel goes back to `saved`, else to 368 px (Herdr's panel width).
  * @param {PanelSize} size
  * @param {unknown} saved the width kept from the last expand
  * @returns {{px: number, save: ?number}}

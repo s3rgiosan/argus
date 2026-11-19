@@ -8,14 +8,17 @@ import { exec, home, appHome, readTextFile, window, checking, theme, shared, set
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
-import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
+import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
-import { assembleBoard, normalizeBoard, pickPairs, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
+import { assembleBoard, normalizeBoard, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
-import { worktreeRoot, checkoutPlan, spaceFor, gitError } from "./worktree.js";
+import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
+import { mapPool } from "./pool.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, iconButton, row, scrollArea, field, footer, sectionTitle, note, button } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, scrollArea, field, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { probeIcons, iconResolver } from "./icons.js";
+import { menuKey, startAt } from "./menu.js";
 
 const BOARD_KEY = "argus-pull-requests.board";
 const SCOPE_KEY = "argus-pull-requests.scope";
@@ -29,9 +32,11 @@ const POLL = 5_000;
 const AGE_TICK = 60_000;
 const LOCK_RETRY = 1_000;
 const GIT_LONG_TIMEOUT = 600_000;
+// How many gh or glab calls run at once when listing repos and filling in pull requests.
+const CLI_CONCURRENCY = 4;
 const SCOPES_WIDTH = 280;
 const SCOPES_HEIGHT = 420;
-const ICON = (name) => `mods/argus-pull-requests/icons/${name}.svg`;
+const ICON = (name) => `mods/${MOD}/icons/${name}.svg`;
 
 /**
  * The board lives in `shared` (`argus-pull-requests.board`), so every open copy draws one
@@ -55,16 +60,31 @@ export default class PullRequests extends View {
     this.shown = null;
     this.prSeq = 0;
     // The check out action: {key, running, error}.
-    this.checkout = { key: null, running: false, error: null };
+    // PR key -> {running, error} for the check out action of each pull request.
+    this.checkouts = new Map();
+    // The failed open in browser action: {key, text}, shown on that pull request only.
     this.actionError = null;
 
     const settings = readSettings();
+    // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
+    this.found = new Set();
+    // Whether this copy is reading the board now.
+    this.reading = false;
+    // The scope list's highlighted row; null until a key moves it.
+    this.at = null;
+    this.handle = cx.focus_handle();
     this.filterInput = this.input("filter", { placeholder: "Filter by title, number, author or branch" }, () => {});
     this.filterInput.on("change", (_e, cx) => cx.notify());
     this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
 
     if (checking()) return;
+    if (this.view === "scopes") this.handle.focus();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      this.found = await probeIcons(readTextFile, appHome());
+      cx.notify();
+    });
     if (this.view === "pr") {
       cx.timer.every(POLL, (cx) => {
         const selected = readSelected();
@@ -191,11 +211,14 @@ export default class PullRequests extends View {
       this.force = false;
       this.forceKeys = null;
       read = true;
+      this.reading = true;
+      cx.notify();
 
       const next = await this.readBoard(startedAt);
       if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
       setShared(BOARD_KEY, next);
     } finally {
+      this.reading = false;
       this.releaseLock();
       const again = this.gate.finish();
       if (read) cx.notify();
@@ -218,7 +241,8 @@ export default class PullRequests extends View {
 
     const gitHub = projects.filter((project) => project.provider === "github");
     const gitLab = projects.filter((project) => project.provider === "gitlab");
-    const [gh, glab] = await Promise.all([this.locate("gh"), this.locate("glab")]);
+    // glab is only looked up when a project needs it.
+    const [gh, glab] = await Promise.all([this.locate("gh"), gitLab.length > 0 ? this.locate("glab") : null]);
     notes.push(...missingNotes({ gh: gh !== null, glab: glab !== null, githubProjects: gitHub.length, gitlabProjects: gitLab.length }));
 
     const result = { needsReview: [], mine: [], projectPrs: {} };
@@ -255,7 +279,8 @@ export default class PullRequests extends View {
   /**
    * The command for `name` ("gh" or "glab"), or null when none runs. The first
    * of the setting, the bare name and the install folders whose `--version`
-   * runs wins. A found command is kept per setting value; a missing one is looked up again.
+   * runs wins. The result, found or missing, is kept per setting value until the
+   * setting changes or the refresh button looks again.
    */
   locate(name) {
     const setting = readSettings()[name];
@@ -273,9 +298,6 @@ export default class PullRequests extends View {
       return null;
     })();
     this.located[name] = { setting, result };
-    result.then((found) => {
-      if (found === null && this.located[name]?.result === result) this.located[name] = null;
-    });
     return result;
   }
 
@@ -325,27 +347,43 @@ export default class PullRequests extends View {
       login === null ? null : this.attempt("gh", gh, ghSearchArgs("mine", login), parseGhSearch, notes),
     ]);
     this.renewLock();
+    const searchNotes = [
+      [needsPairs, "pull requests that need your review"],
+      [minePairs, "pull requests you opened"],
+    ];
+    for (const [found, what] of searchNotes) {
+      const note = limitNote(what, found?.length ?? 0);
+      if (note !== null) notes.push(note);
+    }
     const pairs = [...(needsPairs ?? []), ...(minePairs ?? [])];
 
     // Every project repo plus the repos the searches name, each listed once.
     const repos = new Map();
     for (const project of projects) repos.set(projectKey(project), project.repo);
     for (const pair of pairs) if (!repos.has(projectKey(pair))) repos.set(projectKey(pair), pair.repo);
-    const listed = await Promise.all(
-      [...repos].map(async ([key, repo]) => [key, await this.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes)]),
-    );
+    const listed = await mapPool([...repos], CLI_CONCURRENCY, async ([key, repo]) => [
+      key,
+      await this.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes),
+    ]);
     this.renewLock();
     const all = [];
+    const failed = new Set();
     for (const [key, prs] of listed) {
-      if (prs === null) continue;
+      if (prs === null) {
+        failed.add(key);
+        continue;
+      }
+      const note = limitNote(`pull requests of ${repos.get(key)}`, prs.length);
+      if (note !== null) notes.push(note);
       all.push(...prs);
       if (projects.some((project) => project.key === key)) result.projectPrs[key] = prs;
     }
 
     const pick = async (list) => {
       const { found, missing } = pickPairs(all, list);
-      const filled = await Promise.all(
-        missing.map((pair) => this.attempt("gh", gh, ghViewArgs(pair.repo, pair.number), (text) => parseGhDetail(text, pair.repo).pr, notes)),
+      const wanted = withoutFailedRepos(missing, failed);
+      const filled = await mapPool(wanted, CLI_CONCURRENCY, (pair) =>
+        this.attempt("gh", gh, ghViewArgs(pair.repo, pair.number), (text) => parseGhDetail(text, pair.repo).pr, notes),
       );
       this.renewLock();
       return [...found, ...filled.filter((pr) => pr !== null)];
@@ -361,10 +399,17 @@ export default class PullRequests extends View {
       ...hosts.map(async (host) => {
         const user = await this.attempt(`glab (${host})`, glab, glabArgs(host, GL_USER_QUERY), (text) => parseGlabUser(text, host), notes);
         if (user === null) return;
+        for (const [found, what] of [
+          [user.needsReview, `merge requests on ${host} that need your review`],
+          [user.mine, `merge requests on ${host} that you opened`],
+        ]) {
+          const note = limitNote(what, found.length);
+          if (note !== null) notes.push(note);
+        }
         result.needsReview.push(...user.needsReview);
         result.mine.push(...user.mine);
       }),
-      ...projects.map(async (project) => {
+      mapPool(projects, CLI_CONCURRENCY, async (project) => {
         const prs = await this.attempt(
           `glab (${project.host})`,
           glab,
@@ -372,7 +417,10 @@ export default class PullRequests extends View {
           (text) => parseGlabProject(text, project.host),
           notes,
         );
-        if (prs !== null) result.projectPrs[project.key] = prs;
+        if (prs === null) return;
+        const note = limitNote(`merge requests of ${project.repo}`, prs.length);
+        if (note !== null) notes.push(note);
+        result.projectPrs[project.key] = prs;
       }),
     ]);
     this.renewLock();
@@ -420,12 +468,13 @@ export default class PullRequests extends View {
     const selected = readSelected()?.key ?? null;
     const now = Date.now();
 
+    const icon = iconResolver(MOD, this.found);
     const scopeButton = h_flex()
       .id("scope")
       .h(26)
       .px(8)
       .gap(4)
-      .flex_none()
+      .min_w(0)
       .items_center()
       .rounded(6)
       .max_w(150)
@@ -435,19 +484,22 @@ export default class PullRequests extends View {
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click(() => openScopes())
       .child(div().min_w(0).truncate().child(scopeTitle(scope, board, followed)))
-      .child(svg(ICON("chevron-down")).size(12).flex_none());
-    const head = header(t, "Pull requests", [
-      scopeButton,
-      div().flex_none().text_size(11).text_color(t.dim).child(String(unfollowed ? 0 : shown.length)),
-      iconButton(t, "refresh", ICON("refresh-cw"), (_e, cx) => {
+      .child(svg(icon("chevron-down")).size(12).flex_none());
+    const refresh = iconButton(
+      t,
+      "refresh",
+      ICON("refresh-cw"),
+      (_e, cx) => {
         // Looks for gh and glab again too, in case they were installed or updated.
         this.located = { gh: null, glab: null };
         this.login = null;
         this.repoCache.clear();
         this.refresh(cx);
-      }),
-      iconButton(t, "settings", ICON("settings"), (_e, cx) => this.openSettings(cx)),
-    ]);
+      },
+      { busy: this.reading },
+    );
+    const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx));
+    const head = header(t, "Pull requests", [scopeButton, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
 
     const parts = board.notes.map((message, index) => div().id(`note-${index}`).px(8).py(6).text_size(12).text_color(t.blocked).whitespace_normal().child(message));
     if (unfollowed) {
@@ -471,37 +523,53 @@ export default class PullRequests extends View {
     const board = readBoard();
     const items = scopeItems(board, followedOf(board));
     const current = readScope();
-    const item = (entry) =>
-      row(t, `scope-${entry.key}`, { selected: sameScope(entry.scope, current) })
-        .cursor_pointer()
-        .on_click(() => pickScope(entry.scope))
-        .child(div().flex_1().min_w(0).truncate().child(entry.label))
-        .child(div().flex_none().text_size(11).text_color(t.dim).child(String(entry.count)));
+    const icon = iconResolver(MOD, this.found);
+    const entries = [items.needsReview, items.mine, items.follow, ...items.projects];
+    const active = this.at ?? startAt(entries.map((entry) => ({ current: sameScope(entry.scope, current) })));
+    const item = (entry, index) =>
+      menuRow(t, `scope-${entry.key}`, {
+        label: entry.label,
+        count: String(entry.count),
+        active: index === active,
+        current: sameScope(entry.scope, current),
+        tick: icon("check"),
+        onClick: () => pickScope(entry.scope),
+      });
 
-    const parts = [item(items.needsReview), item(items.mine), item(items.follow)];
+    const parts = [item(items.needsReview, 0), item(items.mine, 1), item(items.follow, 2)];
     if (items.projects.length > 0) {
       parts.push(sectionTitle(t, "Projects"));
-      for (const entry of items.projects) parts.push(item(entry));
+      items.projects.forEach((entry, index) => parts.push(item(entry, 3 + index)));
     }
     // A popup is as tall as its content, up to the height it was opened with,
     // so the list gets an explicit height for its rows and section title.
-    const height = Math.min(SCOPES_HEIGHT, 12 + (3 + items.projects.length) * 28 + (items.projects.length > 0 ? 30 : 0));
+    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + entries.length * MENU_ROW + (items.projects.length > 0 ? 30 : 0));
     return v_flex()
       .id("argus-pull-requests-scopes")
+      .track_focus(this.handle)
       .w_full()
       .h(height)
       .bg(t.popover)
       .text_color(t.foreground)
-      .text_size(13)
-      .child(scrollArea("argus-pull-requests-scope-list", parts, { padding: 6 }));
+      .text_size(12.8)
+      .on_key_down((e, cx) => {
+        const next = menuKey(active, e.key, entries.length);
+        if (!next.handled) return;
+        this.at = next.at;
+        if (next.action === "pick") pickScope(entries[next.at].scope);
+        else if (next.action === "close") closeOverlay(props()?.overlay);
+        cx.notify();
+      })
+      .child(scrollArea("argus-pull-requests-scope-list", parts, { padding: MENU_PAD }));
   }
 
   renderSettings(t) {
     const settings = readSettings();
-    const back = iconButton(t, "back", ICON("chevron-left"), (_e, cx) => {
+    const icon = iconResolver(MOD, this.found);
+    const back = (_e, cx) => {
       this.view = "board";
       cx.notify();
-    });
+    };
     const hint = (text) => div().px(8).text_size(11).text_color(t.dim).child(text);
     const parts = [
       sectionTitle(t, "gh command"),
@@ -514,21 +582,18 @@ export default class PullRequests extends View {
       h_flex()
         .px(8)
         .py(4)
-        .gap(4)
-        .children(
-          INTERVALS.map((minutes) =>
-            row(t, `interval-${minutes}`, { selected: minutes === settings.interval })
-              .cursor_pointer()
-              .px(10)
-              .text_size(12)
-              .text_color(minutes === settings.interval ? t.foreground : t.muted)
-              .on_click(() => setShared(SETTINGS_KEY, { ...readSettings(), interval: minutes }))
-              .child(`${minutes} min`),
+        .child(
+          segmented(
+            t,
+            "interval",
+            INTERVALS.map((minutes) => ({ value: minutes, label: `${minutes} min` })),
+            settings.interval,
+            (minutes) => setShared(SETTINGS_KEY, { ...readSettings(), interval: minutes }),
           ),
         ),
     ];
     return frame(t, "argus-pull-requests-settings")
-      .child(h_flex().h(42).flex_none().pl(8).pr(14).gap(4).items_center().border_b(1).border_color(t.border).child(back).child(div().font_semibold().child("Settings")))
+      .child(subHeader(t, back, "Settings", icon("chevron-left")))
       .child(scrollArea("argus-pull-requests-settings-list", parts, { padding: 6 }));
   }
 
@@ -575,6 +640,7 @@ export default class PullRequests extends View {
   }
 
   openInBrowser(cx, pr) {
+    const key = prKey(pr);
     this.actionError = null;
     const open = openArgs(window().platform, pr.url);
     if (open === null) return;
@@ -583,9 +649,9 @@ export default class PullRequests extends View {
       try {
         const reply = await exec(open[0], open[1]);
         if (reply.code === 0) return;
-        this.actionError = cliError(open[0], reply);
+        this.actionError = { key, text: cliError(open[0], reply) };
       } catch (error) {
-        this.actionError = error?.message ?? String(error);
+        this.actionError = { key, text: error?.message ?? String(error) };
       }
       cx.notify();
     });
@@ -594,9 +660,9 @@ export default class PullRequests extends View {
   /** Opens the space of the pull request's worktree, creating the worktree first when needed. */
   checkOut(cx, pr, localPath) {
     const key = prKey(pr);
-    if (this.checkout.running) return;
+    if (this.checkouts.get(key)?.running) return;
     this.actionError = null;
-    this.checkout = { key, running: true, error: null };
+    this.checkouts.set(key, { running: true, error: null });
     cx.notify();
     cx.spawn(async (cx) => {
       await cx.sleep(0);
@@ -606,7 +672,7 @@ export default class PullRequests extends View {
       } catch (caught) {
         error = caught?.message ?? String(caught);
       }
-      this.checkout = { key, running: false, error };
+      this.checkouts.set(key, { running: false, error });
       cx.notify();
     });
   }
@@ -619,9 +685,21 @@ export default class PullRequests extends View {
     if (list.code !== 0) return gitError(list);
     const plan = checkoutPlan({ pr, localPath, root: resolved.root, porcelain: list.stdout });
     if (plan.kind === "create") {
-      const fetched = await exec("git", plan.fetch, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
+      const git = (args) => exec("git", args, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
+      const exists = await git(plan.exists);
+      if (exists.code === 0) {
+        // A branch left from an earlier check out only updates when it holds nothing that is not on the PR head.
+        const peeked = await git(plan.peek);
+        if (peeked.code !== 0) return gitError(peeked);
+        const counted = await git(plan.ahead);
+        if (counted.code !== 0) return gitError(counted);
+        const ahead = aheadCount(counted.stdout);
+        if (ahead === null) return "git: could not count the commits of the local branch";
+        if (ahead > 0) return aheadRefusal(plan.branch, ahead);
+      }
+      const fetched = await git(plan.fetch);
       if (fetched.code !== 0) return gitError(fetched);
-      const added = await exec("git", plan.add, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
+      const added = await git(plan.add);
       if (added.code !== 0) return gitError(added);
       run("space.new", { folder: plan.path });
       return null;
@@ -654,8 +732,8 @@ export default class PullRequests extends View {
     const pr = detail.pr;
     const localPath = localPathFor(readBoard().projects, pr.host, pr.repo);
     const now = Date.now();
-    const checkout = this.checkout.key === shown.key ? this.checkout : { running: false, error: null };
-    const error = this.actionError ?? checkout.error;
+    const checkout = this.checkouts.get(shown.key) ?? { running: false, error: null };
+    const error = (this.actionError?.key === shown.key ? this.actionError.text : null) ?? checkout.error;
     const small = (text) => div().text_size(12).text_color(t.muted).child(text);
 
     const head = v_flex()
@@ -688,7 +766,7 @@ export default class PullRequests extends View {
       .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")));
 
     const text = (value) => div().px(8).py(2).whitespace_normal().child(value);
-    const parts = [sectionTitle(t, "CHECKS")];
+    const parts = [sectionTitle(t, "Checks")];
     if (detail.checks.length === 0) parts.push(note(t, "No checks"));
     for (const [index, check] of detail.checks.entries()) {
       const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.muted;
@@ -703,7 +781,7 @@ export default class PullRequests extends View {
           .child(div().flex_1().min_w(0).whitespace_normal().child(check.name)),
       );
     }
-    parts.push(sectionTitle(t, "REVIEWS"));
+    parts.push(sectionTitle(t, "Reviews"));
     if (detail.reviewers.length === 0) parts.push(note(t, "No reviews yet"));
     for (const [index, reviewer] of detail.reviewers.entries()) {
       parts.push(
@@ -716,12 +794,12 @@ export default class PullRequests extends View {
           .child(div().flex_none().text_color(reviewer.state === "changes_requested" ? t.blocked : t.muted).child(REVIEW_WORDS[reviewer.state] ?? reviewer.state)),
       );
     }
-    parts.push(sectionTitle(t, "MERGE STATE"), text(MERGE_WORDS[detail.merge.state] ?? "Not checked yet"));
+    parts.push(sectionTitle(t, "Merge state"), text(MERGE_WORDS[detail.merge.state] ?? "Not checked yet"));
     if (detail.merge.reason) parts.push(div().px(8).py(2).text_size(12).text_color(t.muted).whitespace_normal().child(detail.merge.reason));
-    parts.push(sectionTitle(t, "DESCRIPTION"));
+    parts.push(sectionTitle(t, "Description"));
     const body = detail.body.trim();
     parts.push(body === "" ? note(t, "No description") : text(detail.body));
-    parts.push(sectionTitle(t, "CONVERSATION"));
+    parts.push(sectionTitle(t, "Conversation"));
     if (detail.conversation.length === 0) parts.push(note(t, "No comments"));
     for (const [index, entry] of detail.conversation.entries()) {
       parts.push(

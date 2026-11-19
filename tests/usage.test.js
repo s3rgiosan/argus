@@ -80,3 +80,10 @@ test("pace null for past or unknown reset", () => {
   assert.equal(pace({ kind: "session", label: "S", used: 5, resetsAt: NOW - 1, lengthMs: SESSION_MS }, NOW), null);
   assert.equal(pace({ kind: "session", label: "S", used: 5, resetsAt: null, lengthMs: SESSION_MS }, NOW), null);
 });
+
+test("parseReply sorts scoped windows by name, ignoring case", () => {
+  const scoped = (name) => ({ kind: "weekly_scoped", percent: 5, resets_at: "2026-01-03T07:00:00+00:00", scope: { model: { display_name: name } } });
+  const limits = [scoped("beta"), scoped("Zed"), scoped("alpha"), scoped("Alpha"), scoped("Beta")];
+  const r = parseReply(line({ subscription_type: "team", rate_limits_available: true, rate_limits: { limits } }));
+  assert.deepEqual(r.windows.map((w) => w.label), ["Alpha", "alpha", "Beta", "beta", "Zed"]);
+});

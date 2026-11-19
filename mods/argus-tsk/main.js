@@ -4,7 +4,7 @@
 
 import { div, svg, View } from "gpui-kit";
 import { h_flex, v_flex, Input, InputState, TextareaState, Textarea } from "gpui-base";
-import { exec, home, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder, layout, focused } from "herdr";
+import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder, layout, focused } from "herdr";
 import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
 import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
@@ -17,7 +17,9 @@ import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, iconButton, row, scrollArea, field, button, footer, sectionTitle, note } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, row, scrollArea, field, button, footer, sectionTitle, note, toggle, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { probeIcons, iconResolver } from "./icons.js";
+import { menuKey, startAt } from "./menu.js";
 
 const BOARD_KEY = "argus-tsk.board";
 const SCOPE_KEY = "argus-tsk.scope";
@@ -41,7 +43,7 @@ const STATUS_WIDTH = 200;
 // About how many characters of an 11 px message fit on one line of the scopes popup.
 const ERROR_CHARS = 40;
 const MIN_VERSION = MIN_TSK.join(".");
-const ICON = (name) => `mods/argus-tsk/icons/${name}.svg`;
+const ICON = (name) => `mods/${MOD}/icons/${name}.svg`;
 
 /**
  * Board rows live in `shared` (`argus-tsk.board`), so every open copy draws one
@@ -91,6 +93,14 @@ export default class Tasks extends View {
     // Status picks from the status popup older than this are already handled.
     this.pickSince = Date.now();
 
+    // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
+    this.found = new Set();
+    // Whether this copy is reading the board now.
+    this.reading = false;
+    // The popup's highlighted row; null until a key moves it.
+    this.at = null;
+    this.handle = cx.focus_handle();
+
     this.captureInput = this.input("capture", { placeholder: "New task…" }, (cx) => this.capture(cx));
     this.captureInput.on("change", (_e, cx) => cx.notify());
     const settings = readSettings();
@@ -99,8 +109,18 @@ export default class Tasks extends View {
       saveOnBlur: true,
     });
 
-    if (checking() || this.view === "status") return;
+    if (checking()) return;
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      this.found = await probeIcons(readTextFile, appHome());
+      cx.notify();
+    });
+    if (this.view === "status") {
+      this.handle.focus();
+      return;
+    }
     if (this.view === "scopes") {
+      this.handle.focus();
       this.checkTitles(cx);
       return;
     }
@@ -113,6 +133,11 @@ export default class Tasks extends View {
       this.since = Math.max(this.since, Date.now() - POLL / 2);
       cx.spawn(async (cx) => this.sync(cx));
     });
+  }
+
+  /** The path to load for icon `name`: Herdr's file when it has one, else this mod's copy. */
+  icon(name) {
+    return iconResolver(MOD, this.found)(name);
   }
 
   /**
@@ -314,11 +339,14 @@ export default class Tasks extends View {
       if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
       this.force = false;
       read = true;
+      this.reading = true;
+      cx.notify();
 
       const next = await this.readBoard(startedAt);
       if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
       setShared(BOARD_KEY, next);
     } finally {
+      this.reading = false;
       this.releaseLock();
       const again = this.gate.finish();
       if (read) cx.notify();
@@ -822,7 +850,7 @@ export default class Tasks extends View {
       case "scopes":
         return this.renderScopes(t);
       case "status":
-        return renderStatusMenu(t);
+        return this.renderStatusMenu(t);
       case "task":
         return this.renderTask(t, cx);
       case "settings":
@@ -858,33 +886,37 @@ export default class Tasks extends View {
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click(() => openScopes())
       .child(div().min_w(0).truncate().child(scopeTitle(scope, model, following)))
-      .child(svg(ICON("chevron-down")).size(12).flex_none());
-    const badge = div().flex_none().px(6).rounded(9).bg(t.raised).text_size(11).text_color(t.muted).child(String(count));
+      .child(svg(this.icon("chevron-down")).size(12).flex_none());
 
     const head = h_flex()
       .h(42)
       .flex_none()
-      .pl(14)
-      .pr(8)
+      .px(14)
       .gap(6)
       .items_center()
       .border_b(1)
       .border_color(t.border)
       .child(div().flex_none().font_semibold().child("Tasks"))
       .child(scopeButton)
-      .when(!blocking && board.readAt > 0, (el) => el.child(badge))
+      .when(!blocking && board.readAt > 0, (el) => el.child(badge(t, String(count))))
       .child(div().flex_1())
       .when(panel !== null, (el) =>
         el.child(iconButton(t, "expand", ICON(panel && isExpanded(panel) ? "minimize-2" : "maximize-2"), (_e, cx) => this.toggleExpand(cx))),
       )
       .child(
-        iconButton(t, "refresh", ICON("refresh-cw"), (_e, cx) => {
-          // Looks for tsk again too, in case it was installed or updated.
-          this.located = null;
-          this.refresh(cx);
-        }),
+        iconButton(
+          t,
+          "refresh",
+          ICON("refresh-cw"),
+          (_e, cx) => {
+            // Looks for tsk again too, in case it was installed or updated.
+            this.located = null;
+            this.refresh(cx);
+          },
+          { busy: this.reading },
+        ),
       )
-      .child(iconButton(t, "settings", ICON("settings"), (_e, cx) => this.openSettings(cx)));
+      .child(iconButton(t, "settings", this.icon("settings"), (_e, cx) => this.openSettings(cx)));
 
     const parts = [];
     if (board.error) parts.push(div().px(8).py(6).text_size(12).text_color(blocking ? t.muted : t.blocked).child(board.error.message));
@@ -895,9 +927,9 @@ export default class Tasks extends View {
         parts.push(sectionTitle(t, `${title} · ${rows.length}`));
         for (const task of rows) parts.push(taskRow(t, `${id}-${task.number}`, task, dot, selected === task.number));
       };
-      section("needs-you", "NEEDS YOU", sections.needsYou, (el) => el.bg(t.blocked));
-      section("in-motion", "IN MOTION", sections.inMotion, (el) => el.bg(t.working));
-      section("on-deck", "ON DECK", onDeck, (el) => el.border_1().border_color(t.muted));
+      section("needs-you", "Needs you", sections.needsYou, (el) => el.bg(t.blocked));
+      section("in-motion", "In motion", sections.inMotion, (el) => el.bg(t.working));
+      section("on-deck", "On deck", onDeck, (el) => el.border_1().border_color(t.muted));
       if (count === 0 && !board.error) parts.push(note(t, board.readAt > 0 ? "No tasks here" : "Loading…"));
     }
 
@@ -917,52 +949,65 @@ export default class Tasks extends View {
     const model = sidebarModel(board.rows, followedOf(board.rows));
     const current = readScope();
     const rename = this.renaming;
+    const groups = [
+      ["Projects", model.projects],
+      ["Threads", model.threads],
+      ["Assignees", model.assignees],
+    ].filter(([, entries]) => entries.length > 0);
+    const entries = [model.follow, model.desk, model.all, ...groups.flatMap(([, list]) => list)];
+    const active = this.at ?? startAt(entries.map((entry) => ({ current: sameScope(entry.scope, current) })));
     // Height the rename field adds over the row it replaces.
     let extra = 0;
     const item = (entry, index) => {
       if (entry.scope.kind === "project" && rename?.project === entry.scope.project) {
-        extra += 88 + (rename.error ? 6 + 16 * Math.ceil(rename.error.length / ERROR_CHARS) : 0);
+        extra += 85 + (rename.error ? 6 + 16 * Math.ceil(rename.error.length / ERROR_CHARS) : 0);
         return this.renameField(t, rename);
       }
-      return row(t, `scope-${index}`, { selected: sameScope(entry.scope, current) })
-        .cursor_pointer()
-        .on_click(() => pickScope(entry.scope))
-        .child(div().flex_1().min_w(0).truncate().child(entry.label))
-        .child(div().flex_none().text_size(11).text_color(t.dim).child(String(entry.count)))
-        .when(this.canTitle && entry.scope.kind === "project", (el) =>
-          el.child(
-            iconButton(t, `rename-${index}`, ICON("pencil"), (_e, cx) => {
-              cx.stop_propagation();
-              this.startRename(cx, entry);
-            }),
-          ),
-        );
+      return menuRow(t, `scope-${index}`, {
+        label: entry.label,
+        count: String(entry.count),
+        active: index === active,
+        current: sameScope(entry.scope, current),
+        tick: this.icon("check"),
+        onClick: () => pickScope(entry.scope),
+        trailing:
+          this.canTitle && entry.scope.kind === "project"
+            ? iconButton(t, `rename-${index}`, this.icon("square-pen"), (_e, cx) => {
+                cx.stop_propagation();
+                this.startRename(cx, entry);
+              })
+            : null,
+      });
     };
 
     let index = 0;
-    let titles = 0;
     const parts = [item(model.follow, index++), item(model.desk, index++), item(model.all, index++)];
-    for (const [title, entries] of [
-      ["Projects", model.projects],
-      ["Threads", model.threads],
-      ["Assignees", model.assignees],
-    ]) {
-      if (entries.length === 0) continue;
+    for (const [title, list] of groups) {
       parts.push(sectionTitle(t, title));
-      titles++;
-      for (const entry of entries) parts.push(item(entry, index++));
+      for (const entry of list) parts.push(item(entry, index++));
     }
     // A popup is as tall as its content, up to the height it was opened with,
     // so the list gets an explicit height for its rows and section titles.
-    const height = Math.min(SCOPES_HEIGHT, 12 + index * 28 + titles * 30 + extra);
+    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + index * MENU_ROW + groups.length * 30 + extra);
     return v_flex()
       .id("argus-tsk-scopes")
+      .track_focus(this.handle)
       .w_full()
       .h(height)
       .bg(t.popover)
       .text_color(t.foreground)
-      .text_size(13)
-      .child(scrollArea("argus-tsk-scope-list", parts, { padding: 6 }));
+      .text_size(12.8)
+      .on_key_down((e, cx) => {
+        // Keys in the rename field belong to the field.
+        if (rename) return;
+        const next = menuKey(active, e.key, entries.length);
+        if (!next.handled) return;
+        this.at = next.at;
+        if (next.action === "pick") pickScope(entries[next.at].scope);
+        else if (next.action === "close") closeOverlay(props()?.overlay);
+        cx.notify();
+      })
+      .child(scrollArea("argus-tsk-scope-list", parts, { padding: MENU_PAD }));
   }
 
   /**
@@ -1078,7 +1123,7 @@ export default class Tasks extends View {
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click(() => openStatusMenu(this.owner, number, choices))
       .child(div().child(choices.find((c) => c.current)?.label ?? STATUS_LABELS[task.status] ?? task.status))
-      .child(svg(ICON("chevron-down")).size(12).flex_none());
+      .child(svg(this.icon("chevron-down")).size(12).flex_none());
     const more = [];
     if (has("startQuiet")) more.push(chip(t, "start-quiet", "Start Without Agent", (_e, cx) => this.changeStatus(cx, number, changeFor("startQuiet"), "Start")));
     more.push(chip(t, "open-block", "Block…", (_e, cx) => this.openCard(cx, "block"), { selected: this.card === "block" }));
@@ -1090,7 +1135,7 @@ export default class Tasks extends View {
     parts.push(sectionTitle(t, "Assignee"), pad(field(t, "assignee", fields.assignee, this.focused === "assignee")));
 
     const links = task.after.map((link) =>
-      chip(t, `after-${link.task}`, `T${link.task}`, (_e, cx) => this.removeRunsAfter(cx, number, link.task), { icon: ICON("x"), done: link.done }),
+      chip(t, `after-${link.task}`, `T${link.task}`, (_e, cx) => this.removeRunsAfter(cx, number, link.task), { icon: this.icon("x"), done: link.done }),
     );
     parts.push(
       sectionTitle(t, "Runs after"),
@@ -1106,7 +1151,7 @@ export default class Tasks extends View {
       parts.push(
         row(t, `step-${step.shortId}`)
           .child(
-            checkBox(t, `step-check-${step.shortId}`, step.done, (_e, cx) => this.stepOp(cx, number, { kind: "toggle", id: step.shortId }, "Toggle Step")),
+            toggle(t, `step-check-${step.shortId}`, step.done, (_e, cx) => this.stepOp(cx, number, { kind: "toggle", id: step.shortId }, "Toggle Step")),
           )
           .child(
             div()
@@ -1116,7 +1161,7 @@ export default class Tasks extends View {
               .when(step.done, (el) => el.line_through().text_color(t.muted))
               .child(step.text),
           )
-          .child(iconButton(t, `step-remove-${step.shortId}`, ICON("x"), (_e, cx) => this.stepOp(cx, number, { kind: "remove", id: step.shortId }, "Remove Step"))),
+          .child(iconButton(t, `step-remove-${step.shortId}`, this.icon("x"), (_e, cx) => this.stepOp(cx, number, { kind: "remove", id: step.shortId }, "Remove Step"))),
       );
     }
     parts.push(pad(field(t, "step", fields.step, this.focused === "step")));
@@ -1244,11 +1289,48 @@ export default class Tasks extends View {
     return card(t, `card-${number}`, parts);
   }
 
+  /** The status dropdown: one row per status, the current one ticked, disabled ones dimmed. */
+  renderStatusMenu(t) {
+    const p = props() ?? {};
+    const choices = normalizeChoices(p.choices);
+    const active = this.at ?? startAt(choices);
+    const pickable = (choice) => choice.enabled && !choice.current;
+    const rows = choices.map((choice, index) =>
+      menuRow(t, `status-${choice.status}`, {
+        label: choice.label,
+        active: index === active,
+        current: choice.current,
+        enabled: choice.enabled,
+        tick: this.icon("check"),
+        onClick: () => {
+          if (pickable(choice)) pickStatus(p, choice.status);
+        },
+      }),
+    );
+    return v_flex()
+      .id("argus-tsk-status")
+      .track_focus(this.handle)
+      .w_full()
+      .h(statusHeight(rows.length))
+      .bg(t.popover)
+      .text_color(t.foreground)
+      .text_size(12.8)
+      .on_key_down((e, cx) => {
+        const next = menuKey(active, e.key, choices.length);
+        if (!next.handled) return;
+        this.at = next.at;
+        if (next.action === "pick" && pickable(choices[next.at])) pickStatus(p, choices[next.at].status);
+        else if (next.action === "close") closeOverlay(p.overlay);
+        cx.notify();
+      })
+      .child(scrollArea("argus-tsk-status-list", rows, { padding: MENU_PAD }));
+  }
+
   renderSettings(t) {
-    const back = iconButton(t, "back", ICON("chevron-left"), (_e, cx) => {
+    const back = (_e, cx) => {
       this.view = "board";
       cx.notify();
-    });
+    };
     const hint = (text) => div().px(8).text_size(11).text_color(t.dim).child(text);
     const parts = [
       sectionTitle(t, "tsk command"),
@@ -1259,7 +1341,7 @@ export default class Tasks extends View {
       hint("Leave empty to use TSK_STATE_DIR, else ~/.tsk. Both fields save on Enter or when you leave them."),
     ];
     return frame(t, "argus-tsk-settings")
-      .child(h_flex().h(42).flex_none().pl(8).pr(14).gap(4).items_center().border_b(1).border_color(t.border).child(back).child(div().font_semibold().child("Settings")))
+      .child(subHeader(t, back, "Settings", this.icon("chevron-left")))
       .child(scrollArea("argus-tsk-settings-list", parts, { padding: 6 }));
   }
 }
@@ -1359,23 +1441,6 @@ function chip(t, id, label, onClick, { selected = false, enabled = true, icon = 
     .when(Boolean(icon), (el) => el.child(svg(icon ?? "").size(12)));
 }
 
-/** A 16 px check box. */
-function checkBox(t, id, checked, onClick) {
-  return div()
-    .id(id)
-    .size(16)
-    .flex_none()
-    .flex()
-    .items_center()
-    .justify_center()
-    .rounded(4)
-    .border_1()
-    .border_color(checked ? t.accent : t.input)
-    .when(checked, (el) => el.bg(t.accent).text_color(t.accent_foreground).child(svg(ICON("check")).size(12)))
-    .cursor_pointer()
-    .on_click(onClick);
-}
-
 /** An error line in the pane. */
 function message(t, text) {
   return div().px(8).py(6).text_size(12).text_color(t.blocked).whitespace_normal().child(text);
@@ -1398,46 +1463,13 @@ function openScopes() {
  * this mod, so it gets the pane's choices, task number and owner in its props.
  */
 function openStatusMenu(owner, number, choices) {
-  const height = 12 + choices.length * 28;
+  const height = statusHeight(choices.length);
   openOverlay({ mod: MOD, props: { view: "status", owner, number, choices }, kind: "popup", width: STATUS_WIDTH, height });
 }
 
-/** The status dropdown: one row per status, the current one checked, disabled ones dimmed. */
-function renderStatusMenu(t) {
-  const p = props() ?? {};
-  const choices = normalizeChoices(p.choices);
-  const rows = choices.map((choice) =>
-    (choice.enabled && !choice.current
-      ? row(t, `status-${choice.status}`).cursor_pointer().on_click(() => pickStatus(p, choice.status))
-      : staticRow(t, `status-${choice.status}`, choice.current)
-    )
-      .child(div().flex_1().min_w(0).truncate().text_color(choice.enabled ? t.foreground : t.dim).child(choice.label))
-      .when(choice.current, (el) => el.child(svg(ICON("check")).size(14).flex_none().text_color(t.muted))),
-  );
-  return v_flex()
-    .id("argus-tsk-status")
-    .w_full()
-    .h(12 + rows.length * 28)
-    .bg(t.popover)
-    .text_color(t.foreground)
-    .text_size(13)
-    .child(scrollArea("argus-tsk-status-list", rows, { padding: 6 }));
-}
-
-/**
- * A 28 px row the size of `row()` that takes no clicks: no hover background
- * and no pointer. On `selected` when `selected` is true.
- */
-function staticRow(t, id, selected) {
-  return h_flex()
-    .id(id)
-    .h(28)
-    .flex_none()
-    .px(8)
-    .gap(8)
-    .items_center()
-    .rounded(7)
-    .when(selected, (el) => el.bg(t.selected));
+/** Height of the status dropdown for `count` rows. */
+function statusHeight(count) {
+  return 2 * MENU_PAD + count * MENU_ROW;
 }
 
 /** Hands a picked status to the pane that opened the popup, then closes the popup. */

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { branchSlug, checkoutBranch, checkoutPlan, gitError, parseWorktrees, spaceFor, worktreeRoot } from "../mods/argus-pull-requests/worktree.js";
+import { aheadCount, aheadRefusal, branchSlug, checkoutBranch, checkoutPlan, gitError, parseWorktrees, spaceFor, worktreeRoot } from "../mods/argus-pull-requests/worktree.js";
 
 const dir = (directory) => JSON.stringify({ worktrees: { directory } });
 
@@ -52,12 +52,17 @@ test("checkoutPlan creates a worktree", () => {
     kind: "create",
     path: "/wt/example-repo/pr-42",
     cwd: "/home/test/example-repo",
-    fetch: ["fetch", "--no-tags", "origin", "refs/pull/42/head:refs/heads/pr/42"],
+    branch: "pr/42",
+    exists: ["rev-parse", "--verify", "--quiet", "refs/heads/pr/42"],
+    peek: ["fetch", "--no-tags", "origin", "refs/pull/42/head"],
+    ahead: ["rev-list", "--count", "FETCH_HEAD..refs/heads/pr/42"],
+    fetch: ["fetch", "--no-tags", "origin", "+refs/pull/42/head:refs/heads/pr/42"],
     add: ["worktree", "add", "/wt/example-repo/pr-42", "pr/42"],
   });
   const mr = { provider: "gitlab", number: 12, headRef: "x", repo: "example-group/example-sub/example-project", host: "gitlab.example.com" };
   const plan = checkoutPlan({ pr: mr, localPath: "/home/test/example-project/", root: "/wt", porcelain });
-  assert.equal(plan.fetch[3], "refs/merge-requests/12/head:refs/heads/mr/12");
+  assert.equal(plan.fetch[3], "+refs/merge-requests/12/head:refs/heads/mr/12");
+  assert.equal(plan.peek[3], "refs/merge-requests/12/head");
   assert.equal(plan.path, "/wt/example-project/mr-12");
 });
 
@@ -99,4 +104,22 @@ test("gitError: the error line, not the first progress line", () => {
 
 test("worktreeRoot: a blank directory is an error", () => {
   assert.deepEqual(worktreeRoot('{"worktrees":{"directory":"  "}}', "/home/test"), { error: "worktrees.directory must be a non-empty path." });
+});
+
+test("aheadCount reads the count git prints", () => {
+  assert.equal(aheadCount("0\n"), 0);
+  assert.equal(aheadCount("3\n"), 3);
+  assert.equal(aheadCount(" 12 "), 12);
+});
+
+test("aheadCount: anything else is null", () => {
+  for (const text of ["", "\n", "x", "-1", "1.5", "2 3"]) assert.equal(aheadCount(text), null, JSON.stringify(text));
+});
+
+test("aheadRefusal names the branch and the commit count", () => {
+  assert.equal(
+    aheadRefusal("pr/42", 1),
+    "The local branch pr/42 has 1 commit that is not on the pull request. The branch is unchanged. Push or move those commits, or delete the branch, then check out again.",
+  );
+  assert.match(aheadRefusal("mr/7", 3), /^The local branch mr\/7 has 3 commits that are not on the pull request\./);
 });

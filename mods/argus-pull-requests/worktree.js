@@ -99,7 +99,9 @@ export function parseWorktrees(porcelain) {
 /**
  * Opens the worktree that already holds the PR branch, else plans a fetch and a new worktree.
  * @param {{pr: Pr, localPath: string, root: string, porcelain: string}} input
- * @returns {{kind: "open", path: string}|{kind: "create", path: string, cwd: string, fetch: string[], add: string[]}}
+ * @returns {{kind: "open", path: string}|{kind: "create", path: string, cwd: string, branch: string, exists: string[], peek: string[], ahead: string[], fetch: string[], add: string[]}}
+ * For a create plan, `exists` tells whether the branch is already there; `peek` fetches the PR head to FETCH_HEAD
+ * and `ahead` counts the branch commits not on it; `fetch` then force-updates the branch.
  */
 export function checkoutPlan({ pr, localPath, root, porcelain }) {
   const branch = checkoutBranch(pr);
@@ -107,13 +109,39 @@ export function checkoutPlan({ pr, localPath, root, porcelain }) {
   if (existing) return { kind: "open", path: existing.path };
   const folder = localPath.replace(/\/+$/, "").split("/").pop();
   const path = `${root}/${folder}/${branchSlug(branch)}`;
+  const ref = fetchRef(pr.provider, pr.number);
   return {
     kind: "create",
     path,
     cwd: localPath,
-    fetch: ["fetch", "--no-tags", "origin", `${fetchRef(pr.provider, pr.number)}:refs/heads/${branch}`],
+    branch,
+    exists: ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`],
+    peek: ["fetch", "--no-tags", "origin", ref],
+    ahead: ["rev-list", "--count", `FETCH_HEAD..refs/heads/${branch}`],
+    fetch: ["fetch", "--no-tags", "origin", `+${ref}:refs/heads/${branch}`],
     add: ["worktree", "add", path, branch],
   };
+}
+
+/**
+ * The number `git rev-list --count` printed, or null when the text is not one.
+ * @param {string} stdout
+ * @returns {?number}
+ */
+export function aheadCount(stdout) {
+  const text = String(stdout ?? "").trim();
+  return /^\d+$/.test(text) ? Number(text) : null;
+}
+
+/**
+ * The message for a local PR branch that has commits the PR head lacks.
+ * @param {string} branch
+ * @param {number} count
+ * @returns {string}
+ */
+export function aheadRefusal(branch, count) {
+  const commits = count === 1 ? "1 commit that is" : `${count} commits that are`;
+  return `The local branch ${branch} has ${commits} not on the pull request. The branch is unchanged. Push or move those commits, or delete the branch, then check out again.`;
 }
 
 /**

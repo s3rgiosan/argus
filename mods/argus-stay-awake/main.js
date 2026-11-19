@@ -40,19 +40,21 @@ export default class StayAwake extends View {
       .border_b(1)
       .border_color(t.border)
       .child(
-        h_flex()
+        div()
           .id("stay-awake")
           .relative()
-          .h(26)
-          .px(8)
+          .size(26)
           .flex_none()
+          .flex()
           .items_center()
+          .justify_center()
           .rounded(6)
-          .bg(t.chrome)
-          .text_color(on ? t.accent : t.muted)
-          .hover((s) => s.bg(t.hover))
+          .bg(on ? t.selected : t.chrome)
+          .text_color(on ? t.foreground : t.muted)
+          .hover((s) => s.bg(t.hover).text_color(t.foreground))
           .tooltip(TOOLTIP)
-          .on_mouse_down("left", (_e, cx) => this.apply(leftClick(this.mode), cx))
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => this.apply(leftClick(this.mode), cx))
           .on_mouse_down("right", (_e, cx) => {
             cx.stop_propagation();
             const result = rightClick(this.mode, anyWorking(agents()));
@@ -61,7 +63,7 @@ export default class StayAwake extends View {
           })
           .child(svg(ICON).size(14))
           .when(this.mode === "agents", (el) =>
-            el.child(div().absolute().top(5).right(5).size(5).rounded_full().bg(t.accent)),
+            el.child(div().absolute().top(4).right(4).size(5).rounded_full().bg(t.accent)),
           ),
       );
   }

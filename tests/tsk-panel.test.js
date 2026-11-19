@@ -13,7 +13,7 @@ const tree = (panel) => ({
 const argusPanel = (over = {}) => ({
   id: "argus-panel",
   type: "column",
-  size: { px: 440 },
+  size: { px: 368 },
   min: 280,
   max: 900,
   children: [
@@ -30,7 +30,7 @@ const argusPanel = (over = {}) => ({
 });
 
 test("panelOf: reads the panel's width and max when it holds the mod", () => {
-  assert.deepEqual(panelOf(tree(argusPanel()), "argus-panel", "argus-tsk"), { px: 440, max: 900 });
+  assert.deepEqual(panelOf(tree(argusPanel()), "argus-panel", "argus-tsk"), { px: 368, max: 900 });
   assert.deepEqual(panelOf(tree(argusPanel({ size: { px: 612 } })), "argus-panel", "argus-tsk"), { px: 612, max: 900 });
 });
 test("panelOf: a missing size or max gives null and the 900 px default", () => {
@@ -51,7 +51,7 @@ test("isExpanded: within 20 px of the max counts as expanded", () => {
 });
 
 test("expandAction: expands to the max and saves the width it had", () => {
-  assert.deepEqual(expandAction({ px: 440, max: 900 }, null), { px: 900, save: 440 });
+  assert.deepEqual(expandAction({ px: 368, max: 900 }, null), { px: 900, save: 368 });
   assert.deepEqual(expandAction({ px: 512, max: 900 }, 600), { px: 900, save: 512 });
 });
 test("expandAction: an unknown width expands and saves nothing", () => {
@@ -61,9 +61,9 @@ test("expandAction: an expanded panel goes back to the saved width", () => {
   assert.deepEqual(expandAction({ px: 900, max: 900 }, 512), { px: 512, save: null });
   assert.deepEqual(expandAction({ px: 885, max: 900 }, 512), { px: 512, save: null });
 });
-test("expandAction: without a usable saved width it goes back to 440", () => {
-  assert.deepEqual(expandAction({ px: 900, max: 900 }, null), { px: 440, save: null });
-  assert.deepEqual(expandAction({ px: 900, max: 900 }, "wide"), { px: 440, save: null });
-  assert.deepEqual(expandAction({ px: 900, max: 900 }, 890), { px: 440, save: null });
-  assert.deepEqual(expandAction({ px: 900, max: 900 }, 0), { px: 440, save: null });
+test("expandAction: without a usable saved width it goes back to 368", () => {
+  assert.deepEqual(expandAction({ px: 900, max: 900 }, null), { px: 368, save: null });
+  assert.deepEqual(expandAction({ px: 900, max: 900 }, "wide"), { px: 368, save: null });
+  assert.deepEqual(expandAction({ px: 900, max: 900 }, 890), { px: 368, save: null });
+  assert.deepEqual(expandAction({ px: 900, max: 900 }, 0), { px: 368, save: null });
 });
