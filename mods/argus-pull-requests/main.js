@@ -178,7 +178,7 @@ export default class PullRequests extends View {
       this.renewLock();
     }
 
-    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes, readAt: startedAt });
+    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt });
   }
 
   /** Caches what `folder` is: a repository entry, or null. */
