@@ -5,6 +5,12 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-11-19
+
+### Added
+
+- The Argus layout uses `argus-pane`, a copy of Herdr's pane header that `scripts/build-layout.mjs` writes again on every run. A pull request pane shows "#12 · <title>" and a task pane shows "T12 · <title>" in place of the mod name. When Herdr's header changes so that the copy cannot be made, the script says so and the layout keeps Herdr's header.
+
 ## [1.4.1] - 2026-11-19
 
 ### Fixed
@@ -111,7 +117,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.4.1...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.5.0...HEAD
+[1.5.0]: https://github.com/s3rgiosan/argus/compare/1.4.1...1.5.0
 [1.4.1]: https://github.com/s3rgiosan/argus/compare/1.4.0...1.4.1
 [1.4.0]: https://github.com/s3rgiosan/argus/compare/1.3.1...1.4.0
 [1.3.1]: https://github.com/s3rgiosan/argus/compare/1.3.0...1.3.1

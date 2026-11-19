@@ -13,6 +13,7 @@ import {
   onToInput,
   projectLabelsOf,
   projectOf,
+  taskPaneTitle,
   rowsInScope,
   scopeTitle,
   sectionOf,
@@ -506,4 +507,11 @@ test("normalizeScope: each call gives its own scope object", () => {
   a.thread = "changed";
   assert.deepEqual(normalizeScope(null), scope({ where: "follow" }));
   assert.notEqual(normalizeScope({ kind: "follow" }), normalizeScope({ kind: "follow" }));
+});
+
+test("taskPaneTitle: the number and title of the shown task, else the panel name", () => {
+  assert.equal(taskPaneTitle(12, "Example task"), "T12 · Example task");
+  assert.equal(taskPaneTitle(12, null), "T12");
+  assert.equal(taskPaneTitle(12, ""), "T12");
+  assert.equal(taskPaneTitle(null, null), "Tasks");
 });

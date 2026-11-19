@@ -409,3 +409,13 @@ export function keepStale(next, current, startedAt) {
   const staleAt = typeof current.staleAt === "number" ? current.staleAt : 0;
   return staleAt > startedAt ? { ...next, staleAt } : next;
 }
+
+/**
+ * The title the pane header shows for the pull request pane: the shown pull
+ * request's number and title, else the panel name.
+ * @param {{number: number, title: string} | null} pr
+ * @returns {string}
+ */
+export function prPaneTitle(pr) {
+  return pr === null ? "Pull requests" : `#${pr.number} · ${pr.title}`;
+}

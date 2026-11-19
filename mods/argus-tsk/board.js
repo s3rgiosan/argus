@@ -548,3 +548,15 @@ export function activitySentence(entry) {
   }
   return entry.by ? `${entry.by} ${known.by}` : known.alone;
 }
+
+/**
+ * The title the pane header shows for the task pane: the shown task's number and
+ * title, the number alone while the title is not known, else the panel name.
+ * @param {?number} number
+ * @param {?string} title
+ * @returns {string}
+ */
+export function taskPaneTitle(number, title) {
+  if (number === null) return "Tasks";
+  return title ? `T${number} · ${title}` : `T${number}`;
+}
