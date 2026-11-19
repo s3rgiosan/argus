@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MODES, anyWorking, leftClick, rightClick, tick, caffeinateArgs, TICK_MS, EXEC_TIMEOUT_MS } from "../mods/argus-awake/awake.js";
+import { MODES, anyWorking, leftClick, rightClick, tick, caffeinateArgs, shouldRun, MAX_RUNS, TICK_MS, EXEC_TIMEOUT_MS } from "../mods/argus-awake/awake.js";
 
 test("constants", () => {
   assert.deepEqual(MODES, ["off", "on", "agents"]);
@@ -36,4 +36,12 @@ test("tick ends agents mode when nothing works", () => {
   assert.deepEqual(tick("on", false), { mode: "on", toast: null, keepAwake: true });
   assert.deepEqual(tick("on", true), { mode: "on", toast: null, keepAwake: true });
   assert.deepEqual(tick("off", true), { mode: "off", toast: null, keepAwake: false });
+});
+
+test("shouldRun starts a run only when keeping awake and under the cap", () => {
+  assert.equal(MAX_RUNS, 3);
+  assert.equal(shouldRun(true, 0), true);
+  assert.equal(shouldRun(true, 2), true);
+  assert.equal(shouldRun(true, 3), false);
+  assert.equal(shouldRun(false, 0), false);
 });

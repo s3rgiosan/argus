@@ -6,18 +6,18 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { exec, agents, checking, notify, theme } from "herdr";
-import { anyWorking, leftClick, rightClick, tick, caffeinateArgs, TICK_MS, EXEC_TIMEOUT_MS } from "./awake.js";
+import { anyWorking, leftClick, rightClick, tick, caffeinateArgs, shouldRun, TICK_MS, EXEC_TIMEOUT_MS } from "./awake.js";
 
 const TOOLTIP = "Keep the display awake · Right-click: until agents finish";
 const ICON = "mods/argus-awake/icons/coffee.svg";
-// Two runs overlap by half their length, so the display is covered between ticks.
-const MAX_RUNS = 2;
+const NEEDS_CAFFEINATE = "Keep awake needs caffeinate (macOS)";
 
 export default class Awake extends View {
   init() {
     this.mode = "off";
     this.timer = null;
     this.runs = 0;
+    this.warned = false;
   }
 
   /** Stops the timer. A `caffeinate` already running ends within 120 s. */
@@ -52,8 +52,9 @@ export default class Awake extends View {
           .text_color(on ? t.accent : t.muted)
           .hover((s) => s.bg(t.hover))
           .tooltip(TOOLTIP)
-          .on_click((_e, cx) => this.apply(leftClick(this.mode), cx))
+          .on_mouse_up("left", (_e, cx) => this.apply(leftClick(this.mode), cx))
           .on_mouse_down("right", (_e, cx) => {
+            cx.stop_propagation();
             const result = rightClick(this.mode, anyWorking(agents()));
             if (result.toast) notify({ title: result.toast, level: "info" });
             this.apply(result.mode, cx);
@@ -70,6 +71,7 @@ export default class Awake extends View {
     this.mode = mode;
     if (mode === "off") {
       this.close();
+      this.warned = false;
     } else if (!this.timer) {
       this.timer = cx.timer.every(TICK_MS, (cx) => this.onTick(cx));
       this.keepAwake(cx);
@@ -85,17 +87,19 @@ export default class Awake extends View {
   }
 
   /**
-   * Starts one `caffeinate`. A failure is dropped: the next tick tries again.
+   * Starts one `caffeinate`. When it cannot start, one toast says so for each
+   * time the mode turns on, and the next tick tries again.
    */
   keepAwake(cx) {
-    if (checking() || this.runs >= MAX_RUNS) return;
+    if (checking() || !shouldRun(true, this.runs)) return;
     this.runs += 1;
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       try {
         await exec("caffeinate", caffeinateArgs(), { timeout: EXEC_TIMEOUT_MS });
       } catch {
-        // caffeinate is missing or failed to start.
+        if (!this.warned) notify({ title: NEEDS_CAFFEINATE, level: "warning" });
+        this.warned = true;
       } finally {
         this.runs -= 1;
       }

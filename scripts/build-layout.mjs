@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Writes the argus layout: Herdr's shipped main layout plus a toolbar
-// beside the tab bar and a panel column for the installed panel mods. Run it
-// again after a Herdr update or after installing a mod.
+// Writes the argus layout: Herdr's shipped main layout plus a keep-awake
+// button and a toolbar beside the tab bar and a panel column for the
+// installed panel mods. Run it again after a Herdr update or after installing
+// a mod.
 //
 //   node scripts/build-layout.mjs [--name argus] [--switch]
 
@@ -74,7 +75,7 @@ const panels = panelsFromManifests(entries);
 
 let layout;
 try {
-  layout = buildLayout(main, panels);
+  layout = buildLayout(main, panels, { awake: existsSync(join(modsDir, "argus-awake", "main.js")) });
 } catch (error) {
   console.error(`build-layout: Herdr's main layout changed shape (${error.message}); nothing written`);
   process.exit(1);

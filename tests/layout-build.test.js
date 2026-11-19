@@ -127,3 +127,10 @@ test("the panel column resizes between 280 and 900 px", () => {
   const column = find(buildLayout(main(), panels), "argus-panel");
   assert.deepEqual([column.min, column.max], [280, 900]);
 });
+
+test("leaves out the awake block when the mod is not installed", () => {
+  const out = buildLayout(main(), panels, { awake: false });
+  assert.equal(find(out, "argus-awake"), null);
+  assert.deepEqual(find(out, "argus-tabs-row").children.map((c) => c.id), ["tabs", "argus-toolbar"]);
+  assert.deepEqual(find(buildLayout(main(), panels, { awake: true }), "argus-tabs-row").children.map((c) => c.id), ["tabs", "argus-awake", "argus-toolbar"]);
+});

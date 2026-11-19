@@ -7,6 +7,12 @@ export const TICK_MS = 60_000;
 /** The `exec` timeout: above the 120 s `caffeinate` runs for. */
 export const EXEC_TIMEOUT_MS = 150_000;
 
+/**
+ * The most `caffeinate` runs open at once. A run lasts 120 s and a tick comes
+ * every 60 s or a little later, so three leave room at the hand-over.
+ */
+export const MAX_RUNS = 3;
+
 const NO_AGENTS = "No agents are working";
 const AGENTS_DONE = "Agents finished · display can sleep";
 
@@ -57,4 +63,14 @@ export function rightClick(mode, working) {
 export function tick(mode, working) {
   if (mode === "agents" && !working) return { mode: "off", toast: AGENTS_DONE, keepAwake: false };
   return { mode, toast: null, keepAwake: mode !== "off" };
+}
+
+/**
+ * Whether to start a `caffeinate` run now.
+ *
+ * @param {boolean} keepAwake
+ * @param {number} runs Runs open now.
+ */
+export function shouldRun(keepAwake, runs) {
+  return keepAwake && runs < MAX_RUNS;
 }

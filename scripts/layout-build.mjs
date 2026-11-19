@@ -49,10 +49,11 @@ export function panelsFromManifests(entries) {
  *
  * @param {object} main Herdr's layouts/main.json.
  * @param {{ id: string, label: string, icon: string | null }[]} panels
+ * @param {{ awake?: boolean }} [options] `awake: false` leaves out the keep-awake button.
  * @returns {object}
  * @throws {Error} When `main` has no `tabs` block or no `work-body` row.
  */
-export function buildLayout(main, panels) {
+export function buildLayout(main, panels, { awake = true } = {}) {
   const out = structuredClone(main);
   if (find(out, TOOLBAR_ID) || find(out, AWAKE_ID) || find(out, PANEL_ID)) throw new Error("already has the argus blocks");
 
@@ -70,12 +71,7 @@ export function buildLayout(main, panels) {
     resizable: false,
     children: [
       { ...tabs, size: { weight: 1 } },
-      {
-        id: AWAKE_ID,
-        type: "block",
-        size: { px: AWAKE_WIDTH },
-        content: { mod: AWAKE_ID },
-      },
+      ...(awake ? [{ id: AWAKE_ID, type: "block", size: { px: AWAKE_WIDTH }, content: { mod: AWAKE_ID } }] : []),
       {
         id: TOOLBAR_ID,
         type: "block",
