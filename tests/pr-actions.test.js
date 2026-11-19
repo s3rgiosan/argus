@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NEEDS_BODY, NO_METHOD, NO_SHA, actionCommand, bodyError, canAct, ghMethodArgs, mergePrompt, pickMergeMethod } from "../mods/argus-pull-requests/actions.js";
+import { NEEDS_BODY, NO_METHOD, NO_SHA, actionCommand, afterAction, bodyError, canAct, ghMethodArgs, mergePrompt, pickMergeMethod } from "../mods/argus-pull-requests/actions.js";
 
 const GL_URL = "https://gitlab.example.com/example-group/example-sub/example-project";
 
@@ -67,7 +67,7 @@ test("body stays one argument", () => {
   const body = "-x \"quoted\"\nsecond=line";
   assert.deepEqual(actionCommand({ kind: "comment", detail: gh, body }).args.slice(-2), ["--comment", `--body=${body}`]);
   assert.deepEqual(actionCommand({ kind: "request_changes", detail: gl, body }).args, [
-    "mr", "note", "draft", "publish", "12", "-R", GL_URL, `--message=${body}`, "--reviewer-state=requested_changes", "--yes",
+    "mr", "note", "draft", "create", "12", "-R", GL_URL, `--message=${body}`,
   ]);
 });
 
@@ -142,4 +142,22 @@ test("canAct", () => {
   assert.equal(canAct({ ...gh.pr, state: "merged" }), false);
   assert.equal(canAct({ ...gh.pr, state: "closed" }), false);
   assert.equal(canAct({ ...gh.pr, isDraft: true }), true);
+});
+
+test("glab request changes creates a draft, then publishes it", () => {
+  assert.deepEqual(actionCommand({ kind: "request_changes", detail: gl, body: "Fix it" }), {
+    name: "glab",
+    args: ["mr", "note", "draft", "create", "12", "-R", GL_URL, "--message=Fix it"],
+    then: ["mr", "note", "draft", "publish", "12", "-R", GL_URL, "--reviewer-state=requested_changes", "--yes"],
+  });
+  assert.equal("then" in actionCommand({ kind: "comment", detail: gl, body: "ok" }), false);
+});
+
+test("afterAction re-reads after every action and clears the comment only after its own action", () => {
+  assert.deepEqual(afterAction("approve", true), { reread: true, clearComment: false });
+  assert.deepEqual(afterAction("merge", true), { reread: true, clearComment: false });
+  assert.deepEqual(afterAction("comment", true), { reread: true, clearComment: true });
+  assert.deepEqual(afterAction("request_changes", true), { reread: true, clearComment: true });
+  assert.deepEqual(afterAction("comment", false), { reread: true, clearComment: false });
+  assert.deepEqual(afterAction("merge", false), { reread: true, clearComment: false });
 });

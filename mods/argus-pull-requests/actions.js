@@ -11,6 +11,7 @@ export const NEEDS_BODY = new Set(["request_changes", "comment"]);
 export const NO_METHOD = "This repo allows no merge method for you.";
 export const NO_SHA = "Read this pull request again, then retry.";
 export const NO_BODY = "Write a comment first.";
+export const DRAFT_KEPT = "Your comment is kept as a pending review comment on the merge request.";
 
 /** GitHub's merge methods in fallback order, with the repo setting that allows each. */
 const GH_METHODS = [
@@ -72,7 +73,8 @@ export function pickMergeMethod(text) {
  * `--body=` or `--message=` argument, so text that starts with `-` stays a value.
  * Approve on GitLab and Merge on both forges pin the head commit the pane read.
  * @param {{kind: ActionKind, detail: Detail, body: string, method?: MergeMethod|null}} input
- * @returns {{name: "gh"|"glab", args: string[]} | {error: string}}
+ * A second command in `then` runs only after the first one succeeds.
+ * @returns {{name: "gh"|"glab", args: string[], then?: string[]} | {error: string}}
  */
 export function actionCommand({ kind, detail, body, method = null }) {
   if (!["approve", "request_changes", "comment", "merge"].includes(kind)) throw new Error(`unknown action: ${kind}`);
@@ -89,7 +91,12 @@ export function actionCommand({ kind, detail, body, method = null }) {
       case "approve":
         return { name: "glab", args: ["mr", "approve", number, ...repo, "--sha", String(headSha)] };
       case "request_changes":
-        return { name: "glab", args: ["mr", "note", "draft", "publish", number, ...repo, `--message=${body}`, "--reviewer-state=requested_changes", "--yes"] };
+        // glab publishes only pending comments, so the body goes in as one first.
+        return {
+          name: "glab",
+          args: ["mr", "note", "draft", "create", number, ...repo, `--message=${body}`],
+          then: ["mr", "note", "draft", "publish", number, ...repo, "--reviewer-state=requested_changes", "--yes"],
+        };
       case "comment":
         return { name: "glab", args: ["mr", "note", "create", number, ...repo, `--message=${body}`, "--resolvable=false"] };
       default:
@@ -138,4 +145,15 @@ export function mergePrompt(detail, method) {
     }
   }
   return `Merge #${pr.number} into ${pr.baseRef} with ${how}?`;
+}
+
+/**
+ * What the pane does after an action ends. It always reads the pull request again,
+ * so a refused pin shows the new head. The comment box clears only after its own action succeeds.
+ * @param {ActionKind} kind
+ * @param {boolean} ok
+ * @returns {{reread: boolean, clearComment: boolean}}
+ */
+export function afterAction(kind, ok) {
+  return { reread: true, clearComment: ok && NEEDS_BODY.has(kind) };
 }

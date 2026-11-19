@@ -8,7 +8,7 @@ import { exec, home, appHome, readTextFile, window, checking, theme, shared, set
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
-import { NO_METHOD, canAct, actionCommand, ghMethodArgs, pickMergeMethod, mergePrompt } from "./actions.js";
+import { NO_METHOD, DRAFT_KEPT, canAct, actionCommand, afterAction, ghMethodArgs, pickMergeMethod, mergePrompt } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
 import { assembleBoard, normalizeBoard, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
@@ -81,7 +81,7 @@ export default class PullRequests extends View {
     this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     // The body of a review comment, for Request changes and Comment.
-    this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Write a comment" }, (cx) => this.submitBody(cx), { multiline: true }) : null;
+    this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Write a comment", rows: 4 }, (cx) => this.submitBody(cx), { multiline: true }) : null;
 
     if (checking()) return;
     if (this.view === "scopes") this.handle.focus();
@@ -783,8 +783,8 @@ export default class PullRequests extends View {
   }
 
   /**
-   * Runs one review or merge action. On success it closes the composer and the
-   * confirm, reads the pull request again and marks the board stale so a board copy reads it.
+   * Runs one review or merge action, then reads the pull request again. On success it
+   * closes the confirm (and the composer after its own action) and marks the board stale so a board copy reads it.
    */
   runAction(cx, key, kind, detail, body, method) {
     if (this.actionState(key).running !== null) return;
@@ -805,21 +805,27 @@ export default class PullRequests extends View {
           error = command.name === "glab" ? GLAB_MISSING : GH_MISSING;
         } else {
           const reply = await exec(cli, command.args, { timeout: CLI_TIMEOUT });
-          if (reply.code !== 0) error = cliError(command.name, reply);
+          if (reply.code !== 0) {
+            error = cliError(command.name, reply);
+          } else if (command.then) {
+            const next = await exec(cli, command.then, { timeout: CLI_TIMEOUT });
+            if (next.code !== 0) error = `${cliError(command.name, next)} ${DRAFT_KEPT}`;
+          }
         }
       } catch (caught) {
         error = caught?.message ?? String(caught);
       }
+      const after = afterAction(kind, error === null);
       if (error !== null) {
         this.setAction(key, { running: null, error });
-        cx.notify();
-        return;
+      } else {
+        this.setAction(key, { running: null, error: null, confirm: null, ...(after.clearComment ? { composing: null } : {}) });
+        if (after.clearComment && this.shown?.key === key) this.bodyInput?.set_value("");
+        setShared(BOARD_KEY, { ...readBoard(), readAt: 0 });
       }
-      this.setAction(key, { running: null, error: null, composing: null, confirm: null });
-      if (this.shown?.key === key) this.bodyInput?.set_value("");
-      setShared(BOARD_KEY, { ...readBoard(), readAt: 0 });
+      // A refused head pin shows the new head after this read.
       const selected = readSelected();
-      if (selected?.key === key) this.loadPr(cx, selected);
+      if (after.reread && selected?.key === key) this.loadPr(cx, selected);
       cx.notify();
     });
   }
