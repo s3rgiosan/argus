@@ -240,3 +240,225 @@ export function parseGhDetail(text, repo) {
     conversation: ghConversation(raw),
   };
 }
+
+const GL_PASSED = new Set(["SUCCESS", "SKIPPED"]);
+const GL_FAILED = new Set(["FAILED", "CANCELED"]);
+const GL_UNKNOWN_MERGE = new Set(["CHECKING", "UNCHECKED", "PREPARING", "APPROVALS_SYNCING"]);
+
+const GL_REVIEW_STATES = {
+  APPROVED: "approved",
+  REQUESTED_CHANGES: "changes_requested",
+  REVIEWED: "commented",
+  REVIEW_STARTED: "pending",
+  UNAPPROVED: "dismissed",
+  UNREVIEWED: "requested",
+};
+
+const GL_MERGE_REASONS = {
+  UNCHECKED: "Merge status has not been checked.",
+  CHECKING: "Currently checking for mergeability.",
+  COMMITS_STATUS: "Source branch exists and contains commits.",
+  CI_MUST_PASS: "Pipeline must succeed before merging.",
+  CI_STILL_RUNNING: "Pipeline is still running.",
+  DISCUSSIONS_NOT_RESOLVED: "Discussions must be resolved before merging.",
+  DRAFT_STATUS: "Merge request must not be draft before merging.",
+  NOT_OPEN: "Merge request must be open before merging.",
+  NOT_APPROVED: "Merge request must be approved before merging.",
+  BLOCKED_STATUS: "Merge request dependencies must be merged.",
+  EXTERNAL_STATUS_CHECKS: "Status checks must pass.",
+  PREPARING: "Merge request diff is being created.",
+  JIRA_ASSOCIATION: "Either the title or description must reference a Jira issue.",
+  CONFLICT: "There are conflicts between the source and target branches.",
+  NEED_REBASE: "Merge request needs to be rebased.",
+  APPROVALS_SYNCING: "Merge request approvals currently syncing.",
+  LOCKED_PATHS: "Merge request includes locked paths.",
+  LOCKED_LFS_FILES: "Merge request includes locked LFS files.",
+  MERGE_TIME: "Merge request may not be merged outside the specified time frame.",
+  SECURITY_POLICIES_VIOLATIONS: "All policy rules must be satisfied.",
+  TITLE_NOT_MATCHING: "Merge request title does not match required regex.",
+  REQUESTED_CHANGES: "Indicates a reviewer has requested changes.",
+  SECURITY_POLICY_PIPELINE_CHECK: "All security policy pipelines must succeed.",
+};
+
+function glUnexpected() {
+  return new Error("unexpected glab output");
+}
+
+function upper(value) {
+  return typeof value === "string" ? value.toUpperCase() : "";
+}
+
+function lookup(table, key) {
+  return Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
+/** Parses a GraphQL reply and throws the first reported error. */
+function glReply(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw glUnexpected();
+  }
+  if (!isObject(raw)) throw glUnexpected();
+  if (Array.isArray(raw.errors) && raw.errors.length > 0) {
+    throw new Error(String(raw.errors[0]?.message ?? "unexpected glab output"));
+  }
+  if (!isObject(raw.data)) throw glUnexpected();
+  return raw.data;
+}
+
+function glNodes(connection) {
+  if (!isObject(connection) || !Array.isArray(connection.nodes)) throw glUnexpected();
+  return connection.nodes;
+}
+
+function glPipelineState(status) {
+  const value = upper(status);
+  if (GL_PASSED.has(value)) return "passed";
+  if (GL_FAILED.has(value)) return "failed";
+  return "running";
+}
+
+function glChecks(node) {
+  return isObject(node.headPipeline) ? [{ name: "pipeline", state: glPipelineState(node.headPipeline.status) }] : [];
+}
+
+function glDecision(node) {
+  const status = upper(node.detailedMergeStatus);
+  if (status === "REQUESTED_CHANGES") return "changes_requested";
+  if (status === "NOT_APPROVED") return "review_required";
+  const approvers = node.approvedBy?.nodes;
+  return Array.isArray(approvers) && approvers.length > 0 ? "approved" : null;
+}
+
+function glMergeable(node) {
+  const status = upper(node.detailedMergeStatus);
+  if (node.conflicts === true || status === "CONFLICT") return "conflicting";
+  if (status === "MERGEABLE") return "mergeable";
+  if (status === "" || GL_UNKNOWN_MERGE.has(status)) return "unknown";
+  return "blocked";
+}
+
+function glState(state) {
+  const value = upper(state);
+  if (value === "OPENED") return "open";
+  if (value === "MERGED") return "merged";
+  return "closed";
+}
+
+function glReason(status) {
+  const value = upper(status);
+  if (value === "" || value === "MERGEABLE") return null;
+  return lookup(GL_MERGE_REASONS, value) ?? String(status).toLowerCase().replaceAll("_", " ");
+}
+
+/**
+ * @param {object} node One merge request from the GitLab GraphQL API.
+ * @param {string} host
+ * @returns {Pr}
+ */
+export function parseGlabMr(node, host) {
+  const number = isObject(node) ? Number(node.iid) : NaN;
+  if (!Number.isInteger(number)) throw glUnexpected();
+  return {
+    provider: "gitlab",
+    host,
+    repo: String(node.targetProject?.fullPath ?? ""),
+    number,
+    title: String(node.title ?? ""),
+    url: String(node.webUrl ?? ""),
+    author: String(node.author?.username ?? ""),
+    headRef: String(node.sourceBranch ?? ""),
+    baseRef: String(node.targetBranch ?? ""),
+    isDraft: node.draft === true,
+    state: glState(node.state),
+    reviewDecision: glDecision(node),
+    checks: summarize(glChecks(node)),
+    mergeable: glMergeable(node),
+    updatedAt: String(node.updatedAt ?? ""),
+    localPath: null,
+  };
+}
+
+/**
+ * @param {string} text `glab api graphql` output for the current user query.
+ * @param {string} host
+ * @returns {{needsReview: Pr[], mine: Pr[]}}
+ */
+export function parseGlabUser(text, host) {
+  const data = glReply(text);
+  if (data.currentUser === null) throw new Error("not signed in");
+  if (!isObject(data.currentUser)) throw glUnexpected();
+  const user = data.currentUser;
+  return {
+    needsReview: glNodes(user.reviewRequestedMergeRequests).map((node) => parseGlabMr(node, host)),
+    mine: glNodes(user.authoredMergeRequests).map((node) => parseGlabMr(node, host)),
+  };
+}
+
+/**
+ * @param {string} text `glab api graphql` output for the project query.
+ * @param {string} host
+ * @returns {Pr[]}
+ */
+export function parseGlabProject(text, host) {
+  const data = glReply(text);
+  if (data.project === null) throw new Error("project not found");
+  if (!isObject(data.project)) throw glUnexpected();
+  return glNodes(data.project.mergeRequests).map((node) => parseGlabMr(node, host));
+}
+
+function glJobChecks(node) {
+  if (!isObject(node.headPipeline)) return [];
+  const jobs = node.headPipeline.jobs?.nodes;
+  if (!Array.isArray(jobs) || jobs.length === 0) return glChecks(node);
+  return jobs.filter(isObject).map((job) => ({ name: String(job.name ?? ""), state: glPipelineState(job.status) }));
+}
+
+function glReviewers(node) {
+  const nodes = node.reviewers?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  const reviewers = [];
+  for (const reviewer of nodes) {
+    if (!isObject(reviewer) || typeof reviewer.username !== "string") continue;
+    const state = lookup(GL_REVIEW_STATES, upper(reviewer.mergeRequestInteraction?.reviewState)) ?? "requested";
+    reviewers.push({ name: reviewer.username, state });
+  }
+  return reviewers;
+}
+
+function glConversation(node) {
+  const nodes = node.notes?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  const entries = [];
+  for (const note of nodes) {
+    if (!isObject(note) || note.system === true) continue;
+    const body = String(note.body ?? "");
+    if (body === "") continue;
+    entries.push({ author: String(note.author?.username ?? ""), body, at: String(note.createdAt ?? ""), kind: "comment" });
+  }
+  return entries.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+}
+
+/**
+ * @param {string} text `glab api graphql` output for the detail query.
+ * @param {string} host
+ * @returns {Detail}
+ */
+export function parseGlabDetail(text, host) {
+  const data = glReply(text);
+  if (data.project === null) throw new Error("project not found");
+  if (!isObject(data.project)) throw glUnexpected();
+  if (data.project.mergeRequest === null) throw new Error("project not found");
+  const node = data.project.mergeRequest;
+  const pr = parseGlabMr(node, host);
+  return {
+    pr,
+    body: String(node.description ?? ""),
+    checks: glJobChecks(node),
+    reviewers: glReviewers(node),
+    merge: { state: pr.mergeable, reason: glReason(node.detailedMergeStatus) },
+    conversation: glConversation(node),
+  };
+}
