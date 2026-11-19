@@ -1,6 +1,6 @@
 # Pull requests
 
-GitHub pull requests and GitLab merge requests as a Herdr panel, with one pull request in a pane beside the terminals. Every read goes through `gh`, `glab` and `git`. The mod writes nothing to GitHub or GitLab.
+GitHub pull requests and GitLab merge requests as a Herdr panel, with one pull request in a pane beside the terminals. Every read goes through `gh`, `glab` and `git`. The mod writes to GitHub or GitLab only through the four review actions of the pane.
 
 ## What you see
 
@@ -10,7 +10,7 @@ GitHub pull requests and GitLab merge requests as a Herdr panel, with one pull r
 - Group titles: "Ready to merge · n", "Needs work · n", "Waiting on review · n", "Draft · n", titled like Herdr's group headings (11.5 px, medium, `dim`). Empty groups are left out.
 - Row: number, title, checks, age, then repo and branch and the review state. The selected row is on `selected`.
 - Scopes popup: Needs my review, Mine, Follow space, then a Projects section. Rows use Herdr's menu metrics (31 px, 8 px side padding, radius 7, 12.8 px text, 5 px around the list); the count shows dim on the right and the chosen scope has an `accent` tick. Up and Down move the highlight, Enter picks, Escape closes, a click picks. A pick sets the scope and closes the popup.
-- Pull request pane: header with repo, number and state, branch line, title, the "No local checkout" note when the repo has no local clone, the Open in browser and Check out in a worktree buttons, then Checks, Reviews, Merge state, Description and Conversation.
+- Pull request pane: header with repo, number and state, branch line, title, the "No local checkout" note when the repo has no local clone, the Open in browser and Check out in a worktree buttons, on an open pull request the Approve, Request changes, Comment and Merge buttons (with the comment box or the merge confirm under them), then Checks, Reviews, Merge state, Description and Conversation.
 - Settings view: gh command and glab command fields, and the refresh interval as Herdr's Settings segmented control (`INTERVALS` in `locate.js`: 1, 3, 5, 10 or 15 min; 3 by default). Icons Herdr ships with the same drawing (chevron-left, chevron-down, settings, check) load from Herdr's `mods/workspace-chrome/` folder when it exists, probed once in `init`; the Lucide copies in `icons/` show otherwise.
 
 ## How it behaves
@@ -34,12 +34,17 @@ GitHub pull requests and GitLab merge requests as a Herdr panel, with one pull r
   4. `git fetch --no-tags origin +refs/pull/<n>/head:refs/heads/pr/<n>` creates the branch or force-updates a branch that holds nothing extra.
   5. `git worktree add <root>/<repo folder>/pr-<n> pr/<n>` (`mr-<n>` on GitLab), then `space.new { folder }`.
   The fetches and the add may take up to 10 minutes. The button of that pull request is disabled while it runs; other pull requests keep theirs. An error from Open in browser or Check out shows on its own pull request only.
+- Review actions (`actions.js`, `runAction`): `actionCommand` builds the command; bodies go in as one `--body=<text>` (gh) or `--message=<text>` (glab) argument.
+  - GitHub: `gh pr review <n> --repo <repo>` with `--approve`, `--request-changes --body=…` or `--comment --body=…`; `gh pr merge <n> --repo <repo> --<method> --match-head-commit <sha>`. The method comes from `gh repo view <repo> --json viewerDefaultMergeMethod,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed` (`pickMergeMethod`).
+  - GitLab (`-R https://<host>/<repo>`): `glab mr approve <n> --sha <sha>`; `glab mr note draft publish <n> --message=… --reviewer-state=requested_changes --yes`; `glab mr note create <n> --message=… --resolvable=false`; `glab mr merge <n> --yes --auto-merge=false --sha <sha>`, plus `--squash` when `squashOnMerge` is true.
+  - The head SHA comes from the detail read (`headRefOid`, `diffHeadSha`). Without it, Merge and GitLab Approve refuse before running.
+  - One action runs at a time per pull request. Success closes the comment box and the confirm, reads the pull request again and writes the board with `readAt: 0` so a board copy reads it on its next 5 s tick.
 - Timeouts: `gh` and `glab` 30 s; `git` reads 15 s; `git fetch` and `git worktree add` 10 min.
 
 ## Built from
 
-- `main.js`: the `View`; `exec`, `home`, `appHome`, `readTextFile`, `checking`, `theme`, `shared`, `setShared`, `props`, `run`, `openOverlay`, `closeOverlay`, `panes`, `spaces`, `focused`, `window` from `herdr`; `randomUUID` from `crypto`; `InputState` from `gpui-base`.
-- `remote.js` (repo probing and projects), `locate.js` (settings, command lookup, notes), `forge.js` (argument lists and GraphQL text), `model.js` (CLI output to the pull request model), `board.js` (board, scopes, groups, filter, row text), `worktree.js` (check out plan), `follow.js` (focused-space helpers). All pure, tested with `node --test`.
+- `main.js`: the `View`; `exec`, `home`, `appHome`, `readTextFile`, `checking`, `theme`, `shared`, `setShared`, `props`, `run`, `openOverlay`, `closeOverlay`, `panes`, `spaces`, `focused`, `window` from `herdr`; `randomUUID` from `crypto`; `InputState` and `TextareaState` from `gpui-base`.
+- `remote.js` (repo probing and projects), `locate.js` (settings, command lookup, notes), `forge.js` (argument lists and GraphQL text), `model.js` (CLI output to the pull request model), `board.js` (board, scopes, groups, filter, row text), `worktree.js` (check out plan), `actions.js` (review and merge commands), `follow.js` (focused-space helpers). All pure, tested with `node --test`.
 - `ui.js`, `icons.js`, `menu.js`, `pool.js`, `gate.js`, `sync.js` and `follow.js` are copies of the files in `lib/`.
 
 ## Watch out
