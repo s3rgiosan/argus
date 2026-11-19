@@ -3,6 +3,10 @@
 // tab bar and a panel column for this repo's panel mods.
 
 export const TOOLBAR_ID = "argus-toolbar";
+/** The generated layout's name, which Herdr shows in Settings. */
+export const LAYOUT_NAME = "Argus";
+/** The name earlier versions wrote the layout under. */
+export const LEGACY_NAME = "argus";
 export const STAY_AWAKE_ID = "argus-stay-awake";
 export const PANEL_ID = "argus-panel";
 export const STACK_ID = "argus-panels";
@@ -13,6 +17,26 @@ const PANEL_MIN = 280;
 const PANEL_MAX = 900;
 /** The keep-awake block's width in px: one 30 px icon button and 10 px of padding. */
 export const STAY_AWAKE_WIDTH = 40;
+
+/**
+ * What to do with the layout files before writing `LAYOUT_NAME`: migrate a
+ * generated legacy file, drop a generated legacy file that sits next to the
+ * new one, or refuse a file the script did not write.
+ *
+ * @param {string[]} files Names in the layouts folder.
+ * @param {(file: string) => boolean} ours Whether the script wrote that file.
+ * @returns {{ migrate: boolean, removeLegacy: boolean, error: string | null }}
+ */
+export function planLayoutFile(files, ours) {
+  const legacy = `${LEGACY_NAME}.json`;
+  const current = `${LAYOUT_NAME}.json`;
+  const hasLegacy = files.includes(legacy);
+  const hasCurrent = files.includes(current);
+  if (hasCurrent && !ours(current)) return { migrate: false, removeLegacy: false, error: `${current} was not written by this script` };
+  if (hasLegacy && hasCurrent) return { migrate: false, removeLegacy: ours(legacy), error: null };
+  if (hasLegacy && !ours(legacy)) return { migrate: false, removeLegacy: false, error: `${legacy} was not written by this script` };
+  return { migrate: hasLegacy, removeLegacy: false, error: null };
+}
 
 /**
  * The toolbar's width in px for its buttons: 10 px of padding, then per

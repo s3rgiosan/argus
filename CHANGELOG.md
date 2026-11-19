@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `argus-stay-awake` mod adds a coffee-cup button at the right end of the tab row that keeps the display awake: a click turns it on or off, and a right click keeps it awake until no agent is working.
 - `scripts/build-layout.mjs` places the `argus-stay-awake` button in the tab row, right of the toolbar.
 
+### Changed
+
+- The generated layout is named Argus, so Herdr shows it as "Argus" in Settings under Look. `scripts/build-layout.mjs` renames a layout it wrote earlier as `argus.json` and switches to the new name when the old one was shown.
+
 ## [1.1.0] - 2026-11-18
 
 ### Added

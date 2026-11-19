@@ -4,7 +4,7 @@ Buttons beside Herdr's tab bar, styled like Herdr's Files and Changes buttons, t
 
 The buttons sort A to Z by label. Right-click a button and pick Argus Settings to set another order with the `argus-settings` mod; the saved order is shown first. A left click opens the panel.
 
-The toolbar has no settings of its own. `scripts/build-layout.mjs` places it in the `argus` layout with one button for each installed mod that declares a panel in its `mod.json`:
+The toolbar has no settings of its own. `scripts/build-layout.mjs` places it in the `Argus` layout with one button for each installed mod that declares a panel in its `mod.json`:
 
 ```json
 { "panel": { "label": "Usage", "icon": "icons/chart-line.svg" } }

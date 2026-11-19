@@ -1,27 +1,27 @@
 #!/usr/bin/env node
-// Writes the argus layout: Herdr's shipped main layout plus a keep-awake
+// Writes the Argus layout: Herdr's shipped main layout plus a keep-awake
 // button and a toolbar beside the tab bar and a panel column for the
 // installed panel mods. Run it again after a Herdr update or after installing
 // a mod.
 //
-//   node scripts/build-layout.mjs [--name argus] [--switch]
+//   node scripts/build-layout.mjs [--name Argus] [--switch]
 
-import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { buildLayout, panelsFromManifests } from "./layout-build.mjs";
+import { buildLayout, panelsFromManifests, planLayoutFile, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";
 
 const MARKER = "argus";
 
 const args = process.argv.slice(2);
-let name = "argus";
+let name = LAYOUT_NAME;
 let switchTo = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--switch") switchTo = true;
   else if (args[i] === "--name" && args[i + 1]) name = args[++i];
   else {
-    console.error("usage: node scripts/build-layout.mjs [--name argus] [--switch]");
+    console.error("usage: node scripts/build-layout.mjs [--name Argus] [--switch]");
     process.exit(2);
   }
 }
@@ -34,17 +34,26 @@ const appHome = process.env.HERDR_APP_HOME || join(homedir(), ".config", "herdr-
 const layouts = join(appHome, "layouts");
 const target = join(layouts, `${name}.json`);
 
-if (existsSync(target)) {
-  let current = null;
+const isOurs = (file) => {
   try {
-    current = JSON.parse(readFileSync(target, "utf8"));
+    return JSON.parse(readFileSync(join(layouts, file), "utf8"))?.generated_by === MARKER;
   } catch {
-    current = null;
+    return false;
   }
-  if (current?.generated_by !== MARKER) {
-    console.error(`build-layout: ${target} exists and was not written by this script; pick another --name`);
+};
+
+// The legacy file is renamed through a temporary name, so a case-insensitive
+// disk never holds two files for one layout.
+let plan = { migrate: false, removeLegacy: false, error: null };
+if (name === LAYOUT_NAME) {
+  plan = planLayoutFile(existsSync(layouts) ? readdirSync(layouts) : [], isOurs);
+  if (plan.error) {
+    console.error(`build-layout: ${plan.error}; nothing written`);
     process.exit(1);
   }
+} else if (existsSync(target) && !isOurs(`${name}.json`)) {
+  console.error(`build-layout: ${target} exists and was not written by this script; pick another --name`);
+  process.exit(1);
 }
 
 const mainPath = join(layouts, "main.json");
@@ -81,10 +90,27 @@ try {
   process.exit(1);
 }
 
+if (plan.migrate) {
+  const temp = join(layouts, `${LEGACY_NAME}.migrating.json`);
+  renameSync(join(layouts, `${LEGACY_NAME}.json`), temp);
+  renameSync(temp, target);
+}
+if (plan.removeLegacy) rmSync(join(layouts, `${LEGACY_NAME}.json`));
+
 writeFileSync(target, JSON.stringify({ ...layout, generated_by: MARKER }, null, 2) + "\n");
 console.log(`${name}: ${panels.length} panel(s): ${panels.map((p) => p.label).join(", ") || "none"}`);
 
-if (switchTo) {
+// A shown layout that was just renamed would no longer exist, so show the new one.
+let shown = null;
+if (plan.migrate) {
+  try {
+    shown = JSON.parse(execFileSync("herdr-app", ["status"], { encoding: "utf8" })).layout;
+  } catch {
+    shown = null;
+  }
+}
+
+if (switchTo || shown === LEGACY_NAME) {
   try {
     execFileSync("herdr-app", ["do", "layout.switch", JSON.stringify({ name })], { stdio: "inherit" });
   } catch (error) {
