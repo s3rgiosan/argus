@@ -37,8 +37,18 @@ export function parseRemote(url) {
   if (host === "ssh.github.com") host = "github.com";
   if (host === "") return null;
   const repo = path.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
-  if (repo.split("/").filter((part) => part !== "").length < 2) return null;
+  const parts = repo.split("/").filter((part) => part !== "");
+  if (parts.length < 2) return null;
+  if (isOtherForge(host)) return null;
   return { provider: host === "github.com" ? "github" : "gitlab", host, repo };
+}
+
+const OTHER_FORGES = ["bitbucket.org", "dev.azure.com", "ssh.dev.azure.com", "codeberg.org", "gitea.com", "git.sr.ht"];
+
+/** True for a public host of a forge that is neither GitHub nor GitLab. */
+function isOtherForge(host) {
+  const name = host.replace(/:\d+$/, "");
+  return OTHER_FORGES.includes(name) || name.endsWith(".visualstudio.com");
 }
 
 /**
@@ -119,6 +129,28 @@ export function mergeProjects(entries) {
   const projects = [...byKey.values()];
   for (const project of projects) project.folders.sort(compareNames);
   return projects.sort((a, b) => compareNames(a.repo, b.repo) || compareNames(a.key, b.key));
+}
+
+/**
+ * The keys that no project in `projects` has.
+ * @param {string[]} keys
+ * @param {Array<{key: string}>} projects
+ * @returns {string[]}
+ */
+export function missingProjectKeys(keys, projects) {
+  const known = new Set(projects.map((project) => project.key));
+  return keys.filter((key) => !known.has(key));
+}
+
+/**
+ * The project keys of the probed checkouts that `projects` does not have yet.
+ * @param {Array<?{folder: string, top: string, main: string, remote: ?string}>} entries
+ * @param {Array<{key: string}>} projects
+ * @returns {string[]}
+ */
+export function newProjectKeys(entries, projects) {
+  const keys = mergeProjects(entries.filter((entry) => entry)).map((project) => project.key);
+  return missingProjectKeys(keys, projects);
 }
 
 /**

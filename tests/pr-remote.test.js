@@ -5,6 +5,8 @@ import {
   localFolders,
   localPathFor,
   mergeProjects,
+  missingProjectKeys,
+  newProjectKeys,
   parseRemote,
   parseRevParse,
   projectKey,
@@ -34,6 +36,35 @@ test("parseRemote: forms", () => {
 
 test("parseRemote: not a forge", () => {
   for (const url of ["", "/srv/git/example.git", "file:///srv/git/example.git", "https://github.com/only-owner"]) assert.equal(parseRemote(url), null, url);
+});
+
+test("parseRemote: other public forges are not projects", () => {
+  const urls = [
+    "git@bitbucket.org:example-org/example-repo.git",
+    "https://dev.azure.com/example-org/example-project/_git/example-repo",
+    "git@ssh.dev.azure.com:v3/example-org/example-project/example-repo",
+    "https://example-org.visualstudio.com/example-project/_git/example-repo",
+    "https://codeberg.org/example-org/example-repo",
+    "https://gitea.com/example-org/example-repo.git",
+    "https://git.sr.ht/~example-user/example-repo",
+  ];
+  for (const url of urls) assert.equal(parseRemote(url), null, url);
+  assert.equal(parseRemote("https://git.example.com/example-group/example-repo")?.provider, "gitlab");
+});
+
+test("missingProjectKeys: keys that no project has", () => {
+  const projects = [{ key: "github.com/example-org/zeta" }];
+  assert.deepEqual(missingProjectKeys(["github.com/example-org/zeta", "github.com/example-org/new"], projects), ["github.com/example-org/new"]);
+  assert.deepEqual(missingProjectKeys([], projects), []);
+  assert.deepEqual(missingProjectKeys(["github.com/example-org/zeta"], projects), []);
+});
+
+test("newProjectKeys: only forge remotes whose project is not known", () => {
+  const known = mergeProjects(ENTRIES.slice(0, 2));
+  assert.deepEqual(newProjectKeys(ENTRIES.slice(0, 2), known), []);
+  assert.deepEqual(newProjectKeys(ENTRIES, known), ["github.com/example-org/alpha"]);
+  assert.deepEqual(newProjectKeys([ENTRIES[3], null], []), []);
+  assert.deepEqual(newProjectKeys([{ ...ENTRIES[0], remote: "git@bitbucket.org:example-org/zeta.git" }], []), []);
 });
 
 test("projectKey and git argument lists", () => {
