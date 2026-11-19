@@ -4,3 +4,5 @@ mods/*/gpui-kit.d.ts
 mods/*/jsconfig.json
 .DS_Store
 docs/
+.claude/worktrees/
+.claude/settings.local.json
