@@ -89,3 +89,20 @@ test("sets the preview picture and copies it next to the layout", () => {
   assert.equal(JSON.parse(readFileSync(join(dir, "layouts", "Argus.json"), "utf8")).preview, "layouts/Argus.svg");
   assert.match(readFileSync(join(dir, "layouts", "Argus.svg"), "utf8"), /^<svg /);
 });
+
+test("a layout that already has the argus blocks: clear message, nothing written", () => {
+  const dir = home({ main: { ...MAIN, children: [{ id: "argus-toolbar", type: "block" }, ...MAIN.children] } });
+  const r = run(dir);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /main\.json already contains argus blocks; nothing written/);
+  assert.doesNotMatch(r.stderr, /changed shape/);
+  assert.equal(readdirSync(join(dir, "layouts")).includes("Argus.json"), false);
+});
+
+test("keeps an existing layout state file", () => {
+  const dir = home();
+  mkdirSync(join(dir, "layouts", ".state"));
+  writeFileSync(join(dir, "layouts", ".state", "argus.json"), '{"theme":"x"}');
+  assert.equal(run(dir).status, 0);
+  assert.equal(readFileSync(join(dir, "layouts", ".state", "argus.json"), "utf8"), '{"theme":"x"}');
+});

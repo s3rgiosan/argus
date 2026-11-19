@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildLayout, panelsFromManifests, planLayoutFile, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";
+import { buildLayout, panelsFromManifests, planLayoutFile, planStateFile, ArgusBlocksError, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";
 
 const MARKER = "argus";
 
@@ -34,6 +34,21 @@ if (!/^[\w-]+$/.test(name) || ["main", "terminals", "win98"].includes(name)) {
 const appHome = process.env.HERDR_APP_HOME || join(homedir(), ".config", "herdr-app");
 const layouts = join(appHome, "layouts");
 const target = join(layouts, `${name}.json`);
+
+/** Renames through a temporary name so a case-only rename works; puts the file back when the second step fails. */
+function moveViaTemp(from, to, temp) {
+  renameSync(from, temp);
+  try {
+    renameSync(temp, to);
+  } catch (error) {
+    try {
+      renameSync(temp, from);
+    } catch {
+      // The temporary file stays; its name says what it is.
+    }
+    throw error;
+  }
+}
 
 const isOurs = (file) => {
   try {
@@ -87,14 +102,24 @@ let layout;
 try {
   layout = buildLayout(main, panels, { stayAwake: existsSync(join(modsDir, "argus-stay-awake", "main.js")) });
 } catch (error) {
-  console.error(`build-layout: Herdr's main layout changed shape (${error.message}); nothing written`);
+  const reason = error instanceof ArgusBlocksError ? error.message : `Herdr's main layout changed shape (${error.message})`;
+  console.error(`build-layout: ${reason}; nothing written`);
   process.exit(1);
 }
 
-if (plan.migrate) {
-  const temp = join(layouts, `${LEGACY_NAME}.migrating.json`);
-  renameSync(join(layouts, `${LEGACY_NAME}.json`), temp);
-  renameSync(temp, target);
+if (name === LAYOUT_NAME) {
+  try {
+    if (plan.migrate) moveViaTemp(join(layouts, `${LEGACY_NAME}.json`), target, join(layouts, `${LEGACY_NAME}.migrating.json`));
+    const state = join(layouts, ".state");
+    const statePlan = planStateFile({
+      legacy: existsSync(join(state, `${LEGACY_NAME}.json`)),
+      target: existsSync(join(state, `${LAYOUT_NAME}.json`)),
+    });
+    if (statePlan.migrate) moveViaTemp(join(state, `${LEGACY_NAME}.json`), join(state, `${LAYOUT_NAME}.json`), join(state, `${LEGACY_NAME}.migrating.json`));
+  } catch (error) {
+    console.error(`build-layout: cannot rename the earlier layout (${error.message}); nothing changed`);
+    process.exit(1);
+  }
 }
 if (plan.removeLegacy) rmSync(join(layouts, `${LEGACY_NAME}.json`));
 

@@ -111,8 +111,8 @@ test("panelsFromManifests drops icon paths that leave the mod folder", () => {
   assert.deepEqual(out.map((p) => p.icon), [null, null, "mods/d/icons/ok.svg"]);
 });
 
-test("refuses a layout that already has the argus blocks", () => {
-  assert.throws(() => buildLayout(buildLayout(main(), panels), panels), /already has the argus blocks/);
+test("refuses a layout that already contains the argus blocks", () => {
+  assert.throws(() => buildLayout(buildLayout(main(), panels), panels), /main\.json already contains argus blocks/);
 });
 
 test("refuses a layout that has only the stay-awake block", () => {
@@ -120,7 +120,7 @@ test("refuses a layout that has only the stay-awake block", () => {
   const row = find(out, "argus-tabs-row");
   row.children = row.children.filter((c) => c.id !== "argus-toolbar");
   find(out, "work-body").children = find(out, "work-body").children.filter((c) => c.id !== "argus-panel");
-  assert.throws(() => buildLayout(out, panels), /already has the argus blocks/);
+  assert.throws(() => buildLayout(out, panels), /main\.json already contains argus blocks/);
 });
 
 test("the panel column resizes between 280 and 900 px", () => {

@@ -18,6 +18,7 @@ Not affiliated with Herdr or Anthropic.
 - Herdr desktop app (tested on 0.1.16), macOS or Linux.
 - Node.js 20 or later, for the scripts and tests.
 - `argus-claude-usage`: Claude Code (tested on 2.1.327), signed in with a Claude plan.
+- `argus-stay-awake`: macOS only, because it runs `caffeinate`.
 - `argus-tsk`: [tsk](https://gettsk.sh) 0.13.0 or later; 0.14.0 or later to show and rename project titles.
 
 ## Install
@@ -45,7 +46,7 @@ Theme picks are kept per layout, so pick your theme once in `Argus`.
 
 ## Settings file
 
-Argus reads `~/.config/herdr-app/argus.json`. The install script does not create it. Without it, every setting has its default.
+Argus reads `~/.config/herdr-app/argus.json`. The install script does not create it. Without it, every setting has its default: the toolbar buttons sort A to Z by label.
 
 ```json
 { "toolbar": { "order": ["argus-tsk", "argus-claude-usage"] } }
@@ -83,7 +84,7 @@ node scripts/sync-lib.mjs --check      # exit 1 when a copy differs
 ```
 
 - Each mod lives in `mods/<name>/` with a `README.md` for people and a `RECIPE.md` for an agent rebuilding it.
-- `lib/` holds code shared by mods: `ui.js` (frame, header, rows, fields, buttons, meters in the sizes of Herdr's own panels), `gate.js` (one run at a time, with one queued) and `sync.js` (which open copy runs a shared read) and `order.js` (sort the toolbar buttons). `argus-claude-usage` and `argus-tsk` import `ui.js`, `gate.js` and `sync.js`; `argus-toolbar` imports `order.js`; `argus-stay-awake` imports none. Herdr loads a mod's files from its own folder only, so each mod carries a copy of the lib files it imports; a test fails when a copy differs.
+- `lib/` holds code shared by mods: `ui.js` (frame, header, rows, fields, buttons, meters in the sizes of Herdr's own panels), `gate.js` (one run at a time, with one queued), `sync.js` (which open copy runs a shared read) and `order.js` (sort the toolbar buttons). `argus-claude-usage` and `argus-tsk` import `ui.js`, `gate.js` and `sync.js`; `argus-toolbar` imports `order.js`; `argus-stay-awake` imports none. Herdr loads a mod's files from its own folder only, so each mod carries a copy of the lib files it imports; a test fails when a copy differs.
 - A mod gets a toolbar button by declaring `"panel": { "label": "Usage", "icon": "icons/chart-line.svg" }` in its `mod.json`.
 
 ## Credits

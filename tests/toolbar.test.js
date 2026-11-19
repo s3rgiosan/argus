@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isOpen, clickCommands, toolbarOrder } from "../mods/argus-toolbar/toolbar-logic.js";
+import { isOpen, clickCommands, toolbarOrder, touchesFile } from "../mods/argus-toolbar/toolbar-logic.js";
 
 const tree = (hidden, active) => ({
   id: "root",
@@ -61,4 +61,20 @@ test("toolbarOrder: a wrong shape is an error", () => {
 
 test("toolbarOrder drops ids that are not non-empty strings", () => {
   assert.deepEqual(toolbarOrder('{ "toolbar": { "order": ["a", 3, "", null, "b"] } }'), { order: ["a", "b"], error: null });
+});
+
+test("toolbarOrder: empty or blank text counts as a missing file", () => {
+  assert.deepEqual(toolbarOrder(""), { order: null, error: null });
+  assert.deepEqual(toolbarOrder(" \n\t "), { order: null, error: null });
+});
+
+test("touchesFile: only a batch with the file, the folder itself or nothing", () => {
+  const dir = "/home/x/.config/herdr-app";
+  assert.equal(touchesFile([], dir, "argus.json"), true);
+  assert.equal(touchesFile([`${dir}/argus.json`], dir, "argus.json"), true);
+  assert.equal(touchesFile([`${dir}/shared.json`, `${dir}/argus.json`], dir, "argus.json"), true);
+  assert.equal(touchesFile([dir], dir, "argus.json"), true);
+  assert.equal(touchesFile([`${dir}/`], dir, "argus.json"), true);
+  assert.equal(touchesFile([`${dir}/shared.json`, `${dir}/data/x.json`, `${dir}/telemetry`], dir, "argus.json"), false);
+  assert.equal(touchesFile([`${dir}/data/argus.json`], dir, "argus.json"), false);
 });

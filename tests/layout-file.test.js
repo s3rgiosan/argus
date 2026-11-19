@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LAYOUT_NAME, LEGACY_NAME, planLayoutFile } from "../scripts/layout-build.mjs";
+import { LAYOUT_NAME, LEGACY_NAME, planLayoutFile, planStateFile } from "../scripts/layout-build.mjs";
 
 const ours = (...names) => (file) => names.includes(file);
 
@@ -35,4 +35,11 @@ test("an Argus.json the script did not write is refused", () => {
 test("both files on a case-sensitive disk: the generated old one is removed", () => {
   assert.deepEqual(planLayoutFile(["Argus.json", "argus.json"], ours("Argus.json", "argus.json")), { migrate: false, removeLegacy: true, error: null });
   assert.deepEqual(planLayoutFile(["Argus.json", "argus.json"], ours("Argus.json")), { migrate: false, removeLegacy: false, error: null });
+});
+
+test("planStateFile migrates the legacy state file only when the new one is absent", () => {
+  assert.deepEqual(planStateFile({ legacy: true, target: false }), { migrate: true });
+  assert.deepEqual(planStateFile({ legacy: true, target: true }), { migrate: false });
+  assert.deepEqual(planStateFile({ legacy: false, target: false }), { migrate: false });
+  assert.deepEqual(planStateFile({ legacy: false, target: true }), { migrate: false });
 });

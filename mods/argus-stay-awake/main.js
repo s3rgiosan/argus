@@ -52,7 +52,7 @@ export default class StayAwake extends View {
           .text_color(on ? t.accent : t.muted)
           .hover((s) => s.bg(t.hover))
           .tooltip(TOOLTIP)
-          .on_mouse_up("left", (_e, cx) => this.apply(leftClick(this.mode), cx))
+          .on_mouse_down("left", (_e, cx) => this.apply(leftClick(this.mode), cx))
           .on_mouse_down("right", (_e, cx) => {
             cx.stop_propagation();
             const result = rightClick(this.mode, anyWorking(agents()));

@@ -18,6 +18,14 @@ const PANEL_MAX = 900;
 /** The keep-awake block's width in px: one 30 px icon button and 10 px of padding. */
 export const STAY_AWAKE_WIDTH = 40;
 
+/** The input layout already holds the blocks this script adds. */
+export class ArgusBlocksError extends Error {
+  constructor() {
+    super("main.json already contains argus blocks");
+    this.name = "ArgusBlocksError";
+  }
+}
+
 /**
  * What to do with the layout files before writing `LAYOUT_NAME`: migrate a
  * generated legacy file, drop a generated legacy file that sits next to the
@@ -36,6 +44,18 @@ export function planLayoutFile(files, ours) {
   if (hasLegacy && hasCurrent) return { migrate: false, removeLegacy: ours(legacy), error: null };
   if (hasLegacy && !ours(legacy)) return { migrate: false, removeLegacy: false, error: `${legacy} was not written by this script` };
   return { migrate: hasLegacy, removeLegacy: false, error: null };
+}
+
+/**
+ * Whether to rename the legacy layout state file (`.state/argus.json`) to the
+ * new name: when it exists and the new name does not. On a case-insensitive
+ * disk both names are the same file, so nothing moves.
+ *
+ * @param {{ legacy: boolean, target: boolean }} exists
+ * @returns {{ migrate: boolean }}
+ */
+export function planStateFile({ legacy, target }) {
+  return { migrate: legacy && !target };
 }
 
 /**
@@ -79,7 +99,7 @@ export function panelsFromManifests(entries) {
  */
 export function buildLayout(main, panels, { stayAwake = true } = {}) {
   const out = structuredClone(main);
-  if (find(out, TOOLBAR_ID) || find(out, STAY_AWAKE_ID) || find(out, PANEL_ID)) throw new Error("already has the argus blocks");
+  if (find(out, TOOLBAR_ID) || find(out, STAY_AWAKE_ID) || find(out, PANEL_ID)) throw new ArgusBlocksError();
 
   const tabsParent = parentOf(out, "tabs");
   if (!tabsParent) throw new Error("no tabs block");
