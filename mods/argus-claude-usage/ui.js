@@ -1,11 +1,15 @@
 // Copied from lib/ui.js by scripts/sync-lib.mjs: edit lib/ui.js, then run it.
 //
 // Shared building blocks for this repo's panels: frame, header, icon
-// buttons, rows, scroll areas, fields, buttons and meters, in the sizes and
-// radii of Herdr's own panels. Colors come from `theme()` only.
+// buttons, rows, menu rows, scroll areas, fields, buttons, switches,
+// segmented controls and meters, in the sizes and radii of Herdr's own
+// panels. Colors come from `theme()` only.
 
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, Input, Scrollbar } from "gpui-base";
+
+/** One turn of a busy icon, in ms, as Herdr's spinner. */
+const SPIN_MS = 900;
 
 /** A panel's frame: 10 px corners, the terminal background, a 1 px border. */
 export function frame(t, id) {
@@ -22,8 +26,11 @@ export function frame(t, id) {
     .text_size(13);
 }
 
-/** A 42 px header with a semibold title and, on the right, `actions`. */
-export function header(t, title, actions = []) {
+/**
+ * A 42 px header with a semibold title, an optional count `badge` right after
+ * it and, on the right, `actions`.
+ */
+export function header(t, title, actions = [], { badge = null } = {}) {
   return h_flex()
     .h(42)
     .flex_none()
@@ -32,12 +39,33 @@ export function header(t, title, actions = []) {
     .items_center()
     .border_b(1)
     .border_color(t.border)
-    .child(div().flex_1().min_w(0).truncate().font_semibold().child(title))
+    .child(div().min_w(0).truncate().font_semibold().when(badge !== null, (el) => el.flex_none()).child(title))
+    .when(badge !== null, (el) => el.child(badge))
+    .child(div().flex_1())
     .children(actions);
 }
 
-/** A 26 px square button holding a 14 px icon. */
-export function iconButton(t, id, icon, onClick) {
+/** A settings header: a back button, then the title. */
+export function subHeader(t, onBack, title, icon) {
+  return h_flex()
+    .h(42)
+    .flex_none()
+    .px(14)
+    .gap(6)
+    .items_center()
+    .border_b(1)
+    .border_color(t.border)
+    .child(iconButton(t, "back", icon, onBack))
+    .child(div().font_semibold().child(title));
+}
+
+/** A count pill, as in the header of Herdr's Changes panel. */
+export function badge(t, text) {
+  return div().flex_none().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(text);
+}
+
+/** A 26 px square button holding a 14 px icon; `busy` turns the icon. */
+export function iconButton(t, id, icon, onClick, { busy = false } = {}) {
   return div()
     .id(id)
     .size(26)
@@ -50,7 +78,7 @@ export function iconButton(t, id, icon, onClick) {
     .text_color(t.muted)
     .hover((s) => s.bg(t.hover).text_color(t.foreground))
     .on_click(onClick)
-    .child(svg(icon).size(14));
+    .child(busy ? svg(icon).size(14).spin(SPIN_MS) : svg(icon).size(14));
 }
 
 /** A 28 px list row, on `selected` when `selected` is true. */
@@ -86,7 +114,7 @@ export function scrollArea(id, children, { padding = 6, gap = 0 } = {}) {
     .child(Scrollbar.vertical(id).absolute().inset_0());
 }
 
-/** A 32 px text field around an `InputState`; `focused` draws the accent border. */
+/** A 32 px text field around an `InputState`, 12 px text; `focused` draws the accent border. */
 export function field(t, id, state, focused) {
   return div()
     .id(id)
@@ -100,24 +128,119 @@ export function field(t, id, state, focused) {
     .border_1()
     .border_color(focused ? t.accent : t.border)
     .cursor_text()
-    .child(Input.new(state).w_full().text_color(t.foreground));
+    .child(Input.new(state).w_full().text_size(12).text_color(t.foreground));
 }
 
-/** A 32 px button: `solid` when it is the main action, else `raised`. */
+/**
+ * A button: `primary` is the solid main action, 32 px high; the other is
+ * Herdr's raised button with a border and a hover.
+ */
 export function button(t, id, label, onClick, { primary = false, enabled = true } = {}) {
+  const base = div().id(id).flex().flex_none().items_center();
+  if (primary) {
+    return base
+      .h(32)
+      .px(14)
+      .rounded(8)
+      .text_size(12)
+      .bg(enabled ? t.solid : t.raised)
+      .text_color(enabled ? t.solid_foreground : t.dim)
+      .when(enabled, (el) => el.cursor_pointer().on_click(onClick))
+      .child(label);
+  }
+  return base
+    .px(12)
+    .py(5)
+    .rounded(7)
+    .border_1()
+    .border_color(t.border)
+    .bg(t.raised)
+    .text_size(13)
+    .text_color(enabled ? t.foreground : t.dim)
+    .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick))
+    .child(label);
+}
+
+/** A 36 x 20 switch, as in Herdr's Settings. */
+export function toggle(t, id, on, onClick) {
   return div()
     .id(id)
-    .h(32)
-    .px(14)
-    .flex()
+    .w(36)
+    .h(20)
     .flex_none()
-    .items_center()
+    .rounded(10)
+    .p(2)
+    .cursor_pointer()
+    .bg(on ? t.accent : t.hover)
+    .flex()
+    .when(on, (el) => el.justify_end())
+    .on_click(onClick)
+    .child(div().w(16).h(16).rounded(8).bg(on ? t.accent_foreground : t.muted));
+}
+
+/**
+ * A segmented control for a few short choices, as in Herdr's Settings.
+ *
+ * @param {{ value: unknown, label: string }[]} options
+ * @param {unknown} current The value shown as chosen.
+ * @param {(value: unknown, cx: object) => void} onPick
+ */
+export function segmented(t, id, options, current, onPick) {
+  return h_flex()
+    .p(2)
+    .gap(2)
     .rounded(8)
-    .text_size(12)
-    .bg(primary && enabled ? t.solid : t.raised)
-    .text_color(!enabled ? t.dim : primary ? t.solid_foreground : t.foreground)
-    .when(enabled, (el) => el.cursor_pointer().on_click(onClick))
-    .child(label);
+    .border_1()
+    .border_color(t.border)
+    .bg(t.background)
+    .children(
+      options.map((option) =>
+        div()
+          .id(`${id}-${option.value}`)
+          .px(12)
+          .py(4)
+          .rounded(6)
+          .text_size(13)
+          .cursor_pointer()
+          .when(option.value === current, (el) => el.bg(t.raised).text_color(t.foreground).border_1().border_color(t.border))
+          .when(option.value !== current, (el) => el.text_color(t.muted).hover((s) => s.text_color(t.foreground)))
+          .on_click((_e, cx) => onPick(option.value, cx))
+          .child(option.label),
+      ),
+    );
+}
+
+/** Padding around the rows of a menu, as in Herdr's menu. */
+export const MENU_PAD = 5;
+/** Height of one menu row. */
+export const MENU_ROW = 31;
+
+/**
+ * A 31 px menu row with Herdr's menu metrics. `active` is the row the keys
+ * moved to; `current` is the chosen one and gets an accent tick; `count`
+ * shows dim on the right, then an optional `trailing` element. A row that is
+ * not `enabled` shows dim and takes no clicks.
+ *
+ * @param {{ label: string, count?: string | null, active?: boolean, current?: boolean, enabled?: boolean, trailing?: object | null, tick: string, onClick: Function }} row
+ *   `tick` is the check icon's path.
+ */
+export function menuRow(t, id, { label, count = null, active = false, current = false, enabled = true, trailing = null, tick, onClick }) {
+  return h_flex()
+    .id(id)
+    .h(MENU_ROW)
+    .flex_none()
+    .px(8)
+    .gap(9)
+    .items_center()
+    .rounded(7)
+    .text_size(12.8)
+    .text_color(enabled ? t.foreground : t.dim)
+    .when(active, (el) => el.bg(t.selected))
+    .when(enabled, (el) => el.hover((s) => s.bg(t.hover)).cursor_pointer().on_click(onClick))
+    .child(div().flex_1().min_w(0).truncate().child(label))
+    .when(count !== null, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(count)))
+    .when(trailing !== null, (el) => el.child(trailing))
+    .child(div().size(12).flex_none().when(current, (el) => el.child(svg(tick).size(12).text_color(t.accent))));
 }
 
 /** A bar along the bottom of a panel, for its actions. */
@@ -125,9 +248,9 @@ export function footer(t) {
   return h_flex().flex_none().p(10).gap(8).items_center().border_t(1).border_color(t.border);
 }
 
-/** A small heading over a group of rows. */
+/** A small heading over a group of rows, as the group headings of Herdr's Spaces and Agents lists. */
 export function sectionTitle(t, text) {
-  return div().px(8).pt(10).pb(4).text_size(11).font_semibold().text_color(t.muted).child(text);
+  return div().px(8).pt(10).pb(4).text_size(11.5).font_medium().text_color(t.dim).child(text);
 }
 
 /** Text for an empty or waiting state. */
