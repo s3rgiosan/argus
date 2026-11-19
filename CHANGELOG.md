@@ -5,6 +5,21 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-11-19
+
+### Fixed
+
+- On GitLab, Request changes lists your pending review comments first, because a publish sends all of them. It refuses when other comments are pending, so a comment is never posted twice and a comment you left on GitLab is not sent with it.
+- After a failed publish on GitLab, a Submit publishes the kept comment only when the comment box still has the same text, and refuses a changed text.
+- Merge sends the head commit that the confirm showed, so commits pushed after the confirm opened make the merge fail.
+- A review action runs once per pull request across all panes, and its buttons are off in every pane while it runs.
+- After any review action, failed or not, the board reads again.
+- After a successful comment, the comment box keeps text you typed while the action ran.
+- A comment that was sent no longer comes back when you switch pull requests while it runs.
+- The pane reads your GitHub login again after 5 minutes, so `gh auth switch` reaches the own pull request check, and a failed read is not repeated before every detail read.
+- In the scope popups, a click moves the keyboard highlight to the clicked row, and a picked project without pull requests or tasks keeps its row and tick.
+- In the Tasks scope popup, the keys work again when the project being renamed leaves the list.
+
 ## [1.4.0] - 2026-11-19
 
 ### Added
@@ -96,7 +111,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.4.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.4.1...HEAD
+[1.4.1]: https://github.com/s3rgiosan/argus/compare/1.4.0...1.4.1
 [1.4.0]: https://github.com/s3rgiosan/argus/compare/1.3.1...1.4.0
 [1.3.1]: https://github.com/s3rgiosan/argus/compare/1.3.0...1.3.1
 [1.3.0]: https://github.com/s3rgiosan/argus/compare/1.2.0...1.3.0

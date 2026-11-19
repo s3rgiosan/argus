@@ -277,3 +277,13 @@ test("keepStale carries a mark made while a read ran", () => {
   assert.deepEqual(keepStale(next, markStale(next, 900), 1000), next);
   assert.deepEqual(keepStale(next, normalizeBoard(null), 1000), next);
 });
+
+test("scopeItems keeps a picked project that is no longer on the board, ticked", () => {
+  const board = assembleBoard(input({ projects: [project] }));
+  const items = scopeItems(board, null, { show: "all", where: "project", key: "github.com/example-org/gone" });
+  assert.deepEqual(items.projects.map((i) => [i.label, i.count, i.current]), [
+    ["example-org/example-repo", 0, false],
+    ["example-org/gone", 0, true],
+  ]);
+});
+

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DRAFT_KEPT, NEEDS_BODY, NO_METHOD, NO_SHA, actionCommand, actionFailure, afterAction, bodyError, canAct, ownPr, ghMethodArgs, leavePr, mergePrompt, pickMergeMethod } from "../mods/argus-pull-requests/actions.js";
+import { DRAFT_KEPT, DRAFT_TEXT, DRAFTS_UNREAD, LOGIN_TTL, NEEDS_BODY, NO_METHOD, NO_SHA, RUN_LIMIT, actionCommand, actionFailure, afterAction, bodyError, canAct, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, ownPr, ghMethodArgs, leavePr, mergePrompt, pendingDrafts, pickMergeMethod, runningOf, withRunning, withoutRunning } from "../mods/argus-pull-requests/actions.js";
 
 const GL_URL = "https://gitlab.example.com/example-group/example-sub/example-project";
 
@@ -163,12 +163,80 @@ test("afterAction re-reads after every action and clears the comment only after 
 });
 
 test("a kept GitLab draft is only published on retry", () => {
-  assert.deepEqual(actionCommand({ kind: "request_changes", detail: gl, body: "", drafted: true }), {
+  assert.deepEqual(actionCommand({ kind: "request_changes", detail: gl, body: "Fix it", publishOnly: true }), {
     name: "glab",
     args: ["mr", "note", "draft", "publish", "12", "-R", GL_URL, "--reviewer-state=requested_changes", "--yes"],
   });
+  // A publish still needs the comment that was drafted, so an empty box refuses.
+  assert.deepEqual(actionCommand({ kind: "request_changes", detail: gl, body: " ", publishOnly: true }), { error: "Write a comment first." });
   // Only GitLab Request changes has a draft step.
-  assert.deepEqual(actionCommand({ kind: "comment", detail: gl, body: "", drafted: true }), { error: "Write a comment first." });
+  assert.deepEqual(actionCommand({ kind: "comment", detail: gl, body: "ok", publishOnly: true }).args.slice(0, 3), ["mr", "note", "create"]);
+});
+
+test("draftListArgs lists the user's pending comments as JSON", () => {
+  assert.deepEqual(draftListArgs(gl), ["mr", "note", "draft", "list", "12", "-R", GL_URL, "-F", "json"]);
+});
+
+test("draftPlan: no pending comment creates and publishes", () => {
+  assert.deepEqual(draftPlan("[]", null, "Fix it"), { publishOnly: false });
+  // A kept draft that is gone from GitLab is drafted again.
+  assert.deepEqual(draftPlan("[]", "Fix it", "Fix it"), { publishOnly: false });
+});
+
+test("draftPlan: the kept draft with the same text is only published", () => {
+  assert.deepEqual(draftPlan('[{"id": 1}]', "Fix it", "  Fix it\n"), { publishOnly: true });
+});
+
+test("draftPlan: a changed text after a kept draft refuses", () => {
+  assert.deepEqual(draftPlan('[{"id": 1}]', "Fix it", "Fix this instead"), { error: DRAFT_TEXT });
+});
+
+test("draftPlan: other pending comments refuse, so a publish sends only this one", () => {
+  assert.deepEqual(draftPlan('[{"id": 1}]', null, "Fix it"), { error: pendingDrafts(1) });
+  assert.deepEqual(draftPlan('[{"id": 1}, {"id": 2}]', "Fix it", "Fix it"), { error: pendingDrafts(2) });
+  assert.match(pendingDrafts(1), /1 pending review comment on/);
+  assert.match(pendingDrafts(2), /2 pending review comments on/);
+});
+
+test("draftPlan: an unreadable list refuses", () => {
+  assert.deepEqual(draftPlan("not json", null, "Fix it"), { error: DRAFTS_UNREAD });
+  assert.deepEqual(draftPlan('{"id": 1}', null, "Fix it"), { error: DRAFTS_UNREAD });
+});
+
+test("confirmedDetail merges the head the confirm was shown for", () => {
+  const moved = { ...gh, headSha: "def456" };
+  assert.equal(confirmedDetail(moved, { method: "squash", headSha: "abc123" }).headSha, "abc123");
+  assert.equal(actionCommand({ kind: "merge", detail: confirmedDetail(moved, { method: "squash", headSha: "abc123" }), body: "", method: "squash" }).args.at(-1), "abc123");
+});
+
+test("clearsComment only clears a box that still holds the sent text", () => {
+  const ok = afterAction("comment", true);
+  assert.equal(clearsComment(ok, "Looks fine", "Looks fine"), true);
+  assert.equal(clearsComment(ok, "Looks fine", "Looks fine, and one more"), false);
+  assert.equal(clearsComment(afterAction("comment", false), "Looks fine", "Looks fine"), false);
+  assert.equal(clearsComment(afterAction("approve", true), "", ""), false);
+});
+
+test("loginFresh keeps a login, or a failed read, for LOGIN_TTL per gh setting", () => {
+  const cache = { setting: "", value: "octo-user", at: 1000 };
+  assert.equal(loginFresh(cache, "", 1000 + LOGIN_TTL - 1), true);
+  assert.equal(loginFresh(cache, "", 1000 + LOGIN_TTL), false);
+  assert.equal(loginFresh(cache, "/opt/gh", 1000), false);
+  assert.equal(loginFresh({ ...cache, value: null }, "", 1000), true);
+  assert.equal(loginFresh(null, "", 1000), false);
+});
+
+test("running actions are shared by every copy and expire after RUN_LIMIT", () => {
+  const one = withRunning({}, "pr-a", "merge", 1000);
+  assert.equal(runningOf(one, "pr-a", 1000 + RUN_LIMIT - 1), "merge");
+  assert.equal(runningOf(one, "pr-a", 1000 + RUN_LIMIT), null);
+  assert.equal(runningOf(one, "pr-b", 1000), null);
+  assert.equal(runningOf(withoutRunning(one, "pr-a"), "pr-a", 1000), null);
+  assert.equal(runningOf(null, "pr-a", 1000), null);
+  assert.equal(runningOf({ "pr-a": "bad" }, "pr-a", 1000), null);
+  // The maps are copies, so a shared value is never changed in place.
+  assert.deepEqual(withRunning(one, "pr-b", "comment", 5), { "pr-a": { kind: "merge", at: 1000 }, "pr-b": { kind: "comment", at: 5 } });
+  assert.deepEqual(one, { "pr-a": { kind: "merge", at: 1000 } });
 });
 
 test("actionFailure says when the draft is kept", () => {
@@ -206,7 +274,7 @@ test("afterAction after a failed request changes keeps the comment", () => {
 });
 
 test("leavePr keeps the typed text and a running action, and drops the rest", () => {
-  const idle = { running: null, error: null, composing: null, confirm: null, text: "", drafted: false };
+  const idle = { running: null, error: null, composing: null, confirm: null, text: "", draftText: null };
   assert.equal(leavePr(idle, ""), null);
   assert.equal(leavePr({ ...idle, error: "gh: old" }, ""), null);
   assert.equal(leavePr({ ...idle, confirm: { method: "merge" } }, ""), null);
@@ -215,7 +283,7 @@ test("leavePr keeps the typed text and a running action, and drops the rest", ()
   assert.deepEqual(leavePr({ ...idle, running: "comment", composing: "comment", confirm: { method: "merge" } }, "sent text"), {
     ...idle, running: "comment", composing: "comment", text: "sent text",
   });
-  assert.deepEqual(leavePr({ ...idle, drafted: true, composing: "request_changes" }, ""), { ...idle, drafted: true, composing: "request_changes" });
+  assert.deepEqual(leavePr({ ...idle, draftText: "Fix it", composing: "request_changes" }, ""), { ...idle, draftText: "Fix it", composing: "request_changes" });
 });
 
 test("ownPr is true for the signed-in author of a GitHub pull request", () => {

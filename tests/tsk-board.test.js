@@ -494,3 +494,16 @@ test("projectOf: only a project row names a project, even when the scope is a pr
   assert.equal(projectOf(m.projects[0]), "/p");
   for (const item of [...m.where, ...m.threads, ...m.assignees]) assert.equal(projectOf(item), null, item.key);
 });
+
+test("sidebarModel: a picked project with no rows left stays in the list, ticked", () => {
+  const m = sidebarModel([row({ project: "/home/test/b" })], null, scope({ where: "project", project: "/home/test/gone" }));
+  assert.deepEqual(m.projects.map((p) => [p.label, p.count, p.current]), [["b", 1, false], ["gone", 0, true]]);
+  assert.equal(projectOf(m.projects[1]), "/home/test/gone");
+});
+
+test("normalizeScope: each call gives its own scope object", () => {
+  const a = normalizeScope(null);
+  a.thread = "changed";
+  assert.deepEqual(normalizeScope(null), scope({ where: "follow" }));
+  assert.notEqual(normalizeScope({ kind: "follow" }), normalizeScope({ kind: "follow" }));
+});

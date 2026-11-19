@@ -165,8 +165,13 @@ export function onDesk(row) {
   }
 }
 
-/** The scope when nothing is stored: the focused space, with no thread or assignee. */
-const FOLLOW = /** @type {Scope} */ ({ where: "follow", thread: null, assignee: null });
+/**
+ * The scope when nothing is stored: the focused space, with no thread or assignee.
+ * @returns {Scope}
+ */
+function follow() {
+  return { where: "follow", thread: null, assignee: null };
+}
 
 /**
  * The rows a scope shows. Follow shows the rows of `followed`, else the desk.
@@ -199,14 +204,14 @@ export function rowsInScope(rows, scope, followed = null) {
  * @returns {Scope}
  */
 export function normalizeScope(value) {
-  if (value === null || value === undefined) return FOLLOW;
+  if (value === null || value === undefined) return follow();
   const v = value && typeof value === "object" ? /** @type {Record<string, unknown>} */ (value) : {};
   const text = (x) => (typeof x === "string" && x !== "" ? x : null);
   const desk = /** @type {Scope} */ ({ where: "desk", thread: null, assignee: null });
   if (typeof v.kind === "string") {
     switch (v.kind) {
       case "follow":
-        return FOLLOW;
+        return follow();
       case "all":
         return { where: "all", thread: null, assignee: null };
       case "project": {
@@ -247,16 +252,19 @@ export function normalizeScope(value) {
  * @param {Scope} [scope] the current scope
  * @returns {SidebarModel}
  */
-export function sidebarModel(allRows, followed = null, scope = FOLLOW) {
+export function sidebarModel(allRows, followed = null, scope = follow()) {
   const filters = { thread: scope.thread, assignee: scope.assignee };
   const item = (key, label, next, current) => ({ key, label, scope: next, count: rowsInScope(allRows, next, followed).length, current });
   const labels = projectLabelsOf(allRows);
   const titles = projectTitlesOf(allRows);
-  const projects = tally(allRows.map((r) => r.project))
-    .map(([project]) => ({
+  const paths = tally(allRows.map((r) => r.project)).map(([project]) => project);
+  // A picked project with no rows left stays in the list, so its row keeps the tick.
+  if (scope.where === "project" && !paths.includes(scope.project)) paths.push(scope.project);
+  const projects = paths
+    .map((project) => ({
       ...item(
         `project:${project}`,
-        labels.get(project) ?? project,
+        labels.get(project) ?? segments(project).pop() ?? project,
         /** @type {Scope} */ ({ where: "project", project, ...filters }),
         scope.where === "project" && scope.project === project,
       ),

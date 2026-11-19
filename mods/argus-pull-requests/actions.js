@@ -12,11 +12,20 @@ export const NO_METHOD = "This repo allows no merge method for you.";
 export const NO_SHA = "Read this pull request again, then retry.";
 export const NO_BODY = "Write a comment first.";
 export const DRAFT_KEPT = "Your comment is kept as a pending review comment on the merge request.";
+export const DRAFT_TEXT =
+  "Your earlier comment is still a pending review comment on the merge request. Submit the same text to publish it, or delete it on GitLab first.";
+export const DRAFTS_UNREAD = "Could not read your pending review comments on the merge request.";
 
-/** GitHub's merge methods in fallback order, with the repo setting that allows each. */
+/** How long the pane keeps the signed-in GitHub login, or a failed read of it. */
+export const LOGIN_TTL = 5 * 60 * 1000;
+
+/** How long a running action blocks the same pull request in every copy: three CLI runs of 30 s, and some margin. */
+export const RUN_LIMIT = 120 * 1000;
+
 /** Every action the pane offers. */
 const KINDS = ["approve", "request_changes", "comment", "merge"];
 
+/** GitHub's merge methods in fallback order, with the repo setting that allows each. */
 const GH_METHODS = [
   ["merge", "mergeCommitAllowed"],
   ["squash", "squashMergeAllowed"],
@@ -91,18 +100,18 @@ export function pickMergeMethod(text) {
  * The command for one action, or the reason it cannot run. Bodies go in as one
  * `--body=` or `--message=` argument, so text that starts with `-` stays a value.
  * Approve on GitLab and Merge on both forges pin the head commit the pane read.
- * @param {{kind: ActionKind, detail: Detail, body: string, method?: MergeMethod|null}} input
- * A second command in `then` runs only after the first one succeeds. `drafted` says
- * a GitLab Request changes left its comment as a pending draft, so only the publish runs.
- * @param {{kind: ActionKind, detail: Detail, body: string, method?: MergeMethod|null, drafted?: boolean}} input
+ * A second command in `then` runs only after the first one succeeds. `publishOnly`
+ * says a GitLab Request changes already has its comment as a pending draft
+ * (`draftPlan`), so only the publish runs.
+ * @param {{kind: ActionKind, detail: Detail, body: string, method?: MergeMethod|null, publishOnly?: boolean}} input
  * @returns {{name: "gh"|"glab", args: string[], then?: string[]} | {error: string}}
  */
-export function actionCommand({ kind, detail, body, method = null, drafted = false }) {
+export function actionCommand({ kind, detail, body, method = null, publishOnly = false }) {
   if (!KINDS.includes(kind)) throw new Error(`unknown action: ${kind}`);
   const { pr, headSha } = detail;
   const gitLab = pr.provider === "gitlab";
-  const publishOnly = drafted && gitLab && kind === "request_changes";
-  const refusal = publishOnly ? null : bodyError(kind, body);
+  const onlyPublish = publishOnly && gitLab && kind === "request_changes";
+  const refusal = bodyError(kind, body);
   if (refusal !== null) return { error: refusal };
   const number = String(pr.number);
   const pinned = kind === "merge" || (kind === "approve" && gitLab);
@@ -111,7 +120,7 @@ export function actionCommand({ kind, detail, body, method = null, drafted = fal
   if (gitLab) {
     const repo = ["-R", `https://${pr.host}/${pr.repo}`];
     const publish = ["mr", "note", "draft", "publish", number, ...repo, "--reviewer-state=requested_changes", "--yes"];
-    if (publishOnly) return { name: "glab", args: publish };
+    if (onlyPublish) return { name: "glab", args: publish };
     switch (kind) {
       case "approve":
         return { name: "glab", args: ["mr", "approve", number, ...repo, "--sha", String(headSha)] };
@@ -189,7 +198,7 @@ export function afterAction(kind, ok) {
 }
 
 /**
- * The error text for a failed action; `drafted` adds that the comment stays a pending draft.
+ * The error text for a failed action; `drafted` adds that the comment this run drafted stays pending.
  * @param {string} error
  * @param {boolean} drafted
  * @returns {string}
@@ -202,12 +211,129 @@ export function actionFailure(error, drafted) {
  * The action state a pull request keeps when the pane moves to another one, or null when
  * nothing is worth keeping. The typed text, the open comment box, a kept draft and a
  * running action stay; the merge confirm and an error already shown go.
- * @param {{running: ActionKind|null, error: string|null, composing: string|null, confirm: object|null, text: string, drafted: boolean}} state
+ * @param {{running: ActionKind|null, error: string|null, composing: string|null, confirm: object|null, text: string, draftText: string|null}} state
  * @param {string} text The comment box text at the time of the move.
  */
 export function leavePr(state, text) {
   const running = state.running !== null;
   const next = { ...state, confirm: null, error: running ? state.error : null, text };
-  const empty = !running && next.composing === null && text === "" && !next.drafted;
+  const empty = !running && next.composing === null && text === "" && next.draftText === null;
   return empty ? null : next;
+}
+
+/**
+ * The `glab` arguments that list the user's own pending review comments on a merge request.
+ * @param {Detail} detail
+ * @returns {string[]}
+ */
+export function draftListArgs(detail) {
+  const { pr } = detail;
+  return ["mr", "note", "draft", "list", String(pr.number), "-R", `https://${pr.host}/${pr.repo}`, "-F", "json"];
+}
+
+/**
+ * The refusal when the user has other pending review comments, which a publish would send too.
+ * @param {number} count
+ * @returns {string}
+ */
+export function pendingDrafts(count) {
+  const comments = count === 1 ? "comment" : "comments";
+  return `You have ${count} pending review ${comments} on this merge request. A publish sends all of them. Publish or delete them on GitLab first.`;
+}
+
+/**
+ * How a GitLab Request changes runs, from the user's pending review comments.
+ * With none, the comment is drafted and published. With one, and the pane kept a
+ * draft of the same text, only the publish runs. Anything else refuses, so a
+ * publish never sends a comment twice or a comment the user did not write here.
+ * @param {string} listText `glab mr note draft list -F json` output.
+ * @param {string|null} kept The text of the draft this pane left pending, or null.
+ * @param {string} body The text in the comment box.
+ * @returns {{publishOnly: boolean} | {error: string}}
+ */
+export function draftPlan(listText, kept, body) {
+  let drafts;
+  try {
+    drafts = JSON.parse(listText);
+  } catch {
+    return { error: DRAFTS_UNREAD };
+  }
+  if (!Array.isArray(drafts)) return { error: DRAFTS_UNREAD };
+  if (drafts.length === 0) return { publishOnly: false };
+  if (kept === null || drafts.length > 1) return { error: pendingDrafts(drafts.length) };
+  const same = String(body).trim() === kept.trim();
+  return same ? { publishOnly: true } : { error: DRAFT_TEXT };
+}
+
+/**
+ * The detail a confirmed merge runs with: the head commit the confirm was shown for,
+ * so commits pushed after the confirm opened make the merge fail.
+ * @param {Detail} detail
+ * @param {{headSha: string|null}} confirm
+ * @returns {Detail}
+ */
+export function confirmedDetail(detail, confirm) {
+  return { ...detail, headSha: confirm.headSha };
+}
+
+/**
+ * Whether the comment box clears after an action: only after its own action
+ * succeeded, and only while it still holds the text that was sent.
+ * @param {{clearComment: boolean}} after
+ * @param {string} sent
+ * @param {string} current
+ * @returns {boolean}
+ */
+export function clearsComment(after, sent, current) {
+  return after.clearComment && current === sent;
+}
+
+/**
+ * Whether a kept login read is still good: same gh setting and younger than LOGIN_TTL.
+ * A failed read (value null) is kept too, so the pane does not ask on every read.
+ * @param {{setting: string, value: string|null, at: number}|null} cache
+ * @param {string} setting
+ * @param {number} now
+ * @returns {boolean}
+ */
+export function loginFresh(cache, setting, now) {
+  return cache !== null && cache.setting === setting && now - cache.at < LOGIN_TTL;
+}
+
+/**
+ * The action running on a pull request in any copy of the mod, or null. An entry
+ * older than RUN_LIMIT is from a copy that stopped and counts as done.
+ * @param {unknown} map The shared map of PR key to {kind, at}.
+ * @param {string} key
+ * @param {number} now
+ * @returns {ActionKind|null}
+ */
+export function runningOf(map, key, now) {
+  const entry = map && typeof map === "object" ? map[key] : null;
+  if (!entry || typeof entry !== "object" || typeof entry.kind !== "string" || typeof entry.at !== "number") return null;
+  return now - entry.at < RUN_LIMIT ? entry.kind : null;
+}
+
+/**
+ * A copy of the shared running map with `key` running `kind` from `now`.
+ * @param {unknown} map
+ * @param {string} key
+ * @param {ActionKind} kind
+ * @param {number} now
+ * @returns {Record<string, {kind: ActionKind, at: number}>}
+ */
+export function withRunning(map, key, kind, now) {
+  const base = map && typeof map === "object" ? map : {};
+  return { ...base, [key]: { kind, at: now } };
+}
+
+/**
+ * A copy of the shared running map without `key`.
+ * @param {unknown} map
+ * @param {string} key
+ * @returns {Record<string, {kind: ActionKind, at: number}>}
+ */
+export function withoutRunning(map, key) {
+  const { [key]: _done, ...rest } = map && typeof map === "object" ? map : {};
+  return rest;
 }

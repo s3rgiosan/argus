@@ -239,7 +239,12 @@ export function scopeItems(board, followed, scope) {
     item("follow", "Follow space", { show: scope.show, where: "follow" }, scope.where === "follow"),
     item("all", "All repos", { show: scope.show, where: "all" }, scope.where === "all"),
   ];
-  const projects = [...board.projects]
+  const listed = board.projects.map((project) => ({ key: project.key, repo: project.repo }));
+  // A picked project no longer on the board stays in the list, so its row keeps the tick.
+  if (scope.where === "project" && !listed.some((project) => project.key === scope.key)) {
+    listed.push({ key: scope.key, repo: scope.key.split("/").slice(1).join("/") });
+  }
+  const projects = listed
     .sort((a, b) => compareNames(a.repo, b.repo))
     .map((project) => {
       const next = /** @type {Scope} */ ({ show: scope.show, where: "project", key: project.key });
