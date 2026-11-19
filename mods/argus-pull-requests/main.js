@@ -8,12 +8,13 @@ import { exec, home, appHome, readTextFile, window, checking, theme, shared, set
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
-import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
+import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
-import { assembleBoard, normalizeBoard, pickPairs, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
+import { assembleBoard, normalizeBoard, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
-import { worktreeRoot, checkoutPlan, spaceFor, gitError } from "./worktree.js";
+import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
+import { mapPool } from "./pool.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, scrollArea, field, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
@@ -31,6 +32,8 @@ const POLL = 5_000;
 const AGE_TICK = 60_000;
 const LOCK_RETRY = 1_000;
 const GIT_LONG_TIMEOUT = 600_000;
+// How many gh or glab calls run at once when listing repos and filling in pull requests.
+const CLI_CONCURRENCY = 4;
 const SCOPES_WIDTH = 280;
 const SCOPES_HEIGHT = 420;
 const ICON = (name) => `mods/${MOD}/icons/${name}.svg`;
@@ -57,7 +60,9 @@ export default class PullRequests extends View {
     this.shown = null;
     this.prSeq = 0;
     // The check out action: {key, running, error}.
-    this.checkout = { key: null, running: false, error: null };
+    // PR key -> {running, error} for the check out action of each pull request.
+    this.checkouts = new Map();
+    // The failed open in browser action: {key, text}, shown on that pull request only.
     this.actionError = null;
 
     const settings = readSettings();
@@ -236,7 +241,8 @@ export default class PullRequests extends View {
 
     const gitHub = projects.filter((project) => project.provider === "github");
     const gitLab = projects.filter((project) => project.provider === "gitlab");
-    const [gh, glab] = await Promise.all([this.locate("gh"), this.locate("glab")]);
+    // glab is only looked up when a project needs it.
+    const [gh, glab] = await Promise.all([this.locate("gh"), gitLab.length > 0 ? this.locate("glab") : null]);
     notes.push(...missingNotes({ gh: gh !== null, glab: glab !== null, githubProjects: gitHub.length, gitlabProjects: gitLab.length }));
 
     const result = { needsReview: [], mine: [], projectPrs: {} };
@@ -273,7 +279,8 @@ export default class PullRequests extends View {
   /**
    * The command for `name` ("gh" or "glab"), or null when none runs. The first
    * of the setting, the bare name and the install folders whose `--version`
-   * runs wins. A found command is kept per setting value; a missing one is looked up again.
+   * runs wins. The result, found or missing, is kept per setting value until the
+   * setting changes or the refresh button looks again.
    */
   locate(name) {
     const setting = readSettings()[name];
@@ -291,9 +298,6 @@ export default class PullRequests extends View {
       return null;
     })();
     this.located[name] = { setting, result };
-    result.then((found) => {
-      if (found === null && this.located[name]?.result === result) this.located[name] = null;
-    });
     return result;
   }
 
@@ -343,27 +347,43 @@ export default class PullRequests extends View {
       login === null ? null : this.attempt("gh", gh, ghSearchArgs("mine", login), parseGhSearch, notes),
     ]);
     this.renewLock();
+    const searchNotes = [
+      [needsPairs, "pull requests that need your review"],
+      [minePairs, "pull requests you opened"],
+    ];
+    for (const [found, what] of searchNotes) {
+      const note = limitNote(what, found?.length ?? 0);
+      if (note !== null) notes.push(note);
+    }
     const pairs = [...(needsPairs ?? []), ...(minePairs ?? [])];
 
     // Every project repo plus the repos the searches name, each listed once.
     const repos = new Map();
     for (const project of projects) repos.set(projectKey(project), project.repo);
     for (const pair of pairs) if (!repos.has(projectKey(pair))) repos.set(projectKey(pair), pair.repo);
-    const listed = await Promise.all(
-      [...repos].map(async ([key, repo]) => [key, await this.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes)]),
-    );
+    const listed = await mapPool([...repos], CLI_CONCURRENCY, async ([key, repo]) => [
+      key,
+      await this.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes),
+    ]);
     this.renewLock();
     const all = [];
+    const failed = new Set();
     for (const [key, prs] of listed) {
-      if (prs === null) continue;
+      if (prs === null) {
+        failed.add(key);
+        continue;
+      }
+      const note = limitNote(`pull requests of ${repos.get(key)}`, prs.length);
+      if (note !== null) notes.push(note);
       all.push(...prs);
       if (projects.some((project) => project.key === key)) result.projectPrs[key] = prs;
     }
 
     const pick = async (list) => {
       const { found, missing } = pickPairs(all, list);
-      const filled = await Promise.all(
-        missing.map((pair) => this.attempt("gh", gh, ghViewArgs(pair.repo, pair.number), (text) => parseGhDetail(text, pair.repo).pr, notes)),
+      const wanted = withoutFailedRepos(missing, failed);
+      const filled = await mapPool(wanted, CLI_CONCURRENCY, (pair) =>
+        this.attempt("gh", gh, ghViewArgs(pair.repo, pair.number), (text) => parseGhDetail(text, pair.repo).pr, notes),
       );
       this.renewLock();
       return [...found, ...filled.filter((pr) => pr !== null)];
@@ -379,10 +399,17 @@ export default class PullRequests extends View {
       ...hosts.map(async (host) => {
         const user = await this.attempt(`glab (${host})`, glab, glabArgs(host, GL_USER_QUERY), (text) => parseGlabUser(text, host), notes);
         if (user === null) return;
+        for (const [found, what] of [
+          [user.needsReview, `merge requests on ${host} that need your review`],
+          [user.mine, `merge requests on ${host} that you opened`],
+        ]) {
+          const note = limitNote(what, found.length);
+          if (note !== null) notes.push(note);
+        }
         result.needsReview.push(...user.needsReview);
         result.mine.push(...user.mine);
       }),
-      ...projects.map(async (project) => {
+      mapPool(projects, CLI_CONCURRENCY, async (project) => {
         const prs = await this.attempt(
           `glab (${project.host})`,
           glab,
@@ -390,7 +417,10 @@ export default class PullRequests extends View {
           (text) => parseGlabProject(text, project.host),
           notes,
         );
-        if (prs !== null) result.projectPrs[project.key] = prs;
+        if (prs === null) return;
+        const note = limitNote(`merge requests of ${project.repo}`, prs.length);
+        if (note !== null) notes.push(note);
+        result.projectPrs[project.key] = prs;
       }),
     ]);
     this.renewLock();
@@ -610,6 +640,7 @@ export default class PullRequests extends View {
   }
 
   openInBrowser(cx, pr) {
+    const key = prKey(pr);
     this.actionError = null;
     const open = openArgs(window().platform, pr.url);
     if (open === null) return;
@@ -618,9 +649,9 @@ export default class PullRequests extends View {
       try {
         const reply = await exec(open[0], open[1]);
         if (reply.code === 0) return;
-        this.actionError = cliError(open[0], reply);
+        this.actionError = { key, text: cliError(open[0], reply) };
       } catch (error) {
-        this.actionError = error?.message ?? String(error);
+        this.actionError = { key, text: error?.message ?? String(error) };
       }
       cx.notify();
     });
@@ -629,9 +660,9 @@ export default class PullRequests extends View {
   /** Opens the space of the pull request's worktree, creating the worktree first when needed. */
   checkOut(cx, pr, localPath) {
     const key = prKey(pr);
-    if (this.checkout.running) return;
+    if (this.checkouts.get(key)?.running) return;
     this.actionError = null;
-    this.checkout = { key, running: true, error: null };
+    this.checkouts.set(key, { running: true, error: null });
     cx.notify();
     cx.spawn(async (cx) => {
       await cx.sleep(0);
@@ -641,7 +672,7 @@ export default class PullRequests extends View {
       } catch (caught) {
         error = caught?.message ?? String(caught);
       }
-      this.checkout = { key, running: false, error };
+      this.checkouts.set(key, { running: false, error });
       cx.notify();
     });
   }
@@ -654,9 +685,21 @@ export default class PullRequests extends View {
     if (list.code !== 0) return gitError(list);
     const plan = checkoutPlan({ pr, localPath, root: resolved.root, porcelain: list.stdout });
     if (plan.kind === "create") {
-      const fetched = await exec("git", plan.fetch, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
+      const git = (args) => exec("git", args, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
+      const exists = await git(plan.exists);
+      if (exists.code === 0) {
+        // A branch left from an earlier check out only updates when it holds nothing that is not on the PR head.
+        const peeked = await git(plan.peek);
+        if (peeked.code !== 0) return gitError(peeked);
+        const counted = await git(plan.ahead);
+        if (counted.code !== 0) return gitError(counted);
+        const ahead = aheadCount(counted.stdout);
+        if (ahead === null) return "git: could not count the commits of the local branch";
+        if (ahead > 0) return aheadRefusal(plan.branch, ahead);
+      }
+      const fetched = await git(plan.fetch);
       if (fetched.code !== 0) return gitError(fetched);
-      const added = await exec("git", plan.add, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
+      const added = await git(plan.add);
       if (added.code !== 0) return gitError(added);
       run("space.new", { folder: plan.path });
       return null;
@@ -689,8 +732,8 @@ export default class PullRequests extends View {
     const pr = detail.pr;
     const localPath = localPathFor(readBoard().projects, pr.host, pr.repo);
     const now = Date.now();
-    const checkout = this.checkout.key === shown.key ? this.checkout : { running: false, error: null };
-    const error = this.actionError ?? checkout.error;
+    const checkout = this.checkouts.get(shown.key) ?? { running: false, error: null };
+    const error = (this.actionError?.key === shown.key ? this.actionError.text : null) ?? checkout.error;
     const small = (text) => div().text_size(12).text_color(t.muted).child(text);
 
     const head = v_flex()

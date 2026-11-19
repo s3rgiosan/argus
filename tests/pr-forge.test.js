@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  LIST_LIMIT,
+  limitNote,
   GH_LIST_FIELDS,
   GH_VIEW_FIELDS,
   GL_DETAIL_QUERY,
@@ -41,4 +43,20 @@ test("queries ask for the fields the parsers read", () => {
 test("fetchRef", () => {
   assert.equal(fetchRef("github", 7), "refs/pull/7/head");
   assert.equal(fetchRef("gitlab", 12), "refs/merge-requests/12/head");
+});
+
+test("LIST_LIMIT is the 100 every list and search asks for", () => {
+  assert.equal(LIST_LIMIT, 100);
+  assert.ok(ghListArgs("o/r").includes(String(LIST_LIMIT)));
+  assert.ok(ghSearchArgs("needsReview").includes(String(LIST_LIMIT)));
+  assert.ok(GL_PROJECT_QUERY.includes(`first: ${LIST_LIMIT}`));
+  assert.ok(GL_USER_QUERY.includes(`first: ${LIST_LIMIT}`));
+});
+
+test("limitNote: a note only when a list reached the limit", () => {
+  assert.equal(limitNote("pull requests of example-org/example-repo", 100), "Showing the first 100 pull requests of example-org/example-repo.");
+  assert.equal(limitNote("merge requests", 101), "Showing the first 100 merge requests.");
+  assert.equal(limitNote("pull requests", 99), null);
+  assert.equal(limitNote("pull requests", 0), null);
+  assert.equal(limitNote("pull requests", 3, 3), "Showing the first 3 pull requests.");
 });

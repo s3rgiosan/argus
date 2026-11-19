@@ -2,6 +2,7 @@
 // No Herdr imports, so Node can test it.
 
 import { formatDuration, formatMoney, planName } from "./format.js";
+import { compareNames } from "./follow.js";
 
 export const SESSION_MS = 5 * 3_600_000;
 export const WEEK_MS = 7 * 24 * 3_600_000;
@@ -120,7 +121,7 @@ function windowsOf(limits) {
     ].filter(Boolean);
   }
 
-  return windows.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || (a.kind === "scoped" ? a.label.localeCompare(b.label) : 0));
+  return windows.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || (a.kind === "scoped" ? compareNames(a.label, b.label) : 0));
 }
 
 function limitWindow(limit) {

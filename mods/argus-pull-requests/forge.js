@@ -2,6 +2,9 @@
 
 /** @typedef {import("./remote.js").Provider} Provider */
 
+/** How many items every list, search and query asks for. */
+export const LIST_LIMIT = 100;
+
 export const GH_LIST_FIELDS =
   "number,title,url,author,headRefName,baseRefName,isDraft,state,reviewDecision,statusCheckRollup,mergeable,mergeStateStatus,updatedAt";
 export const GH_VIEW_FIELDS = `${GH_LIST_FIELDS},body,latestReviews,reviewRequests,reviews,comments`;
@@ -9,9 +12,9 @@ export const GH_VIEW_FIELDS = `${GH_LIST_FIELDS},body,latestReviews,reviewReques
 export const GL_MR_FIELDS =
   "iid title webUrl draft state sourceBranch targetBranch updatedAt author { username } approvedBy { nodes { username } } conflicts detailedMergeStatus headPipeline { status } targetProject { fullPath }";
 
-export const GL_USER_QUERY = `query { currentUser { reviewRequestedMergeRequests(state: opened, first: 100) { nodes { ${GL_MR_FIELDS} } } authoredMergeRequests(state: opened, first: 100) { nodes { ${GL_MR_FIELDS} } } } }`;
+export const GL_USER_QUERY = `query { currentUser { reviewRequestedMergeRequests(state: opened, first: ${LIST_LIMIT}) { nodes { ${GL_MR_FIELDS} } } authoredMergeRequests(state: opened, first: ${LIST_LIMIT}) { nodes { ${GL_MR_FIELDS} } } } }`;
 
-export const GL_PROJECT_QUERY = `query($path: ID!) { project(fullPath: $path) { mergeRequests(state: opened, first: 100) { nodes { ${GL_MR_FIELDS} } } } }`;
+export const GL_PROJECT_QUERY = `query($path: ID!) { project(fullPath: $path) { mergeRequests(state: opened, first: ${LIST_LIMIT}) { nodes { ${GL_MR_FIELDS} } } } }`;
 
 export const GL_DETAIL_QUERY = `query($path: ID!, $iid: String!) { project(fullPath: $path) { mergeRequest(iid: $iid) { ${GL_MR_FIELDS} description headPipeline { status jobs(first: 100) { nodes { name status } } } reviewers { nodes { username mergeRequestInteraction { reviewState } } } notes(first: 100) { nodes { author { username } body createdAt system } } } } }`;
 
@@ -38,12 +41,12 @@ export function ghSearchArgs(kind, login) {
     default:
       throw new Error(`unknown search kind: ${kind}`);
   }
-  return ["search", "prs", filter, "--state=open", "--archived=false", "--limit", "100", "--json", "number,url"];
+  return ["search", "prs", filter, "--state=open", "--archived=false", "--limit", String(LIST_LIMIT), "--json", "number,url"];
 }
 
 /** @param {string} repo */
 export function ghListArgs(repo) {
-  return ["pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json", GH_LIST_FIELDS];
+  return ["pr", "list", "--repo", repo, "--state", "open", "--limit", String(LIST_LIMIT), "--json", GH_LIST_FIELDS];
 }
 
 /**
@@ -73,4 +76,15 @@ export function glabArgs(host, query, vars = {}) {
  */
 export function fetchRef(provider, number) {
   return provider === "gitlab" ? `refs/merge-requests/${number}/head` : `refs/pull/${number}/head`;
+}
+
+/**
+ * The note for a list that reached the limit, so the reader knows more may exist; null otherwise.
+ * @param {string} what What the list holds, for example "pull requests of owner/repo".
+ * @param {number} count How many items came back.
+ * @param {number} [limit]
+ * @returns {?string}
+ */
+export function limitNote(what, count, limit = LIST_LIMIT) {
+  return count >= limit ? `Showing the first ${limit} ${what}.` : null;
 }
