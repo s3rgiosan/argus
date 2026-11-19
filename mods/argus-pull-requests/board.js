@@ -222,7 +222,7 @@ export function prsInScope(board, scope, followed) {
 }
 
 /**
- * The rows of the scope list: the Show choices, then In (all repos, follow space and
+ * The rows of the scope list: the Show choices, then In (follow space, all repos and
  * each project). Each row's count keeps the other choice as it is, and picking it
  * changes only its own choice.
  * @param {Board} board
@@ -236,8 +236,8 @@ export function scopeItems(board, followed, scope) {
   const keep = scope.where === "project" ? { where: "project", key: scope.key } : { where: scope.where };
   const show = SHOWS.map(([id, label]) => item(id, label, /** @type {Scope} */ ({ show: id, ...keep }), scope.show === id));
   const where = [
-    item("all", "All repos", { show: scope.show, where: "all" }, scope.where === "all"),
     item("follow", "Follow space", { show: scope.show, where: "follow" }, scope.where === "follow"),
+    item("all", "All repos", { show: scope.show, where: "all" }, scope.where === "all"),
   ];
   const projects = [...board.projects]
     .sort((a, b) => compareNames(a.repo, b.repo))

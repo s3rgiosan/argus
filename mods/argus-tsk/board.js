@@ -288,6 +288,16 @@ export function sidebarModel(allRows, followed = null, scope = FOLLOW) {
 }
 
 /**
+ * The project a scope list row picks, or null for a row that is not a project. A
+ * thread or assignee row keeps a project place too, so the row's key decides.
+ * @param {SidebarItem} item
+ * @returns {?string}
+ */
+export function projectOf(item) {
+  return item.key.startsWith("project:") && item.scope.where === "project" ? item.scope.project : null;
+}
+
+/**
  * The scope button text: the place, then the thread and the assignee when set. A
  * project with no rows left shows its folder name. Follow adds the name of what it follows.
  * @param {Scope} scope

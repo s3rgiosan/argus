@@ -187,8 +187,8 @@ test("scopeItems counts each choice with the other one kept", () => {
     ["All open", 2, false],
   ]);
   assert.deepEqual(items.where.map((i) => [i.label, i.count, i.current]), [
-    ["All repos", 1, false],
     ["Follow space", 1, true],
+    ["All repos", 1, false],
   ]);
   assert.deepEqual(items.projects.map((i) => [i.label, i.count, i.current]), [
     ["example-org/another", 0, false],
@@ -197,7 +197,7 @@ test("scopeItems counts each choice with the other one kept", () => {
   // Picking a row changes its own choice and keeps the other.
   assert.deepEqual(items.show[1].scope, { show: "mine", where: "follow" });
   assert.deepEqual(items.projects[1].scope, { show: "needsReview", where: "project", key: project.key });
-  assert.equal(scopeItems(board, null, { show: "all", where: "follow" }).where[1].count, 0);
+  assert.equal(scopeItems(board, null, { show: "all", where: "follow" }).where[0].count, 0);
 });
 
 test("scopeTitle names Show, and In when it is not all repos", () => {

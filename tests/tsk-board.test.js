@@ -12,6 +12,7 @@ import {
   onDesk,
   onToInput,
   projectLabelsOf,
+  projectOf,
   rowsInScope,
   scopeTitle,
   sectionOf,
@@ -486,4 +487,10 @@ test("sidebarModel: a picked thread or assignee with no rows left stays in the l
   const m = sidebarModel([row({ thread: "t" })], null, scope({ where: "all", thread: "gone", assignee: "left" }));
   assert.deepEqual(m.threads.map((i) => [i.label, i.count, i.current]), [["Any thread", 0, false], ["gone", 0, true], ["t", 0, false]]);
   assert.deepEqual(m.assignees.map((i) => [i.label, i.count, i.current]), [["Anyone", 0, false], ["left", 0, true]]);
+});
+
+test("projectOf: only a project row names a project, even when the scope is a project", () => {
+  const m = sidebarModel([row({ project: "/p", thread: "t", assignee: "amy" })], null, scope({ where: "project", project: "/p" }));
+  assert.equal(projectOf(m.projects[0]), "/p");
+  for (const item of [...m.where, ...m.threads, ...m.assignees]) assert.equal(projectOf(item), null, item.key);
 });

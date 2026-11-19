@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
 import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
 import { parseRows, parseError } from "./model.js";
-import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
+import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
 import { answerBlock, applyOptimistic, flowOutcome, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, blockChange, changeFor, CHECK_LABELS, detailState, fieldSave, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
@@ -439,7 +439,7 @@ export default class Tasks extends View {
   startRename(cx, item) {
     this.retire(cx, this.renaming);
     const state = this.input("rename", { value: item.title ?? item.folder, placeholder: item.folder }, (cx) => this.saveRename(cx));
-    this.renaming = { project: item.scope.project, item: { title: item.title, folder: item.folder }, state, error: null, saving: false };
+    this.renaming = { project: projectOf(item), item: { title: item.title, folder: item.folder }, state, error: null, saving: false };
     // The field takes the keyboard once the frame that draws it is up.
     cx.timer.after(0, () => state.focus());
     cx.notify();
@@ -950,9 +950,9 @@ export default class Tasks extends View {
     const rename = this.renaming;
     // The place, the thread and the assignee are separate choices. A list with only
     // its "any" row has nothing to pick, so it is left out.
+    // Each project is one more In choice, indented under All Projects.
     const groups = [
-      ["In", model.where],
-      ["Projects", model.projects],
+      ["In", [...model.where, ...model.projects]],
       ["Threads", model.threads.length > 1 ? model.threads : []],
       ["Assignees", model.assignees.length > 1 ? model.assignees : []],
     ].filter(([, entries]) => entries.length > 0);
@@ -961,19 +961,21 @@ export default class Tasks extends View {
     // Height the rename field adds over the row it replaces.
     let extra = 0;
     const item = (entry, index) => {
-      if (entry.scope.kind === "project" && rename?.project === entry.scope.project) {
+      const project = projectOf(entry);
+      if (project !== null && rename?.project === project) {
         extra += 85 + (rename.error ? 6 + 16 * Math.ceil(rename.error.length / ERROR_CHARS) : 0);
         return this.renameField(t, rename);
       }
       return menuRow(t, `scope-${index}`, {
         label: entry.label,
+        indent: project !== null,
         count: String(entry.count),
         active: index === active,
         current: entry.current,
         tick: this.icon("check"),
         onClick: () => pickScope(entry.scope),
         trailing:
-          this.canTitle && entry.scope.kind === "project"
+          this.canTitle && project !== null
             ? iconButton(t, `rename-${index}`, this.icon("square-pen"), (_e, cx) => {
                 cx.stop_propagation();
                 this.startRename(cx, entry);

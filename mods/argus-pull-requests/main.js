@@ -536,9 +536,10 @@ export default class PullRequests extends View {
     const icon = iconResolver(MOD, this.found);
     const entries = [...items.show, ...items.where, ...items.projects];
     const active = this.at ?? startAt(entries);
-    const item = (entry, index) =>
+    const item = (entry, index, indent = false) =>
       menuRow(t, `scope-${index}-${entry.key}`, {
         label: entry.label,
+        indent,
         count: String(entry.count),
         active: index === active,
         current: entry.current,
@@ -551,13 +552,11 @@ export default class PullRequests extends View {
     items.show.forEach((entry, index) => parts.push(item(entry, index)));
     parts.push(sectionTitle(t, "In"));
     items.where.forEach((entry, index) => parts.push(item(entry, items.show.length + index)));
-    if (items.projects.length > 0) {
-      parts.push(sectionTitle(t, "Projects"));
-      items.projects.forEach((entry, index) => parts.push(item(entry, items.show.length + items.where.length + index)));
-    }
+    // Each project is one more In choice, indented under All repos.
+    items.projects.forEach((entry, index) => parts.push(item(entry, items.show.length + items.where.length + index, true)));
     // A popup is as tall as its content, up to the height it was opened with,
     // so the list gets an explicit height for its rows and section titles.
-    const titles = items.projects.length > 0 ? 3 : 2;
+    const titles = 2;
     const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + entries.length * MENU_ROW + titles * 30);
     return v_flex()
       .id("argus-pull-requests-scopes")
