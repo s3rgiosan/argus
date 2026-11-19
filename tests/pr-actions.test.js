@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DRAFT_KEPT, NEEDS_BODY, NO_METHOD, NO_SHA, actionCommand, actionFailure, afterAction, bodyError, canAct, ghMethodArgs, leavePr, mergePrompt, pickMergeMethod } from "../mods/argus-pull-requests/actions.js";
+import { DRAFT_KEPT, NEEDS_BODY, NO_METHOD, NO_SHA, actionCommand, actionFailure, afterAction, bodyError, canAct, ownPr, ghMethodArgs, leavePr, mergePrompt, pickMergeMethod } from "../mods/argus-pull-requests/actions.js";
 
 const GL_URL = "https://gitlab.example.com/example-group/example-sub/example-project";
 
@@ -216,4 +216,13 @@ test("leavePr keeps the typed text and a running action, and drops the rest", ()
     ...idle, running: "comment", composing: "comment", text: "sent text",
   });
   assert.deepEqual(leavePr({ ...idle, drafted: true, composing: "request_changes" }, ""), { ...idle, drafted: true, composing: "request_changes" });
+});
+
+test("ownPr is true for the signed-in author of a GitHub pull request", () => {
+  assert.equal(ownPr(gh.pr, "octo-user"), true);
+  assert.equal(ownPr(gh.pr, "Octo-User"), true);
+  assert.equal(ownPr(gh.pr, "review-user"), false);
+  assert.equal(ownPr(gh.pr, null), false);
+  // GitLab projects decide whether authors may approve, so the buttons stay.
+  assert.equal(ownPr(gl.pr, "octo-user"), false);
 });

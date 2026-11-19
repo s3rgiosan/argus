@@ -8,7 +8,7 @@ import { exec, home, appHome, readTextFile, window, checking, theme, shared, set
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
-import { NO_METHOD, canAct, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt } from "./actions.js";
+import { NO_METHOD, OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
 import { assembleBoard, normalizeBoard, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
@@ -648,6 +648,8 @@ export default class PullRequests extends View {
     const args = gitLab
       ? glabArgs(selected.host, GL_DETAIL_QUERY, { path: selected.repo, iid: String(selected.number) })
       : ghViewArgs(selected.repo, selected.number);
+    // The pane needs the GitHub login to turn off the review buttons on your own pull request.
+    if (!gitLab) await this.ghLogin(command, []);
     const reply = await exec(command, args, { timeout: CLI_TIMEOUT });
     if (reply.code !== 0) throw new Error(cliError(name, reply));
     return gitLab ? parseGlabDetail(reply.stdout, selected.host) : parseGhDetail(reply.stdout, selected.repo);
@@ -965,6 +967,8 @@ export default class PullRequests extends View {
   /** Approve, Request changes, Comment and Merge, with the open composer or merge confirm under them. */
   reviewActions(t, key, detail, act) {
     const enabled = act.running === null;
+    // A null login leaves the buttons on; GitHub's own message then explains a refusal.
+    const own = ownPr(detail.pr, this.login?.value ?? null);
     const cancel = (patch) => (_e, cx) => {
       this.setAction(key, { ...patch, error: null });
       cx.notify();
@@ -975,11 +979,12 @@ export default class PullRequests extends View {
         h_flex()
           .flex_wrap()
           .gap(8)
-          .child(button(t, "approve", "Approve", (_e, cx) => this.runAction(cx, key, "approve", detail, "", null), { enabled }))
-          .child(button(t, "request-changes", "Request changes", (_e, cx) => this.compose(cx, key, "request_changes"), { enabled }))
+          .child(button(t, "approve", "Approve", (_e, cx) => this.runAction(cx, key, "approve", detail, "", null), { enabled: enabled && !own }))
+          .child(button(t, "request-changes", "Request changes", (_e, cx) => this.compose(cx, key, "request_changes"), { enabled: enabled && !own }))
           .child(button(t, "comment", "Comment", (_e, cx) => this.compose(cx, key, "comment"), { enabled }))
           .child(button(t, "merge", "Merge", (_e, cx) => this.askMerge(cx, key, detail), { enabled })),
-      );
+      )
+      .when(own, (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child(OWN_PR)));
     if (act.composing !== null && this.bodyInput) {
       box = box.child(
         v_flex()

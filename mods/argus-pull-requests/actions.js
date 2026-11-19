@@ -32,6 +32,21 @@ export function canAct(pr) {
   return pr.state === "open";
 }
 
+/** Shown when Approve and Request changes are off on your own GitHub pull request. */
+export const OWN_PR = "GitHub does not let you approve or request changes on your own pull request.";
+
+/**
+ * Whether `login` opened `pr` on GitHub, where the author cannot approve or request changes.
+ * @param {Pr} pr
+ * @param {string|null} login The signed-in GitHub login, or null when unknown.
+ * @returns {boolean}
+ */
+export function ownPr(pr, login) {
+  if (pr.provider !== "github" || !login) return false;
+  const author = pr.author.toLowerCase();
+  return author === login.toLowerCase();
+}
+
 /**
  * The refusal for an empty body, or null when the body is fine for `kind`.
  * @param {ActionKind} kind
