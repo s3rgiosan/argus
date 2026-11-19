@@ -12,7 +12,6 @@ A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, button
 - The open state comes from the shown layout (`layout()`): the column not hidden and the stack's `active` child.
 
 - Order: the buttons come from `sortButtons(buttons, shared("argus-toolbar.order"))` (`order.js`): the saved ids first, then the rest A to Z by label. Setting the shared key re-renders the toolbar.
-- A right click on a button calls `cx.stop_propagation()` and opens a popup (200 by 42 px) of the `argus-settings` mod with `props { view: "menu" }`.
 
 ## Built from
 

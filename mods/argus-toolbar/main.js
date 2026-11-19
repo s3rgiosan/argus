@@ -1,18 +1,15 @@
 // Buttons beside Herdr's tab bar that open this repo's panel mods in the
 // argus layout's panel column, drawn like Herdr's Files and Changes
 // buttons. The layout passes the buttons and the column in props(); the
-// buttons follow the order saved in `argus-toolbar.order`, and a right click
-// opens the Argus settings menu.
+// buttons follow the order saved in `argus-toolbar.order`.
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, props, layout, run, shared, openOverlay } from "herdr";
+import { theme, props, layout, run, shared } from "herdr";
 import { isOpen, clickCommands } from "./toolbar-logic.js";
 import { sortButtons } from "./order.js";
 
 const ORDER_KEY = "argus-toolbar.order";
-const MENU_WIDTH = 200;
-const MENU_HEIGHT = 42;
 
 export default class Toolbar extends View {
   render() {
@@ -37,10 +34,6 @@ export default class Toolbar extends View {
         .hover((s) => s.bg(t.hover))
         .on_click(() => {
           for (const [name, args] of clickCommands(layout(), ids, id)) run(name, args);
-        })
-        .on_mouse_down("right", (_e, cx) => {
-          cx.stop_propagation();
-          openOverlay({ mod: "argus-settings", props: { view: "menu" }, kind: "popup", width: MENU_WIDTH, height: MENU_HEIGHT });
         })
         .when(Boolean(icon), (el) => el.child(svg(icon).size(14)))
         .child(label);

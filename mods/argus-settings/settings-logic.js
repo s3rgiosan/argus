@@ -15,11 +15,6 @@ export function toolbarButtons(tree) {
   return Array.isArray(buttons) ? buttons : [];
 }
 
-/** The popup's height in px for `count` rows: header, section title, rows, footer and padding. */
-export function settingsHeight(count) {
-  return 42 + 34 + 28 * count + 12 + 53;
-}
-
 function find(node, id) {
   if (!node || typeof node !== "object") return null;
   if (node.id === id) return node;
