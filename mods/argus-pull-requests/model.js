@@ -6,7 +6,7 @@
 /** @typedef {{name: string, state: "passed"|"failed"|"running"}} Check */
 /** @typedef {{name: string, state: "approved"|"changes_requested"|"commented"|"dismissed"|"pending"|"requested"}} Reviewer */
 /** @typedef {{author: string, body: string, at: string, kind: "comment"|"review"}} Entry */
-/** @typedef {{pr: Pr, body: string, checks: Check[], reviewers: Reviewer[], merge: {state: Pr["mergeable"], reason: string|null}, conversation: Entry[]}} Detail */
+/** @typedef {{pr: Pr, body: string, headSha: string|null, squash: boolean, checks: Check[], reviewers: Reviewer[], merge: {state: Pr["mergeable"], reason: string|null}, conversation: Entry[]}} Detail */
 
 const GH_HOST = "github.com";
 
@@ -234,6 +234,8 @@ export function parseGhDetail(text, repo) {
   return {
     pr,
     body: String(raw.body ?? ""),
+    headSha: shaOf(raw.headRefOid),
+    squash: false,
     checks: ghCheckList(raw.statusCheckRollup),
     reviewers: ghReviewers(raw),
     merge: { state: pr.mergeable, reason: GH_MERGE_REASONS[raw.mergeStateStatus] ?? null },
@@ -476,9 +478,20 @@ export function parseGlabDetail(text, host) {
   return {
     pr,
     body: String(node.description ?? ""),
+    headSha: shaOf(node.diffHeadSha),
+    squash: node.squashOnMerge === true,
     checks: glJobChecks(node),
     reviewers: glReviewers(node),
     merge: { state: pr.mergeable, reason: glReason(node.detailedMergeStatus) },
     conversation: glConversation(node),
   };
+}
+
+/**
+ * A commit SHA from a CLI reply, or null when it is missing or empty.
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+function shaOf(value) {
+  return typeof value === "string" && value !== "" ? value : null;
 }

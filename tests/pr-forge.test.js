@@ -60,3 +60,8 @@ test("limitNote: a note only when a list reached the limit", () => {
   assert.equal(limitNote("pull requests", 0), null);
   assert.equal(limitNote("pull requests", 3, 3), "Showing the first 3 pull requests.");
 });
+
+test("detail reads ask for the head sha", () => {
+  assert.ok(GH_VIEW_FIELDS.split(",").includes("headRefOid"));
+  assert.match(GL_DETAIL_QUERY, /diffHeadSha squashOnMerge/);
+});

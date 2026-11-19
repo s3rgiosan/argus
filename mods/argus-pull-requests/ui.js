@@ -6,7 +6,7 @@
 // panels. Colors come from `theme()` only.
 
 import { div, svg } from "gpui-kit";
-import { v_flex, h_flex, Input, Scrollbar } from "gpui-base";
+import { v_flex, h_flex, Input, Textarea, Scrollbar } from "gpui-base";
 
 /** One turn of a busy icon, in ms, as Herdr's spinner. */
 const SPIN_MS = 900;
@@ -131,6 +131,20 @@ export function field(t, id, state, focused) {
     .child(Input.new(state).w_full().text_size(12).text_color(t.foreground));
 }
 
+/** A multi-line text box around a `TextareaState`; `focused` draws the accent border. */
+export function textBox(t, id, state, focused) {
+  return div()
+    .id(id)
+    .w_full()
+    .px(10)
+    .py(6)
+    .rounded(8)
+    .border_1()
+    .border_color(focused ? t.accent : t.border)
+    .cursor_text()
+    .child(Textarea.new(state).w_full().text_color(t.foreground));
+}
+
 /**
  * A button: `primary` is the solid main action, 32 px high; the other is
  * Herdr's raised button with a border and a hover.
@@ -221,15 +235,16 @@ export const MENU_ROW = 31;
  * shows dim on the right, then an optional `trailing` element. A row that is
  * not `enabled` shows dim and takes no clicks.
  *
- * @param {{ label: string, count?: string | null, active?: boolean, current?: boolean, enabled?: boolean, trailing?: object | null, tick: string, onClick: Function }} row
- *   `tick` is the check icon's path.
+ * @param {{ label: string, count?: string | null, active?: boolean, current?: boolean, enabled?: boolean, indent?: boolean, trailing?: object | null, tick: string, onClick: Function }} row
+ *   `tick` is the check icon's path. `indent` moves the label in, under the row above it.
  */
-export function menuRow(t, id, { label, count = null, active = false, current = false, enabled = true, trailing = null, tick, onClick }) {
+export function menuRow(t, id, { label, count = null, active = false, current = false, enabled = true, indent = false, trailing = null, tick, onClick }) {
   return h_flex()
     .id(id)
     .h(MENU_ROW)
     .flex_none()
-    .px(8)
+    .pl(indent ? 24 : 8)
+    .pr(8)
     .gap(9)
     .items_center()
     .rounded(7)

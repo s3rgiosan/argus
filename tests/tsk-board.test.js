@@ -12,14 +12,18 @@ import {
   onDesk,
   onToInput,
   projectLabelsOf,
+  projectOf,
   rowsInScope,
-  sameScope,
   scopeTitle,
   sectionOf,
   sidebarModel,
   sortByProject,
   titleChange,
 } from "../mods/argus-tsk/board.js";
+
+/** A scope with no thread or assignee unless `over` names one. */
+const scope = (over) => ({ thread: null, assignee: null, ...over });
+const whereItem = (m, key) => m.where.find((item) => item.key === key);
 
 const row = (over = {}) => ({
   id: "id",
@@ -129,7 +133,7 @@ test("inputToOn: null for the default or an empty value", () => {
 test("sidebarModel: disambiguates colliding basenames", () => {
   const m = sidebarModel([row({ project: "/home/test/work/site" }), row({ project: "/home/test/client/site" })]);
   assert.deepEqual(m.projects.map((p) => p.label), ["client/site", "work/site"]);
-  assert.deepEqual(m.projects[0].scope, { kind: "project", project: "/home/test/client/site" });
+  assert.deepEqual(m.projects[0].scope, { where: "project", project: "/home/test/client/site", thread: null, assignee: null });
 });
 test("sidebarModel: widens colliding labels until unique", () => {
   const m = sidebarModel(
@@ -150,11 +154,11 @@ test("sidebarModel: counts the desk like the terminal desk", () => {
       row({ project: null, status: "open" }),
     ]
   );
-  assert.equal(m.desk.count, 2);
-  assert.equal(m.all.count, 3);
+  assert.equal(whereItem(m, "desk").count, 2);
+  assert.equal(whereItem(m, "all").count, 3);
 });
 test("sidebarModel: labels the cross-project view All Projects", () => {
-  assert.equal(sidebarModel([]).all.label, "All Projects");
+  assert.equal(whereItem(sidebarModel([]), "all").label, "All Projects");
 });
 test("sidebarModel: sorts projects by label and counts rows", () => {
   const m = sidebarModel([row({ project: "/x/beta" }), row({ project: "/x/alpha" }), row({ project: "/x/beta" })]);
@@ -168,34 +172,35 @@ test("sidebarModel: sorted thread and assignee items, skipping empty ones", () =
       row({ thread: "alpha" }),
     ]
   );
-  assert.deepEqual(m.threads.map((t) => [t.label, t.count]), [["alpha", 2], ["zeta", 1]]);
-  assert.deepEqual(m.threads[0].scope, { kind: "thread", name: "alpha" });
-  assert.deepEqual(m.assignees.map((a) => a.label), ["amy", "bob"]);
-  assert.deepEqual(m.assignees[0].scope, { kind: "assignee", name: "amy" });
+  assert.deepEqual(m.threads.map((t) => [t.label, t.count]), [["Any thread", 3], ["alpha", 2], ["zeta", 1]]);
+  assert.deepEqual(m.threads[1].scope, { where: "follow", thread: "alpha", assignee: null });
+  assert.deepEqual(m.assignees.map((a) => a.label), ["Anyone", "amy", "bob"]);
+  assert.deepEqual(m.assignees[1].scope, { where: "follow", thread: null, assignee: "amy" });
 });
 test("sidebarModel: desk and all items carry their scopes and keys", () => {
   const m = sidebarModel([]);
-  assert.deepEqual(m.desk, { key: "desk", label: "Desk", scope: { kind: "desk" }, count: 0 });
-  assert.deepEqual(m.all.scope, { kind: "all" });
+  assert.deepEqual(whereItem(m, "desk"), { key: "desk", label: "Desk", scope: { where: "desk", thread: null, assignee: null }, count: 0, current: false });
+  assert.deepEqual(whereItem(m, "all").scope, { where: "all", thread: null, assignee: null });
 });
 
 test("scopeTitle: names the views", () => {
   const model = sidebarModel([]);
-  assert.equal(scopeTitle({ kind: "desk" }, model), "Desk");
-  assert.equal(scopeTitle({ kind: "all" }, model), "All Projects");
+  assert.equal(scopeTitle(scope({ where: "desk" }), model), "Desk");
+  assert.equal(scopeTitle(scope({ where: "all" }), model), "All Projects");
 });
 test("scopeTitle: names a project as the sidebar does", () => {
   const model = sidebarModel([row({ project: "/home/test/work/site" }), row({ project: "/home/test/client/site" })]);
-  assert.equal(scopeTitle({ kind: "project", project: "/home/test/work/site" }, model), "work/site");
+  assert.equal(scopeTitle(scope({ where: "project", project: "/home/test/work/site" }), model), "work/site");
 });
 test("scopeTitle: names a project with no rows by its folder", () => {
   const model = sidebarModel([row({ project: "/home/test/work/site" })]);
-  assert.equal(scopeTitle({ kind: "project", project: "/home/test/empty" }, model), "empty");
+  assert.equal(scopeTitle(scope({ where: "project", project: "/home/test/empty" }), model), "empty");
 });
-test("scopeTitle: names threads and assignees", () => {
+test("scopeTitle: adds the thread and the assignee after the place", () => {
   const model = sidebarModel([]);
-  assert.equal(scopeTitle({ kind: "thread", name: "launch" }, model), "launch");
-  assert.equal(scopeTitle({ kind: "assignee", name: "ana" }, model), "ana");
+  assert.equal(scopeTitle(scope({ where: "all", thread: "launch" }), model), "All Projects · launch");
+  assert.equal(scopeTitle(scope({ where: "desk", assignee: "ana" }), model), "Desk · ana");
+  assert.equal(scopeTitle(scope({ where: "follow", thread: "launch", assignee: "ana" }), model, null), "Follow space · Desk · launch · ana");
 });
 
 test("projectLabelsOf: maps each project path to its sidebar label", () => {
@@ -231,12 +236,6 @@ test("onDesk: started rows from any project; done rows never", () => {
   assert.equal(onDesk(row({ status: "done", project: null })), false);
 });
 
-test("sameScope: compares scopes by value", () => {
-  assert.equal(sameScope({ kind: "desk" }, { kind: "desk" }), true);
-  assert.equal(sameScope({ kind: "thread", name: "a" }, { kind: "thread", name: "b" }), false);
-  assert.equal(sameScope({ kind: "thread", name: "a" }, { kind: "assignee", name: "a" }), false);
-});
-
 test("rowsInScope: filters rows by scope", () => {
   const rows = [
     row({ number: 1, status: "started", project: "/p", thread: "t", assignee: "amy" }),
@@ -244,17 +243,31 @@ test("rowsInScope: filters rows by scope", () => {
     row({ number: 3, status: "open", project: null, thread: "t" }),
     row({ number: 4, status: "open", project: "/q", assignee: "amy" }),
   ];
-  assert.deepEqual(numbers(rowsInScope(rows, { kind: "all" })), [1, 2, 3, 4]);
-  assert.deepEqual(numbers(rowsInScope(rows, { kind: "desk" })), [1, 3]);
-  assert.deepEqual(numbers(rowsInScope(rows, { kind: "project", project: "/p" })), [1, 2]);
-  assert.deepEqual(numbers(rowsInScope(rows, { kind: "thread", name: "t" })), [1, 3]);
-  assert.deepEqual(numbers(rowsInScope(rows, { kind: "assignee", name: "amy" })), [1, 4]);
+  assert.deepEqual(numbers(rowsInScope(rows, scope({ where: "all" }))), [1, 2, 3, 4]);
+  assert.deepEqual(numbers(rowsInScope(rows, scope({ where: "desk" }))), [1, 3]);
+  assert.deepEqual(numbers(rowsInScope(rows, scope({ where: "project", project: "/p" }))), [1, 2]);
+  assert.deepEqual(numbers(rowsInScope(rows, scope({ where: "all", thread: "t" }))), [1, 3]);
+  assert.deepEqual(numbers(rowsInScope(rows, scope({ where: "all", assignee: "amy" }))), [1, 4]);
+});
+test("rowsInScope: the place, the thread and the assignee combine", () => {
+  const rows = [
+    row({ number: 1, project: "/p", thread: "t", assignee: "amy" }),
+    row({ number: 2, project: "/p", thread: "t" }),
+    row({ number: 3, project: "/q", thread: "t", assignee: "amy" }),
+    row({ number: 4, project: "/p", assignee: "amy" }),
+  ];
+  assert.deepEqual(numbers(rowsInScope(rows, scope({ where: "project", project: "/p", thread: "t" }))), [1, 2]);
+  assert.deepEqual(numbers(rowsInScope(rows, scope({ where: "project", project: "/p", thread: "t", assignee: "amy" }))), [1]);
+  assert.deepEqual(numbers(rowsInScope(rows, scope({ where: "follow", assignee: "amy" }), "/p")), [1, 4]);
+  assert.deepEqual(numbers(rowsInScope(rows, scope({ where: "follow", thread: "t" }), null)), []);
 });
 test("rowsInScope: counts match the sidebar items", () => {
-  const rows = [row({ project: "/p", thread: "t" }), row({ project: "/p" }), row({ status: "started" })];
-  const m = sidebarModel(rows);
-  for (const item of [m.desk, m.all, ...m.projects, ...m.threads, ...m.assignees]) {
-    assert.equal(rowsInScope(rows, item.scope).length, item.count);
+  const rows = [row({ project: "/p", thread: "t" }), row({ project: "/p" }), row({ status: "started", assignee: "amy" })];
+  for (const current of [scope({ where: "follow" }), scope({ where: "project", project: "/p", thread: "t" }), scope({ where: "desk", assignee: "amy" })]) {
+    const m = sidebarModel(rows, "/p", current);
+    for (const item of [...m.where, ...m.projects, ...m.threads, ...m.assignees]) {
+      assert.equal(rowsInScope(rows, item.scope, "/p").length, item.count, item.key);
+    }
   }
 });
 
@@ -301,33 +314,46 @@ test("activitySentence: assigned uses the target", () => {
 });
 
 test("captureTarget: a project scope captures into that project", () => {
-  assert.deepEqual(captureTarget({ kind: "project", project: "/work/alpha" }), { project: "/work/alpha", thread: null, assignee: null });
+  assert.deepEqual(captureTarget(scope({ where: "project", project: "/work/alpha" })), { project: "/work/alpha", thread: null, assignee: null });
 });
 
-test("captureTarget: thread and assignee scopes capture onto the desk with that thread or assignee", () => {
-  assert.deepEqual(captureTarget({ kind: "thread", name: "release" }), { project: null, thread: "release", assignee: null });
-  assert.deepEqual(captureTarget({ kind: "assignee", name: "claude" }), { project: null, thread: null, assignee: "claude" });
+test("captureTarget: the thread and the assignee go with the task", () => {
+  assert.deepEqual(captureTarget(scope({ where: "all", thread: "release" })), { project: null, thread: "release", assignee: null });
+  assert.deepEqual(captureTarget(scope({ where: "desk", assignee: "claude" })), { project: null, thread: null, assignee: "claude" });
+  assert.deepEqual(captureTarget(scope({ where: "project", project: "/work/alpha", thread: "release", assignee: "claude" })), {
+    project: "/work/alpha",
+    thread: "release",
+    assignee: "claude",
+  });
 });
 
 test("captureTarget: desk and all capture onto the desk", () => {
   const desk = { project: null, thread: null, assignee: null };
-  assert.deepEqual(captureTarget({ kind: "desk" }), desk);
-  assert.deepEqual(captureTarget({ kind: "all" }), desk);
+  assert.deepEqual(captureTarget(scope({ where: "desk" })), desk);
+  assert.deepEqual(captureTarget(scope({ where: "all" })), desk);
 });
 
 test("normalizeScope keeps a valid scope and falls back to the desk", () => {
-  assert.deepEqual(normalizeScope({ kind: "project", project: "/work/alpha" }), { kind: "project", project: "/work/alpha" });
-  assert.deepEqual(normalizeScope({ kind: "thread", name: "release" }), { kind: "thread", name: "release" });
-  assert.deepEqual(normalizeScope({ kind: "assignee", name: "claude", extra: 1 }), { kind: "assignee", name: "claude" });
-  assert.deepEqual(normalizeScope({ kind: "all" }), { kind: "all" });
-  assert.deepEqual(normalizeScope({ kind: "project" }), { kind: "desk" });
-  assert.deepEqual(normalizeScope({ kind: "thread", name: "" }), { kind: "desk" });
-  assert.deepEqual(normalizeScope("all"), { kind: "desk" });
-  assert.deepEqual(normalizeScope({ kind: "follow" }), { kind: "follow" });
+  assert.deepEqual(normalizeScope({ where: "project", project: "/work/alpha", thread: "release", assignee: null }), scope({ where: "project", project: "/work/alpha", thread: "release" }));
+  assert.deepEqual(normalizeScope({ where: "follow", assignee: "claude", extra: 1 }), scope({ where: "follow", assignee: "claude" }));
+  assert.deepEqual(normalizeScope({ where: "all", thread: "", assignee: 3 }), scope({ where: "all" }));
+  assert.deepEqual(normalizeScope({ where: "project" }), scope({ where: "desk" }));
+  assert.deepEqual(normalizeScope({ where: "elsewhere", thread: "t" }), scope({ where: "desk", thread: "t" }));
+  assert.deepEqual(normalizeScope("all"), scope({ where: "desk" }));
+});
+test("normalizeScope: a scope saved as one kind maps onto the new choices", () => {
+  assert.deepEqual(normalizeScope({ kind: "follow" }), scope({ where: "follow" }));
+  assert.deepEqual(normalizeScope({ kind: "desk" }), scope({ where: "desk" }));
+  assert.deepEqual(normalizeScope({ kind: "all" }), scope({ where: "all" }));
+  assert.deepEqual(normalizeScope({ kind: "project", project: "/work/alpha" }), scope({ where: "project", project: "/work/alpha" }));
+  assert.deepEqual(normalizeScope({ kind: "thread", name: "release" }), scope({ where: "all", thread: "release" }));
+  assert.deepEqual(normalizeScope({ kind: "assignee", name: "claude" }), scope({ where: "all", assignee: "claude" }));
+  assert.deepEqual(normalizeScope({ kind: "project" }), scope({ where: "desk" }));
+  assert.deepEqual(normalizeScope({ kind: "thread", name: "" }), scope({ where: "desk" }));
 });
 test("normalizeScope: no stored scope follows the space", () => {
-  assert.deepEqual(normalizeScope(null), { kind: "follow" });
-  assert.deepEqual(normalizeScope(undefined), { kind: "follow" });
+  assert.deepEqual(normalizeScope(null), scope({ where: "follow" }));
+  assert.deepEqual(normalizeScope(undefined), scope({ where: "follow" }));
 });
 
 // project titles
@@ -337,7 +363,7 @@ test("sidebarModel: a titled project shows its title and sorts by it", () => {
     row({ project: "/home/test/tools/beta" }),
   ]);
   assert.deepEqual(m.projects.map((p) => p.label), ["beta", "Zulu Site"]);
-  assert.deepEqual(m.projects[1].scope, { kind: "project", project: "/home/test/sites/alpha/wp-content" });
+  assert.deepEqual(m.projects[1].scope, scope({ where: "project", project: "/home/test/sites/alpha/wp-content" }));
   assert.equal(m.projects[1].title, "Zulu Site");
   assert.equal(m.projects[1].folder, "wp-content");
   assert.equal(m.projects[0].title, null);
@@ -371,7 +397,7 @@ test("projectLabelsOf: a folder label that matches a title widens", () => {
 });
 test("scopeTitle: names a titled project by its title", () => {
   const model = sidebarModel([row({ project: "/home/test/sites/alpha", projectTitle: "Alpha Site" })]);
-  assert.equal(scopeTitle({ kind: "project", project: "/home/test/sites/alpha" }, model), "Alpha Site");
+  assert.equal(scopeTitle(scope({ where: "project", project: "/home/test/sites/alpha" }), model), "Alpha Site");
 });
 test("sortByProject: sorts by the shown name", () => {
   const rows = [
@@ -402,8 +428,8 @@ test("sidebarModel: projects, threads and assignees sort without regard to case"
     row({ project: "/home/test/alpha", thread: "a", assignee: "Bob" }),
   ]);
   assert.deepEqual(m.projects.map((p) => p.label), ["alpha", "cli", "Taken Name"]);
-  assert.deepEqual(m.threads.map((t) => t.label), ["A", "a", "b"]);
-  assert.deepEqual(m.assignees.map((a) => a.label), ["Ana", "ana", "Bob"]);
+  assert.deepEqual(m.threads.slice(1).map((t) => t.label), ["A", "a", "b"]);
+  assert.deepEqual(m.assignees.slice(1).map((a) => a.label), ["Ana", "ana", "Bob"]);
 });
 test("sortByProject: sorts shown names without regard to case", () => {
   const rows = [
@@ -415,25 +441,56 @@ test("sortByProject: sorts shown names without regard to case", () => {
 });
 
 // follow the focused space
-test("effectiveScope: follow becomes the followed project, else the desk", () => {
-  assert.deepEqual(effectiveScope({ kind: "follow" }, "/home/test/site"), { kind: "project", project: "/home/test/site" });
-  assert.deepEqual(effectiveScope({ kind: "follow" }, null), { kind: "desk" });
-  assert.deepEqual(effectiveScope({ kind: "all" }, "/home/test/site"), { kind: "all" });
-  assert.deepEqual(effectiveScope({ kind: "project", project: "/x" }, null), { kind: "project", project: "/x" });
+test("effectiveScope: follow becomes the followed project, else the desk, and keeps the filters", () => {
+  assert.deepEqual(effectiveScope(scope({ where: "follow", thread: "t" }), "/home/test/site"), scope({ where: "project", project: "/home/test/site", thread: "t" }));
+  assert.deepEqual(effectiveScope(scope({ where: "follow", assignee: "amy" }), null), scope({ where: "desk", assignee: "amy" }));
+  assert.deepEqual(effectiveScope(scope({ where: "all" }), "/home/test/site"), scope({ where: "all" }));
+  assert.deepEqual(effectiveScope(scope({ where: "project", project: "/x" }), null), scope({ where: "project", project: "/x" }));
 });
 
 test("scopeTitle: follow names what it follows", () => {
   const rows = [row({ project: "/home/test/sites/alpha", projectTitle: "Alpha Site" })];
   const model = sidebarModel(rows);
-  assert.equal(scopeTitle({ kind: "follow" }, model, "/home/test/sites/alpha"), "Follow space · Alpha Site");
-  assert.equal(scopeTitle({ kind: "follow" }, model, null), "Follow space · Desk");
+  assert.equal(scopeTitle(scope({ where: "follow" }), model, "/home/test/sites/alpha"), "Follow space · Alpha Site");
+  assert.equal(scopeTitle(scope({ where: "follow" }), model, null), "Follow space · Desk");
 });
-test("sidebarModel: a follow item heads the list", () => {
+test("sidebarModel: a follow item heads the list and is current by default", () => {
   const m = sidebarModel([]);
-  assert.deepEqual(m.follow, { key: "follow", label: "Follow space", scope: { kind: "follow" }, count: 0 });
+  assert.deepEqual(m.where[0], { key: "follow", label: "Follow space", scope: scope({ where: "follow" }), count: 0, current: true });
+  assert.deepEqual(m.where.map((i) => i.key), ["follow", "desk", "all"]);
 });
 test("sidebarModel: the follow item counts what it follows", () => {
   const rows = [row({ project: "/home/test/p" }), row({ project: "/home/test/p" }), row({ project: null, status: "open" }), row({ project: "/home/test/q", status: "ready" })];
-  assert.equal(sidebarModel(rows, "/home/test/p").follow.count, 2);
-  assert.equal(sidebarModel(rows, null).follow.count, 1);
+  assert.equal(whereItem(sidebarModel(rows, "/home/test/p"), "follow").count, 2);
+  assert.equal(whereItem(sidebarModel(rows, null), "follow").count, 1);
+});
+
+// combined scopes
+test("sidebarModel: each row changes only its own choice and marks the current one", () => {
+  const rows = [row({ project: "/p", thread: "t", assignee: "amy" }), row({ project: "/p", thread: "u" })];
+  const current = scope({ where: "follow", thread: "t", assignee: "amy" });
+  const m = sidebarModel(rows, "/p", current);
+  assert.deepEqual(whereItem(m, "all").scope, scope({ where: "all", thread: "t", assignee: "amy" }));
+  assert.deepEqual(m.projects[0].scope, scope({ where: "project", project: "/p", thread: "t", assignee: "amy" }));
+  assert.deepEqual(m.threads.map((i) => [i.label, i.count, i.current]), [["Any thread", 1, false], ["t", 1, true], ["u", 0, false]]);
+  assert.deepEqual(m.threads[0].scope, scope({ where: "follow", assignee: "amy" }));
+  assert.deepEqual(m.assignees.map((i) => [i.label, i.count, i.current]), [["Anyone", 1, false], ["amy", 1, true]]);
+  assert.deepEqual(m.where.map((i) => i.current), [true, false, false]);
+  assert.equal(m.projects[0].current, false);
+});
+test("sidebarModel: a picked project is current, and Follow space is not", () => {
+  const m = sidebarModel([row({ project: "/p" })], "/p", scope({ where: "project", project: "/p" }));
+  assert.equal(m.projects[0].current, true);
+  assert.equal(whereItem(m, "follow").current, false);
+});
+test("sidebarModel: a picked thread or assignee with no rows left stays in the list", () => {
+  const m = sidebarModel([row({ thread: "t" })], null, scope({ where: "all", thread: "gone", assignee: "left" }));
+  assert.deepEqual(m.threads.map((i) => [i.label, i.count, i.current]), [["Any thread", 0, false], ["gone", 0, true], ["t", 0, false]]);
+  assert.deepEqual(m.assignees.map((i) => [i.label, i.count, i.current]), [["Anyone", 0, false], ["left", 0, true]]);
+});
+
+test("projectOf: only a project row names a project, even when the scope is a project", () => {
+  const m = sidebarModel([row({ project: "/p", thread: "t", assignee: "amy" })], null, scope({ where: "project", project: "/p" }));
+  assert.equal(projectOf(m.projects[0]), "/p");
+  for (const item of [...m.where, ...m.threads, ...m.assignees]) assert.equal(projectOf(item), null, item.key);
 });

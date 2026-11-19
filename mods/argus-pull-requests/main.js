@@ -3,20 +3,21 @@
 // and a pull request (a pane beside the terminals). Reads go through `git`, `gh` and `glab`.
 
 import { div, svg, View } from "gpui-kit";
-import { h_flex, v_flex, InputState } from "gpui-base";
+import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
 import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused } from "herdr";
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
+import { NO_METHOD, OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
-import { assembleBoard, normalizeBoard, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
+import { assembleBoard, normalizeBoard, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, scrollArea, field, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -64,6 +65,8 @@ export default class PullRequests extends View {
     this.checkouts = new Map();
     // The failed open in browser action: {key, text}, shown on that pull request only.
     this.actionError = null;
+    // PR key -> {running, error, composing, confirm, text, drafted} for the review and merge actions of each pull request.
+    this.actions = new Map();
 
     const settings = readSettings();
     // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
@@ -77,6 +80,8 @@ export default class PullRequests extends View {
     this.filterInput.on("change", (_e, cx) => cx.notify());
     this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
+    // The body of a review comment, for Request changes and Comment.
+    this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Write a comment", rows: 4 }, (cx) => this.submitBody(cx), { multiline: true }) : null;
 
     if (checking()) return;
     if (this.view === "scopes") this.handle.focus();
@@ -104,10 +109,16 @@ export default class PullRequests extends View {
     cx.timer.every(AGE_TICK, (cx) => cx.notify());
   }
 
-  /** A text input that tracks focus for its border. `onSubmit` runs on Enter, and on blur with `saveOnBlur`. */
-  input(id, options, onSubmit, { saveOnBlur = false } = {}) {
-    const state = InputState.new(options);
-    state.on("submit", (_e, cx) => onSubmit(cx));
+  /**
+   * A text input that tracks focus for its border. `onSubmit` runs on Enter, and on blur
+   * with `saveOnBlur`. A `multiline` input is a textarea: Return adds a line, and only ⌘Return submits.
+   */
+  input(id, options, onSubmit, { saveOnBlur = false, multiline = false } = {}) {
+    const state = multiline ? TextareaState.new(options) : InputState.new(options);
+    state.on("submit", (e, cx) => {
+      if (multiline && !e?.secondary) return;
+      onSubmit(cx);
+    });
     state.on("focus", (_e, cx) => {
       this.focused = id;
       cx.notify();
@@ -194,7 +205,7 @@ export default class PullRequests extends View {
       const startedAt = Date.now();
       const fetch = shouldFetch({
         now: startedAt,
-        fetchedAt: readBoard().readAt,
+        fetchedAt: fetchedAtOf(readBoard()),
         lock: shared(LOCK_KEY),
         intervalMs: readSettings().interval * 60_000,
         owner: this.owner,
@@ -216,7 +227,7 @@ export default class PullRequests extends View {
 
       const next = await this.readBoard(startedAt);
       if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-      setShared(BOARD_KEY, next);
+      setShared(BOARD_KEY, keepStale(next, readBoard(), startedAt));
     } finally {
       this.reading = false;
       this.releaseLock();
@@ -462,7 +473,7 @@ export default class PullRequests extends View {
     const board = readBoard();
     const scope = readScope();
     const followed = followedOf(board);
-    const unfollowed = scope.kind === "follow" && followed === null;
+    const unfollowed = scope.where === "follow" && followed === null;
     const text = this.filterInput.value();
     const shown = prsInScope(board, scope, followed).filter((pr) => matchesFilter(pr, text));
     const selected = readSelected()?.key ?? null;
@@ -521,29 +532,32 @@ export default class PullRequests extends View {
 
   renderScopes(t) {
     const board = readBoard();
-    const items = scopeItems(board, followedOf(board));
-    const current = readScope();
+    const items = scopeItems(board, followedOf(board), readScope());
     const icon = iconResolver(MOD, this.found);
-    const entries = [items.needsReview, items.mine, items.follow, ...items.projects];
-    const active = this.at ?? startAt(entries.map((entry) => ({ current: sameScope(entry.scope, current) })));
-    const item = (entry, index) =>
-      menuRow(t, `scope-${entry.key}`, {
+    const entries = [...items.show, ...items.where, ...items.projects];
+    const active = this.at ?? startAt(entries);
+    const item = (entry, index, indent = false) =>
+      menuRow(t, `scope-${index}-${entry.key}`, {
         label: entry.label,
+        indent,
         count: String(entry.count),
         active: index === active,
-        current: sameScope(entry.scope, current),
+        current: entry.current,
         tick: icon("check"),
         onClick: () => pickScope(entry.scope),
       });
 
-    const parts = [item(items.needsReview, 0), item(items.mine, 1), item(items.follow, 2)];
-    if (items.projects.length > 0) {
-      parts.push(sectionTitle(t, "Projects"));
-      items.projects.forEach((entry, index) => parts.push(item(entry, 3 + index)));
-    }
+    // Show and In are separate choices; picking a row keeps the list open for the other one.
+    const parts = [sectionTitle(t, "Show")];
+    items.show.forEach((entry, index) => parts.push(item(entry, index)));
+    parts.push(sectionTitle(t, "In"));
+    items.where.forEach((entry, index) => parts.push(item(entry, items.show.length + index)));
+    // Each project is one more In choice, indented under All repos.
+    items.projects.forEach((entry, index) => parts.push(item(entry, items.show.length + items.where.length + index, true)));
     // A popup is as tall as its content, up to the height it was opened with,
-    // so the list gets an explicit height for its rows and section title.
-    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + entries.length * MENU_ROW + (items.projects.length > 0 ? 30 : 0));
+    // so the list gets an explicit height for its rows and section titles.
+    const titles = 2;
+    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + entries.length * MENU_ROW + titles * 30);
     return v_flex()
       .id("argus-pull-requests-scopes")
       .track_focus(this.handle)
@@ -604,7 +618,9 @@ export default class PullRequests extends View {
   loadPr(cx, selected) {
     const seq = ++this.prSeq;
     const readAt = Date.now();
-    if (this.shown?.key !== selected.key) {
+    const switched = this.shown?.key !== selected.key;
+    const left = switched ? (this.shown?.key ?? null) : null;
+    if (switched) {
       this.shown = { key: selected.key, kind: "loading", detail: null, error: null, readAt };
       this.actionError = null;
     } else {
@@ -613,6 +629,7 @@ export default class PullRequests extends View {
     if (checking()) return;
     cx.spawn(async (cx) => {
       await cx.sleep(0);
+      if (switched) this.swapComment(left, selected.key);
       let next;
       try {
         next = { kind: "ok", detail: await this.readDetail(selected), error: null };
@@ -634,6 +651,8 @@ export default class PullRequests extends View {
     const args = gitLab
       ? glabArgs(selected.host, GL_DETAIL_QUERY, { path: selected.repo, iid: String(selected.number) })
       : ghViewArgs(selected.repo, selected.number);
+    // The pane needs the GitHub login to turn off the review buttons on your own pull request.
+    if (!gitLab) await this.ghLogin(command, []);
     const reply = await exec(command, args, { timeout: CLI_TIMEOUT });
     if (reply.code !== 0) throw new Error(cliError(name, reply));
     return gitLab ? parseGlabDetail(reply.stdout, selected.host) : parseGhDetail(reply.stdout, selected.repo);
@@ -710,6 +729,129 @@ export default class PullRequests extends View {
     return null;
   }
 
+  /** The review and merge state of one pull request in this pane. */
+  actionState(key) {
+    return this.actions.get(key) ?? { running: null, error: null, composing: null, confirm: null, text: "", drafted: false };
+  }
+
+  /**
+   * Keeps the comment typed for the pull request the pane leaves, and shows the one
+   * kept for the pull request it opens.
+   */
+  swapComment(left, key) {
+    if (left !== null) {
+      const kept = leavePr(this.actionState(left), this.bodyInput?.value() ?? "");
+      if (kept === null) this.actions.delete(left);
+      else this.actions.set(left, kept);
+    }
+    this.bodyInput?.set_value(this.actionState(key).text);
+  }
+
+  setAction(key, patch) {
+    this.actions.set(key, { ...this.actionState(key), ...patch });
+  }
+
+  /** Opens the composer for Request changes or Comment. */
+  compose(cx, key, kind) {
+    this.setAction(key, { composing: kind, confirm: null, error: null });
+    cx.timer.after(0, () => this.bodyInput?.focus());
+    cx.notify();
+  }
+
+  /** Runs the composer's action with the typed body. */
+  submitBody(cx) {
+    const shown = this.shown;
+    if (shown?.kind !== "ok") return;
+    const state = this.actionState(shown.key);
+    if (state.composing === null) return;
+    this.runAction(cx, shown.key, state.composing, shown.detail, this.bodyInput?.value() ?? "", null);
+  }
+
+  /** Shows the merge confirm; on GitHub it reads the repo's merge method first. */
+  askMerge(cx, key, detail) {
+    if (this.actionState(key).running !== null) return;
+    if (detail.pr.provider === "gitlab") {
+      this.setAction(key, { confirm: { method: null }, composing: null, error: null });
+      cx.notify();
+      return;
+    }
+    this.setAction(key, { running: "merge", composing: null, confirm: null, error: null });
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let patch;
+      try {
+        const gh = await this.locate("gh");
+        if (gh === null) {
+          patch = { error: GH_MISSING };
+        } else {
+          const reply = await exec(gh, ghMethodArgs(detail.pr.repo), { timeout: CLI_TIMEOUT });
+          const method = reply.code === 0 ? pickMergeMethod(reply.stdout) : null;
+          if (reply.code !== 0) patch = { error: cliError("gh", reply) };
+          else if (method === null) patch = { error: NO_METHOD };
+          // A merge confirm shows only on the pull request it was asked for.
+          else patch = this.shown?.key === key ? { confirm: { method } } : {};
+        }
+      } catch (error) {
+        patch = { error: error?.message ?? String(error) };
+      }
+      this.setAction(key, { running: null, ...patch });
+      cx.notify();
+    });
+  }
+
+  /**
+   * Runs one review or merge action, then reads the pull request again. On success it
+   * closes the confirm (and the composer after its own action) and marks the board stale so a board copy reads it.
+   */
+  runAction(cx, key, kind, detail, body, method) {
+    if (this.actionState(key).running !== null) return;
+    const command = actionCommand({ kind, detail, body, method, drafted: this.actionState(key).drafted });
+    if ("error" in command) {
+      this.setAction(key, { error: command.error });
+      cx.notify();
+      return;
+    }
+    this.setAction(key, { running: kind, error: null });
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let error = null;
+      // Whether the comment is a pending GitLab draft once this run ends.
+      let drafted = this.actionState(key).drafted;
+      try {
+        const cli = await this.locate(command.name);
+        if (cli === null) {
+          error = command.name === "glab" ? GLAB_MISSING : GH_MISSING;
+        } else {
+          const reply = await exec(cli, command.args, { timeout: CLI_TIMEOUT });
+          if (reply.code !== 0) {
+            error = cliError(command.name, reply);
+          } else if (command.then) {
+            drafted = true;
+            const next = await exec(cli, command.then, { timeout: CLI_TIMEOUT });
+            if (next.code !== 0) error = cliError(command.name, next);
+          }
+        }
+      } catch (caught) {
+        error = caught?.message ?? String(caught);
+      }
+      const after = afterAction(kind, error === null);
+      if (error !== null) {
+        this.setAction(key, { running: null, error: actionFailure(error, drafted), drafted });
+      } else {
+        const done = kind === "request_changes" ? { drafted: false } : {};
+        this.setAction(key, { running: null, error: null, confirm: null, ...done, ...(after.clearComment ? { composing: null, text: "" } : {}) });
+        if (after.clearComment && this.shown?.key === key) this.bodyInput?.set_value("");
+        setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
+      }
+      // A refused head pin shows the new head after this read.
+      const selected = readSelected();
+      if (after.reread && selected?.key === key) this.loadPr(cx, selected);
+      cx.notify();
+    });
+  }
+
   /** The pull request pane: header, actions and the five sections. */
   renderPr(t, cx) {
     const selected = readSelected();
@@ -733,6 +875,8 @@ export default class PullRequests extends View {
     const localPath = localPathFor(readBoard().projects, pr.host, pr.repo);
     const now = Date.now();
     const checkout = this.checkouts.get(shown.key) ?? { running: false, error: null };
+    const act = this.actionState(shown.key);
+    const busy = act.running !== null;
     const error = (this.actionError?.key === shown.key ? this.actionError.text : null) ?? checkout.error;
     const small = (text) => div().text_size(12).text_color(t.muted).child(text);
 
@@ -763,7 +907,10 @@ export default class PullRequests extends View {
           ),
       )
       .when(checkout.running, (el) => el.child(div().text_size(11).text_color(t.muted).child("Checking out…")))
-      .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")));
+      .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")))
+      .when(canAct(pr), (el) => el.child(this.reviewActions(t, shown.key, detail, act)))
+      .when(busy, (el) => el.child(div().text_size(11).text_color(t.muted).child("Working…")))
+      .when(act.error !== null, (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(act.error ?? "")));
 
     const text = (value) => div().px(8).py(2).whitespace_normal().child(value);
     const parts = [sectionTitle(t, "Checks")];
@@ -818,6 +965,61 @@ export default class PullRequests extends View {
       .border_0()
       .child(head)
       .child(scrollArea("argus-pull-requests-pr-detail", parts, { padding: 6 }));
+  }
+
+  /** Approve, Request changes, Comment and Merge, with the open composer or merge confirm under them. */
+  reviewActions(t, key, detail, act) {
+    const enabled = act.running === null;
+    // A null login leaves the buttons on; GitHub's own message then explains a refusal.
+    const own = ownPr(detail.pr, this.login?.value ?? null);
+    const cancel = (patch) => (_e, cx) => {
+      this.setAction(key, { ...patch, error: null });
+      cx.notify();
+    };
+    let box = v_flex()
+      .gap(6)
+      .child(
+        h_flex()
+          .flex_wrap()
+          .gap(8)
+          .child(button(t, "approve", "Approve", (_e, cx) => this.runAction(cx, key, "approve", detail, "", null), { enabled: enabled && !own }))
+          .child(button(t, "request-changes", "Request changes", (_e, cx) => this.compose(cx, key, "request_changes"), { enabled: enabled && !own }))
+          .child(button(t, "comment", "Comment", (_e, cx) => this.compose(cx, key, "comment"), { enabled }))
+          .child(button(t, "merge", "Merge", (_e, cx) => this.askMerge(cx, key, detail), { enabled })),
+      )
+      .when(own, (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child(OWN_PR)));
+    if (act.composing !== null && this.bodyInput) {
+      box = box.child(
+        v_flex()
+          .gap(6)
+          .child(div().text_size(12).font_semibold().child(act.composing === "request_changes" ? "Request changes" : "Comment"))
+          .when(act.composing === "request_changes" && act.drafted, (el) =>
+            el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Your comment is already a pending review comment. Submit publishes it.")),
+          )
+          .child(textBox(t, "body", this.bodyInput, this.focused === "body"))
+          .child(
+            h_flex()
+              .gap(8)
+              .child(button(t, "submit-body", "Submit", (_e, cx) => this.submitBody(cx), { primary: true, enabled }))
+              .child(button(t, "cancel-body", "Cancel", cancel({ composing: null }))),
+          ),
+      );
+    }
+    if (act.confirm !== null) {
+      const method = act.confirm.method;
+      box = box.child(
+        v_flex()
+          .gap(6)
+          .child(div().text_size(12).whitespace_normal().child(mergePrompt(detail, method)))
+          .child(
+            h_flex()
+              .gap(8)
+              .child(button(t, "confirm-merge", "Merge", (_e, cx) => this.runAction(cx, key, "merge", detail, "", method), { primary: true, enabled }))
+              .child(button(t, "cancel-merge", "Cancel", cancel({ confirm: null }))),
+          ),
+      );
+    }
+    return box;
   }
 }
 
@@ -881,15 +1083,9 @@ function openScopes() {
   openOverlay({ mod: MOD, props: { view: "scopes" }, kind: "popup", width: SCOPES_WIDTH, height: SCOPES_HEIGHT });
 }
 
+/** Sets the scope; the list stays open so the other choice can be picked too. Escape or a click outside closes it. */
 function pickScope(scope) {
   setShared(SCOPE_KEY, scope);
-  const overlay = props()?.overlay;
-  if (overlay) closeOverlay(overlay);
-}
-
-function sameScope(a, b) {
-  if (a.kind !== b.kind) return false;
-  return a.kind !== "project" || a.key === b.key;
 }
 
 /**

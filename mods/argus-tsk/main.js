@@ -3,13 +3,13 @@
 // beside the terminals) and the status list (a popup). Every change goes through the `tsk` CLI.
 
 import { div, svg, View } from "gpui-kit";
-import { h_flex, v_flex, Input, InputState, TextareaState, Textarea } from "gpui-base";
+import { h_flex, v_flex, Input, InputState, TextareaState } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder, layout, focused } from "herdr";
 import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
 import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
 import { parseRows, parseError } from "./model.js";
-import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, rowsInScope, sameScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
+import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
 import { answerBlock, applyOptimistic, flowOutcome, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, blockChange, changeFor, CHECK_LABELS, detailState, fieldSave, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
@@ -17,7 +17,7 @@ import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, row, scrollArea, field, button, footer, sectionTitle, note, toggle, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -439,7 +439,7 @@ export default class Tasks extends View {
   startRename(cx, item) {
     this.retire(cx, this.renaming);
     const state = this.input("rename", { value: item.title ?? item.folder, placeholder: item.folder }, (cx) => this.saveRename(cx));
-    this.renaming = { project: item.scope.project, item: { title: item.title, folder: item.folder }, state, error: null, saving: false };
+    this.renaming = { project: projectOf(item), item: { title: item.title, folder: item.folder }, state, error: null, saving: false };
     // The field takes the keyboard once the frame that draws it is up.
     cx.timer.after(0, () => state.focus());
     cx.notify();
@@ -864,8 +864,8 @@ export default class Tasks extends View {
     const board = readBoard();
     const scope = readScope();
     const following = followedOf(board.rows);
-    const model = sidebarModel(board.rows, following);
-    const sections = buildBoard(rowsInScope(board.rows, effectiveScope(scope, following)), liveNumbersOf(board.rows));
+    const model = sidebarModel(board.rows, following, scope);
+    const sections = buildBoard(rowsInScope(board.rows, scope, following), liveNumbersOf(board.rows));
     const onDeck = [...sections.ready, ...sections.inbox];
     const count = sections.needsYou.length + sections.inMotion.length + onDeck.length;
     const blocking = board.error?.kind === "missing" || board.error?.kind === "old";
@@ -946,32 +946,36 @@ export default class Tasks extends View {
 
   renderScopes(t) {
     const board = readBoard();
-    const model = sidebarModel(board.rows, followedOf(board.rows));
-    const current = readScope();
+    const model = sidebarModel(board.rows, followedOf(board.rows), readScope());
     const rename = this.renaming;
+    // The place, the thread and the assignee are separate choices. A list with only
+    // its "any" row has nothing to pick, so it is left out.
+    // Each project is one more In choice, indented under All Projects.
     const groups = [
-      ["Projects", model.projects],
-      ["Threads", model.threads],
-      ["Assignees", model.assignees],
+      ["In", [...model.where, ...model.projects]],
+      ["Threads", model.threads.length > 1 ? model.threads : []],
+      ["Assignees", model.assignees.length > 1 ? model.assignees : []],
     ].filter(([, entries]) => entries.length > 0);
-    const entries = [model.follow, model.desk, model.all, ...groups.flatMap(([, list]) => list)];
-    const active = this.at ?? startAt(entries.map((entry) => ({ current: sameScope(entry.scope, current) })));
+    const entries = groups.flatMap(([, list]) => list);
+    const active = this.at ?? startAt(entries);
     // Height the rename field adds over the row it replaces.
     let extra = 0;
     const item = (entry, index) => {
-      if (entry.scope.kind === "project" && rename?.project === entry.scope.project) {
+      const project = projectOf(entry);
+      if (project !== null && rename?.project === project) {
         extra += 85 + (rename.error ? 6 + 16 * Math.ceil(rename.error.length / ERROR_CHARS) : 0);
         return this.renameField(t, rename);
       }
       return menuRow(t, `scope-${index}`, {
         label: entry.label,
+        indent: project !== null,
         count: String(entry.count),
         active: index === active,
-        current: sameScope(entry.scope, current),
+        current: entry.current,
         tick: this.icon("check"),
         onClick: () => pickScope(entry.scope),
         trailing:
-          this.canTitle && entry.scope.kind === "project"
+          this.canTitle && project !== null
             ? iconButton(t, `rename-${index}`, this.icon("square-pen"), (_e, cx) => {
                 cx.stop_propagation();
                 this.startRename(cx, entry);
@@ -981,7 +985,7 @@ export default class Tasks extends View {
     };
 
     let index = 0;
-    const parts = [item(model.follow, index++), item(model.desk, index++), item(model.all, index++)];
+    const parts = [];
     for (const [title, list] of groups) {
       parts.push(sectionTitle(t, title));
       for (const entry of list) parts.push(item(entry, index++));
@@ -1396,20 +1400,6 @@ function inlineField(t, id, state, focused) {
     .child(Input.new(state).w_full().text_color(t.foreground));
 }
 
-/** A multi-line text box around a `TextareaState`; `focused` draws the accent border. */
-function textBox(t, id, state, focused) {
-  return div()
-    .id(id)
-    .w_full()
-    .px(10)
-    .py(6)
-    .rounded(8)
-    .border_1()
-    .border_color(focused ? t.accent : t.border)
-    .cursor_text()
-    .child(Textarea.new(state).w_full().text_color(t.foreground));
-}
-
 /** Indents an element to line up with rows and section titles. */
 function pad(el) {
   return h_flex().px(8).py(4).child(el);
@@ -1478,10 +1468,9 @@ function pickStatus(p, status) {
   if (p.overlay) closeOverlay(p.overlay);
 }
 
+/** Saves a picked scope. The popup stays open, so the other choices can be set too. */
 function pickScope(scope) {
   setShared(SCOPE_KEY, scope);
-  const overlay = props()?.overlay;
-  if (overlay) closeOverlay(overlay);
 }
 
 /**

@@ -112,3 +112,21 @@ test("parsers throw on bad output", () => {
   assert.throws(() => parseGhDetail("[]", repo), /unexpected gh output/);
   assert.throws(() => parseGhDetail("null", repo), /unexpected gh output/);
 });
+
+test("parseGhDetail reads the head sha", () => {
+  const d = parseGhDetail(fixture("pr-gh-view.json"), repo);
+  assert.equal(d.headSha, "0123456789abcdef0123456789abcdef01234567");
+  assert.equal(d.squash, false);
+});
+
+test("parseGhDetail without headRefOid gives null", () => {
+  const raw = JSON.parse(fixture("pr-gh-view.json"));
+  delete raw.headRefOid;
+  assert.equal(parseGhDetail(JSON.stringify(raw), repo).headSha, null);
+});
+
+test("parseGhDetail reads an empty headRefOid as null", () => {
+  const raw = JSON.parse(fixture("pr-gh-view.json"));
+  raw.headRefOid = "";
+  assert.equal(parseGhDetail(JSON.stringify(raw), repo).headSha, null);
+});

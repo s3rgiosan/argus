@@ -5,6 +5,20 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-11-19
+
+### Added
+
+- The `argus-pull-requests` pane has Approve, Request changes, Comment and Merge buttons for an open pull request, run through `gh` or `glab`. The pane reads the pull request again after each action and shows the CLI's message when one fails.
+- Request changes and Comment open a comment box, and an empty comment is not sent.
+- Approve and Request changes are off on a GitHub pull request you opened, with a note that says why.
+- Merge asks first, naming the pull request, the base branch and the merge method. On GitHub it uses your default method when the repo allows it, else the first allowed of merge commit, squash and rebase. On GitLab it sends no method flag, only `--squash` when the merge request is set to squash.
+- Merge, and Approve on GitLab, go through only when the pull request head is still the commit the pane shows.
+- The `argus-pull-requests` scope has two separate choices: Show (Needs my review, Mine or All open) and In (Follow space, All repos or one project). For example, you can list the pull requests that need your review in the focused space's repo. A saved scope carries over.
+- The `argus-tsk` scope has three separate choices: In (Follow space, Desk, All Projects or one project), Thread and Assignee. For example, you can list one assignee's tasks in the focused space's project. A new task gets the scope's thread and assignee. A saved scope carries over.
+- The scope popups of `argus-tsk` and `argus-pull-requests` stay open after a pick, so you can set each choice. Follow space is the first In row, and the projects are indented under All Projects or All repos.
+- `lib/ui.js` has a shared multi-line text box, used by `argus-tsk` and `argus-pull-requests`.
+
 ## [1.3.1] - 2026-11-19
 
 ### Changed
@@ -82,7 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.3.1...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.4.0...HEAD
+[1.4.0]: https://github.com/s3rgiosan/argus/compare/1.3.1...1.4.0
 [1.3.1]: https://github.com/s3rgiosan/argus/compare/1.3.0...1.3.1
 [1.3.0]: https://github.com/s3rgiosan/argus/compare/1.2.0...1.3.0
 [1.2.0]: https://github.com/s3rgiosan/argus/compare/1.1.0...1.2.0

@@ -7,7 +7,7 @@ export const LIST_LIMIT = 100;
 
 export const GH_LIST_FIELDS =
   "number,title,url,author,headRefName,baseRefName,isDraft,state,reviewDecision,statusCheckRollup,mergeable,mergeStateStatus,updatedAt";
-export const GH_VIEW_FIELDS = `${GH_LIST_FIELDS},body,latestReviews,reviewRequests,reviews,comments`;
+export const GH_VIEW_FIELDS = `${GH_LIST_FIELDS},body,headRefOid,latestReviews,reviewRequests,reviews,comments`;
 
 export const GL_MR_FIELDS =
   "iid title webUrl draft state sourceBranch targetBranch updatedAt author { username } approvedBy { nodes { username } } conflicts detailedMergeStatus headPipeline { status } targetProject { fullPath }";
@@ -16,7 +16,7 @@ export const GL_USER_QUERY = `query { currentUser { reviewRequestedMergeRequests
 
 export const GL_PROJECT_QUERY = `query($path: ID!) { project(fullPath: $path) { mergeRequests(state: opened, first: ${LIST_LIMIT}) { nodes { ${GL_MR_FIELDS} } } } }`;
 
-export const GL_DETAIL_QUERY = `query($path: ID!, $iid: String!) { project(fullPath: $path) { mergeRequest(iid: $iid) { ${GL_MR_FIELDS} description headPipeline { status jobs(first: 100) { nodes { name status } } } reviewers { nodes { username mergeRequestInteraction { reviewState } } } notes(first: 100) { nodes { author { username } body createdAt system } } } } }`;
+export const GL_DETAIL_QUERY = `query($path: ID!, $iid: String!) { project(fullPath: $path) { mergeRequest(iid: $iid) { ${GL_MR_FIELDS} description diffHeadSha squashOnMerge headPipeline { status jobs(first: 100) { nodes { name status } } } reviewers { nodes { username mergeRequestInteraction { reviewState } } } notes(first: 100) { nodes { author { username } body createdAt system } } } } }`;
 
 /** @returns {string[]} */
 export function ghLoginArgs() {

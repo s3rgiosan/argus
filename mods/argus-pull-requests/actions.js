@@ -1,0 +1,213 @@
+// Builds the `gh` and `glab` commands for the review and merge actions of the pull request pane.
+
+/** @typedef {import("./model.js").Pr} Pr */
+/** @typedef {import("./model.js").Detail} Detail */
+/** @typedef {"approve" | "request_changes" | "comment" | "merge"} ActionKind */
+/** @typedef {"merge" | "squash" | "rebase"} MergeMethod */
+
+/** The actions that need a body. */
+export const NEEDS_BODY = new Set(["request_changes", "comment"]);
+
+export const NO_METHOD = "This repo allows no merge method for you.";
+export const NO_SHA = "Read this pull request again, then retry.";
+export const NO_BODY = "Write a comment first.";
+export const DRAFT_KEPT = "Your comment is kept as a pending review comment on the merge request.";
+
+/** GitHub's merge methods in fallback order, with the repo setting that allows each. */
+/** Every action the pane offers. */
+const KINDS = ["approve", "request_changes", "comment", "merge"];
+
+const GH_METHODS = [
+  ["merge", "mergeCommitAllowed"],
+  ["squash", "squashMergeAllowed"],
+  ["rebase", "rebaseMergeAllowed"],
+];
+
+/**
+ * Whether the pane offers actions for `pr`: only open pull requests, drafts included.
+ * @param {Pr} pr
+ * @returns {boolean}
+ */
+export function canAct(pr) {
+  return pr.state === "open";
+}
+
+/** Shown when Approve and Request changes are off on your own GitHub pull request. */
+export const OWN_PR = "GitHub does not let you approve or request changes on your own pull request.";
+
+/**
+ * Whether `login` opened `pr` on GitHub, where the author cannot approve or request changes.
+ * @param {Pr} pr
+ * @param {string|null} login The signed-in GitHub login, or null when unknown.
+ * @returns {boolean}
+ */
+export function ownPr(pr, login) {
+  if (pr.provider !== "github" || !login) return false;
+  const author = pr.author.toLowerCase();
+  return author === login.toLowerCase();
+}
+
+/**
+ * The refusal for an empty body, or null when the body is fine for `kind`.
+ * @param {ActionKind} kind
+ * @param {string} body
+ * @returns {string|null}
+ */
+export function bodyError(kind, body) {
+  const text = String(body ?? "").trim();
+  return NEEDS_BODY.has(kind) && text === "" ? NO_BODY : null;
+}
+
+/**
+ * @param {string} repo
+ * @returns {string[]}
+ */
+export function ghMethodArgs(repo) {
+  return ["repo", "view", repo, "--json", "viewerDefaultMergeMethod,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed"];
+}
+
+/**
+ * The merge method for a repo: the person's default when the repo allows it,
+ * else the first allowed of merge, squash and rebase; null when none is allowed
+ * or the reply does not parse.
+ * @param {string} text `gh repo view` output for `ghMethodArgs`.
+ * @returns {MergeMethod|null}
+ */
+export function pickMergeMethod(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== "object") return null;
+  const allowed = GH_METHODS.filter(([, setting]) => raw[setting] === true).map(([method]) => method);
+  const preferred = typeof raw.viewerDefaultMergeMethod === "string" ? raw.viewerDefaultMergeMethod.toLowerCase() : "";
+  if (allowed.includes(preferred)) return /** @type {MergeMethod} */ (preferred);
+  return /** @type {MergeMethod|undefined} */ (allowed[0]) ?? null;
+}
+
+/**
+ * The command for one action, or the reason it cannot run. Bodies go in as one
+ * `--body=` or `--message=` argument, so text that starts with `-` stays a value.
+ * Approve on GitLab and Merge on both forges pin the head commit the pane read.
+ * @param {{kind: ActionKind, detail: Detail, body: string, method?: MergeMethod|null}} input
+ * A second command in `then` runs only after the first one succeeds. `drafted` says
+ * a GitLab Request changes left its comment as a pending draft, so only the publish runs.
+ * @param {{kind: ActionKind, detail: Detail, body: string, method?: MergeMethod|null, drafted?: boolean}} input
+ * @returns {{name: "gh"|"glab", args: string[], then?: string[]} | {error: string}}
+ */
+export function actionCommand({ kind, detail, body, method = null, drafted = false }) {
+  if (!KINDS.includes(kind)) throw new Error(`unknown action: ${kind}`);
+  const { pr, headSha } = detail;
+  const gitLab = pr.provider === "gitlab";
+  const publishOnly = drafted && gitLab && kind === "request_changes";
+  const refusal = publishOnly ? null : bodyError(kind, body);
+  if (refusal !== null) return { error: refusal };
+  const number = String(pr.number);
+  const pinned = kind === "merge" || (kind === "approve" && gitLab);
+  if (pinned && (typeof headSha !== "string" || headSha === "")) return { error: NO_SHA };
+
+  if (gitLab) {
+    const repo = ["-R", `https://${pr.host}/${pr.repo}`];
+    const publish = ["mr", "note", "draft", "publish", number, ...repo, "--reviewer-state=requested_changes", "--yes"];
+    if (publishOnly) return { name: "glab", args: publish };
+    switch (kind) {
+      case "approve":
+        return { name: "glab", args: ["mr", "approve", number, ...repo, "--sha", String(headSha)] };
+      case "request_changes":
+        // glab publishes only pending comments, so the body goes in as one first.
+        return {
+          name: "glab",
+          args: ["mr", "note", "draft", "create", number, ...repo, `--message=${body}`],
+          then: publish,
+        };
+      case "comment":
+        return { name: "glab", args: ["mr", "note", "create", number, ...repo, `--message=${body}`, "--resolvable=false"] };
+      default:
+        return {
+          name: "glab",
+          args: ["mr", "merge", number, ...repo, "--yes", "--auto-merge=false", "--sha", String(headSha), ...(detail.squash ? ["--squash"] : [])],
+        };
+    }
+  }
+
+  const review = ["pr", "review", number, "--repo", pr.repo];
+  switch (kind) {
+    case "approve":
+      return { name: "gh", args: [...review, "--approve"] };
+    case "request_changes":
+      return { name: "gh", args: [...review, "--request-changes", `--body=${body}`] };
+    case "comment":
+      return { name: "gh", args: [...review, "--comment", `--body=${body}`] };
+    default:
+      if (!GH_METHODS.some(([known]) => known === method)) return { error: NO_METHOD };
+      return { name: "gh", args: ["pr", "merge", number, "--repo", pr.repo, `--${method}`, "--match-head-commit", String(headSha)] };
+  }
+}
+
+/**
+ * The merge confirm text: the pull request, its base branch and how it merges.
+ * GitLab merges send no method flag, so the text names a method only when the merge request squashes.
+ * @param {Detail} detail
+ * @param {MergeMethod|null} method GitHub's method; unused on GitLab.
+ * @returns {string}
+ */
+export function mergePrompt(detail, method) {
+  const { pr } = detail;
+  let how = null;
+  if (pr.provider === "gitlab") {
+    how = detail.squash ? "squash" : null;
+  } else {
+    switch (method) {
+      case "merge":
+        how = "a merge commit";
+        break;
+      case "squash":
+        how = "squash";
+        break;
+      case "rebase":
+        how = "rebase";
+        break;
+      default:
+        how = null;
+    }
+  }
+  const target = `Merge #${pr.number} into ${pr.baseRef}`;
+  return how === null ? `${target}?` : `${target} with ${how}?`;
+}
+
+/**
+ * What the pane does after an action ends. It always reads the pull request again,
+ * so a refused pin shows the new head. The comment box clears only after its own action succeeds.
+ * @param {ActionKind} kind
+ * @param {boolean} ok
+ * @returns {{reread: boolean, clearComment: boolean}}
+ */
+export function afterAction(kind, ok) {
+  return { reread: true, clearComment: ok && NEEDS_BODY.has(kind) };
+}
+
+/**
+ * The error text for a failed action; `drafted` adds that the comment stays a pending draft.
+ * @param {string} error
+ * @param {boolean} drafted
+ * @returns {string}
+ */
+export function actionFailure(error, drafted) {
+  return drafted ? `${error} ${DRAFT_KEPT}` : error;
+}
+
+/**
+ * The action state a pull request keeps when the pane moves to another one, or null when
+ * nothing is worth keeping. The typed text, the open comment box, a kept draft and a
+ * running action stay; the merge confirm and an error already shown go.
+ * @param {{running: ActionKind|null, error: string|null, composing: string|null, confirm: object|null, text: string, drafted: boolean}} state
+ * @param {string} text The comment box text at the time of the move.
+ */
+export function leavePr(state, text) {
+  const running = state.running !== null;
+  const next = { ...state, confirm: null, error: running ? state.error : null, text };
+  const empty = !running && next.composing === null && text === "" && !next.drafted;
+  return empty ? null : next;
+}

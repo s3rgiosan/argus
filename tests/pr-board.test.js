@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ageText,
+  fetchedAtOf,
+  keepStale,
+  markStale,
   assembleBoard,
   buildGroups,
   checksText,
@@ -142,46 +145,69 @@ test("pickPairs", () => {
 });
 
 test("normalizeScope", () => {
-  assert.deepEqual(normalizeScope(null), { kind: "needsReview" });
-  assert.deepEqual(normalizeScope({ kind: "project", key: "" }), { kind: "needsReview" });
-  assert.deepEqual(normalizeScope({ kind: "follow" }), { kind: "follow" });
-  assert.deepEqual(normalizeScope({ kind: "mine" }), { kind: "mine" });
-  assert.deepEqual(normalizeScope({ kind: "project", key: "k" }), { kind: "project", key: "k" });
+  const def = { show: "needsReview", where: "all" };
+  assert.deepEqual(normalizeScope(null), def);
+  assert.deepEqual(normalizeScope({ show: "mine", where: "follow" }), { show: "mine", where: "follow" });
+  assert.deepEqual(normalizeScope({ show: "all", where: "project", key: "k" }), { show: "all", where: "project", key: "k" });
+  assert.deepEqual(normalizeScope({ show: "nope", where: "nope" }), def);
+  assert.deepEqual(normalizeScope({ show: "mine", where: "project", key: "" }), { show: "mine", where: "all" });
+  // Scopes saved before Show and In were separate.
+  assert.deepEqual(normalizeScope({ kind: "needsReview" }), def);
+  assert.deepEqual(normalizeScope({ kind: "mine" }), { show: "mine", where: "all" });
+  assert.deepEqual(normalizeScope({ kind: "follow" }), { show: "all", where: "follow" });
+  assert.deepEqual(normalizeScope({ kind: "project", key: "k" }), { show: "all", where: "project", key: "k" });
+  assert.deepEqual(normalizeScope({ kind: "project", key: "" }), def);
 });
 
-test("scopeItems", () => {
+test("prsInScope combines Show and In", () => {
+  const other = pr({ repo: "example-org/other-repo", number: 7 });
+  const board = assembleBoard(
+    input({ needsReview: [pr(), other], mine: [pr({ number: 2 })], projectPrs: { [project.key]: [pr(), pr({ number: 2 }), pr({ number: 3 })] } }),
+  );
+  const numbers = (scope, followed = null) => prsInScope(board, scope, followed).map((p) => p.number).sort((a, b) => a - b);
+  assert.deepEqual(numbers({ show: "needsReview", where: "all" }), [7, 101]);
+  assert.deepEqual(numbers({ show: "needsReview", where: "follow" }, project.key), [101]);
+  assert.deepEqual(numbers({ show: "needsReview", where: "follow" }, null), []);
+  assert.deepEqual(numbers({ show: "mine", where: "project", key: project.key }), [2]);
+  assert.deepEqual(numbers({ show: "all", where: "follow" }, project.key), [2, 3, 101]);
+  assert.deepEqual(numbers({ show: "all", where: "all" }), [2, 3, 7, 101]);
+  assert.deepEqual(numbers({ show: "all", where: "project", key: "nope" }), []);
+  assert.deepEqual(numbers({ show: "needsReview", where: "project", key: "github.com/example-org/other-repo" }), [7]);
+});
+
+test("scopeItems counts each choice with the other one kept", () => {
   const second = { ...project, key: "github.com/example-org/another", repo: "example-org/another" };
   const board = assembleBoard(
-    input({ projects: [project, second], mine: [pr()], projectPrs: { [project.key]: [pr(), pr({ number: 2 })] } }),
+    input({ projects: [project, second], needsReview: [pr()], mine: [pr({ number: 2 })], projectPrs: { [project.key]: [pr(), pr({ number: 2 })] } }),
   );
-  const items = scopeItems(board, project.key);
-  assert.equal(items.needsReview.label, "Needs my review");
-  assert.equal(items.mine.label, "Mine");
-  assert.equal(items.mine.count, 1);
-  assert.equal(items.follow.label, "Follow space");
-  assert.equal(items.follow.count, 2);
-  assert.equal(scopeItems(board, null).follow.count, 0);
-  assert.deepEqual(items.projects.map((p) => [p.label, p.count]), [
-    ["example-org/another", 0],
-    ["example-org/example-repo", 2],
+  const items = scopeItems(board, project.key, { show: "needsReview", where: "follow" });
+  assert.deepEqual(items.show.map((i) => [i.label, i.count, i.current]), [
+    ["Needs my review", 1, true],
+    ["Mine", 1, false],
+    ["All open", 2, false],
   ]);
+  assert.deepEqual(items.where.map((i) => [i.label, i.count, i.current]), [
+    ["Follow space", 1, true],
+    ["All repos", 1, false],
+  ]);
+  assert.deepEqual(items.projects.map((i) => [i.label, i.count, i.current]), [
+    ["example-org/another", 0, false],
+    ["example-org/example-repo", 1, false],
+  ]);
+  // Picking a row changes its own choice and keeps the other.
+  assert.deepEqual(items.show[1].scope, { show: "mine", where: "follow" });
+  assert.deepEqual(items.projects[1].scope, { show: "needsReview", where: "project", key: project.key });
+  assert.equal(scopeItems(board, null, { show: "all", where: "follow" }).where[0].count, 0);
 });
 
-test("scopeTitle", () => {
+test("scopeTitle names Show, and In when it is not all repos", () => {
   const board = assembleBoard(input());
-  assert.equal(scopeTitle({ kind: "follow" }, board, project.key), "Follow space · example-org/example-repo");
-  assert.equal(scopeTitle({ kind: "follow" }, board, null), "Follow space");
-  assert.equal(scopeTitle({ kind: "project", key: "gitlab.example.com/example-group/example-project" }, board, null), "example-group/example-project");
-  assert.equal(scopeTitle({ kind: "project", key: project.key }, board, null), "example-org/example-repo");
-});
-
-test("prsInScope", () => {
-  const board = assembleBoard(input({ mine: [pr()], projectPrs: { [project.key]: [pr()] } }));
-  assert.deepEqual(prsInScope(board, { kind: "follow" }, null), []);
-  assert.equal(prsInScope(board, { kind: "follow" }, project.key).length, 1);
-  assert.equal(prsInScope(board, { kind: "mine" }, null).length, 1);
-  assert.deepEqual(prsInScope(board, { kind: "needsReview" }, null), []);
-  assert.deepEqual(prsInScope(board, { kind: "project", key: "nope" }, null), []);
+  assert.equal(scopeTitle({ show: "needsReview", where: "all" }, board, null), "Needs my review");
+  assert.equal(scopeTitle({ show: "mine", where: "all" }, board, null), "Mine");
+  assert.equal(scopeTitle({ show: "needsReview", where: "follow" }, board, project.key), "Needs my review · example-org/example-repo");
+  assert.equal(scopeTitle({ show: "all", where: "follow" }, board, null), "All open · Follow space");
+  assert.equal(scopeTitle({ show: "all", where: "project", key: "gitlab.example.com/example-group/example-project" }, board, null), "All open · example-group/example-project");
+  assert.equal(scopeTitle({ show: "mine", where: "project", key: project.key }, board, null), "Mine · example-org/example-repo");
 });
 
 test("matchesFilter", () => {
@@ -233,4 +259,21 @@ test("withoutFailedRepos drops the pairs of repos whose list failed", () => {
   assert.deepEqual(withoutFailedRepos(pairs, new Set(["github.com/example-org/example-repo"])).map((pair) => pair.number), [2]);
   assert.deepEqual(withoutFailedRepos(pairs, new Set()).map((pair) => pair.number), [1, 2, 3]);
   assert.deepEqual(withoutFailedRepos([], new Set(["x"])), []);
+});
+
+test("markStale makes the board due for a read", () => {
+  const board = { ...normalizeBoard(null), readAt: 1000 };
+  assert.equal(fetchedAtOf(board), 1000);
+  assert.equal(fetchedAtOf(markStale(board, 2000)), 0);
+  assert.equal(fetchedAtOf({ ...board, staleAt: 500 }), 1000);
+  assert.equal(fetchedAtOf({ ...board, staleAt: "x" }), 1000);
+});
+
+test("keepStale carries a mark made while a read ran", () => {
+  const next = { ...normalizeBoard(null), readAt: 1000 };
+  // Marked after the read started: the new board is still due.
+  assert.equal(fetchedAtOf(keepStale(next, markStale(next, 1500), 1000)), 0);
+  // Marked before the read started: this read covers it.
+  assert.deepEqual(keepStale(next, markStale(next, 900), 1000), next);
+  assert.deepEqual(keepStale(next, normalizeBoard(null), 1000), next);
 });
