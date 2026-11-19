@@ -9,7 +9,7 @@ Not affiliated with Herdr or Anthropic.
 | Mod | What it does |
 |---|---|
 | [`argus-claude-usage`](mods/argus-claude-usage/README.md) | Claude plan usage for every Claude Code account on this computer: session, weekly and per-model limits with pace, usage by surface, extra usage, and a toast near a limit. |
-| [`argus-tsk`](mods/argus-tsk/README.md) | The [tsk](https://gettsk.sh) task board: a Tasks panel with sections and a scope picker, quick capture, and a task pane with status, steps, block and review cards. |
+| [`argus-tsk`](mods/argus-tsk/README.md) | The [tsk](https://gettsk.sh) task board: a Tasks panel with sections and a scope picker that combines a place with a thread and an assignee, quick capture, and a task pane with status, steps, block and review cards. |
 | [`argus-pull-requests`](mods/argus-pull-requests/README.md) | GitHub and GitLab pull requests: a Pull requests panel with scopes, groups and a filter, and a pane with checks, reviews, merge state and conversation, where you approve, request changes, comment and merge. |
 | [`argus-stay-awake`](mods/argus-stay-awake/README.md) | A coffee-cup button at the right end of the tab row that keeps the display awake. Right-click keeps it awake until no agent is working. |
 | [`argus-toolbar`](mods/argus-toolbar/README.md) | Buttons beside Herdr's tab bar that open this repo's panel mods in a panel on the right. |

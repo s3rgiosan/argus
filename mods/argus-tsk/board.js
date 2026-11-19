@@ -11,16 +11,17 @@ export { compareNames, followFolder, followedProject };
  * @typedef {import("./model.js").Activity} Activity
  * @typedef {"needsYou"|"inMotion"|"onDeck"|"done"} SectionId
  * @typedef {{needsYou: TaskRow[], inMotion: TaskRow[], ready: TaskRow[], inbox: TaskRow[]}} BoardModel
- * @typedef {{kind: "desk"} | {kind: "all"} | {kind: "project", project: string}
- *   | {kind: "thread", name: string} | {kind: "assignee", name: string}} ListScope
- *   The same shapes `listArgs` in tsk.js accepts.
- * @typedef {ListScope | {kind: "follow"}} Scope `follow` shows the project of the
- *   focused space; `effectiveScope` turns it into a ListScope.
- * @typedef {{key: string, label: string, scope: Scope, count: number}} SidebarItem
+ * @typedef {{where: "follow"|"desk"|"all", thread: ?string, assignee: ?string}
+ *   | {where: "project", project: string, thread: ?string, assignee: ?string}} Scope
+ *   `where` is the place: the project of the focused space, the desk, every project or
+ *   one project. A thread or an assignee, when set, keeps only the rows that have it.
+ *   `effectiveScope` turns `follow` into a project or the desk.
+ * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} SidebarItem
+ *   `scope` is the current scope with only this row's choice changed.
  * @typedef {SidebarItem & {title: ?string, folder: string}} ProjectItem `title` is the
  *   project's title, null when it has none; `folder` is its folder name.
- * @typedef {{follow: SidebarItem, desk: SidebarItem, all: SidebarItem, projects: ProjectItem[],
- *   threads: SidebarItem[], assignees: SidebarItem[]}} SidebarModel
+ * @typedef {{where: SidebarItem[], projects: ProjectItem[], threads: SidebarItem[],
+ *   assignees: SidebarItem[]}} SidebarModel
  * @typedef {"default"|"you"|"task"|"agent"|"other"} WaitsKind
  */
 
@@ -164,159 +165,186 @@ export function onDesk(row) {
   }
 }
 
+/** The scope when nothing is stored: the focused space, with no thread or assignee. */
+const FOLLOW = /** @type {Scope} */ ({ where: "follow", thread: null, assignee: null });
+
 /**
- * The rows a scope shows.
+ * The rows a scope shows. Follow shows the rows of `followed`, else the desk.
  * @param {TaskRow[]} rows
  * @param {Scope} scope
+ * @param {?string} [followed] the project the focused space is in
  * @returns {TaskRow[]}
  */
-export function rowsInScope(rows, scope) {
-  switch (scope.kind) {
-    case "desk":
-      return rows.filter(onDesk);
-    case "project":
-      return rows.filter((r) => r.project === scope.project);
-    case "thread":
-      return rows.filter((r) => r.thread === scope.name);
-    case "assignee":
-      return rows.filter((r) => r.assignee === scope.name);
-    default:
-      return [...rows];
-  }
+export function rowsInScope(rows, scope, followed = null) {
+  const shown = effectiveScope(scope, followed);
+  return rows.filter((r) => {
+    if (shown.thread !== null && r.thread !== shown.thread) return false;
+    if (shown.assignee !== null && r.assignee !== shown.assignee) return false;
+    switch (shown.where) {
+      case "desk":
+        return onDesk(r);
+      case "project":
+        return r.project === shown.project;
+      default:
+        return true;
+    }
+  });
 }
 
 /**
- * A scope read back from shared state. No stored scope follows the space;
- * anything malformed is the desk.
+ * A scope read back from shared state. No stored scope follows the space, and
+ * anything malformed is the desk. A scope saved as one `kind` maps onto the place
+ * and the filters: a thread or an assignee kind shows that one across all projects.
  * @param {unknown} value
  * @returns {Scope}
  */
 export function normalizeScope(value) {
-  if (value === null || value === undefined) return { kind: "follow" };
+  if (value === null || value === undefined) return FOLLOW;
   const v = value && typeof value === "object" ? /** @type {Record<string, unknown>} */ (value) : {};
-  const text = (x) => typeof x === "string" && x !== "";
-  switch (v.kind) {
+  const text = (x) => (typeof x === "string" && x !== "" ? x : null);
+  const desk = /** @type {Scope} */ ({ where: "desk", thread: null, assignee: null });
+  if (typeof v.kind === "string") {
+    switch (v.kind) {
+      case "follow":
+        return FOLLOW;
+      case "all":
+        return { where: "all", thread: null, assignee: null };
+      case "project": {
+        const project = text(v.project);
+        return project === null ? desk : { where: "project", project, thread: null, assignee: null };
+      }
+      case "thread":
+      case "assignee": {
+        const name = text(v.name);
+        if (name === null) return desk;
+        return { where: "all", thread: v.kind === "thread" ? name : null, assignee: v.kind === "assignee" ? name : null };
+      }
+      default:
+        return desk;
+    }
+  }
+  const filters = { thread: text(v.thread), assignee: text(v.assignee) };
+  switch (v.where) {
     case "follow":
-      return { kind: "follow" };
     case "all":
-      return { kind: "all" };
-    case "project":
-      return text(v.project) ? { kind: "project", project: /** @type {string} */ (v.project) } : { kind: "desk" };
-    case "thread":
-    case "assignee":
-      return text(v.name) ? { kind: v.kind, name: /** @type {string} */ (v.name) } : { kind: "desk" };
+      return { where: v.where, ...filters };
+    case "project": {
+      const project = text(v.project);
+      return project === null ? { where: "desk", ...filters } : { where: "project", project, ...filters };
+    }
     default:
-      return { kind: "desk" };
+      return { where: "desk", ...filters };
   }
 }
 
 /**
- * The sidebar for a live listing of every row; counts come from `rowsInScope`.
- * The follow item counts the rows of `followed`, or of the desk without one.
+ * The scope list for a live listing of every row: the places, the projects, then the
+ * threads and the assignees, each led by a row that clears it. Each row keeps the
+ * other choices of `scope` as they are, and its count is what picking it shows. A
+ * thread or an assignee that is picked but has no rows left stays in its list.
  * @param {TaskRow[]} allRows
  * @param {?string} [followed] the project the focused space is in
+ * @param {Scope} [scope] the current scope
  * @returns {SidebarModel}
  */
-export function sidebarModel(allRows, followed = null) {
-  /** @type {(scope: Scope) => number} */
-  const count = (scope) => rowsInScope(allRows, scope).length;
+export function sidebarModel(allRows, followed = null, scope = FOLLOW) {
+  const filters = { thread: scope.thread, assignee: scope.assignee };
+  const item = (key, label, next, current) => ({ key, label, scope: next, count: rowsInScope(allRows, next, followed).length, current });
   const labels = projectLabelsOf(allRows);
   const titles = projectTitlesOf(allRows);
   const projects = tally(allRows.map((r) => r.project))
     .map(([project]) => ({
-      key: `project:${project}`,
-      label: labels.get(project) ?? project,
-      scope: { kind: "project", project },
-      count: count({ kind: "project", project }),
+      ...item(
+        `project:${project}`,
+        labels.get(project) ?? project,
+        /** @type {Scope} */ ({ where: "project", project, ...filters }),
+        scope.where === "project" && scope.project === project,
+      ),
       title: titles.get(project) ?? null,
       folder: segments(project).pop() ?? project,
     }))
     .sort((a, b) => compareNames(a.label, b.label));
-  const follow = { kind: "follow" };
+  const place = (where, label) => item(where, label, /** @type {Scope} */ ({ where, ...filters }), scope.where === where);
+  /**
+   * @param {"thread"|"assignee"} field
+   * @param {string} anyLabel
+   */
+  const filterItems = (field, anyLabel) => {
+    const names = tally(allRows.map((r) => r[field])).map(([name]) => name);
+    const picked = scope[field];
+    if (picked !== null && !names.includes(picked)) names.push(picked);
+    names.sort(compareNames);
+    return [
+      item(`${field}:`, anyLabel, { ...scope, [field]: null }, picked === null),
+      ...names.map((name) => item(`${field}:${name}`, name, { ...scope, [field]: name }, picked === name)),
+    ];
+  };
   return {
-    follow: { key: "follow", label: "Follow space", scope: follow, count: count(effectiveScope(follow, followed)) },
-    desk: { key: "desk", label: "Desk", scope: { kind: "desk" }, count: count({ kind: "desk" }) },
-    all: { key: "all", label: "All Projects", scope: { kind: "all" }, count: allRows.length },
+    where: [place("follow", "Follow space"), place("desk", "Desk"), place("all", "All Projects")],
     projects,
-    threads: tally(allRows.map((r) => r.thread)).map(([name]) => ({
-      key: `thread:${name}`,
-      label: name,
-      scope: { kind: "thread", name },
-      count: count({ kind: "thread", name }),
-    })),
-    assignees: tally(allRows.map((r) => r.assignee)).map(([name]) => ({
-      key: `assignee:${name}`,
-      label: name,
-      scope: { kind: "assignee", name },
-      count: count({ kind: "assignee", name }),
-    })),
+    threads: filterItems("thread", "Any thread"),
+    assignees: filterItems("assignee", "Anyone"),
   };
 }
 
 /**
- * True when both scopes name the same view, project, thread or assignee.
- * @param {Scope} a
- * @param {Scope} b
- * @returns {boolean}
- */
-export function sameScope(a, b) {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-/**
- * The name the sidebar gives a scope. A project with no rows left shows its folder name.
- * Follow adds the name of what it follows.
+ * The scope button text: the place, then the thread and the assignee when set. A
+ * project with no rows left shows its folder name. Follow adds the name of what it follows.
  * @param {Scope} scope
  * @param {SidebarModel} model
  * @param {?string} [followed] the project the focused space is in
  * @returns {string}
  */
 export function scopeTitle(scope, model, followed = null) {
-  switch (scope.kind) {
-    case "follow":
-      return `${model.follow.label} · ${scopeTitle(effectiveScope(scope, followed), model)}`;
-    case "desk":
-      return model.desk.label;
-    case "all":
-      return model.all.label;
-    case "project": {
-      const item = model.projects.find((p) => p.key === `project:${scope.project}`);
-      return item?.label ?? segments(scope.project).pop() ?? scope.project;
+  const labelOf = (where) => model.where.find((i) => i.key === where)?.label ?? where;
+  let place;
+  switch (scope.where) {
+    case "follow": {
+      const shown = effectiveScope(scope, followed);
+      place = `${labelOf("follow")} · ${shown.where === "project" ? projectLabel(shown.project, model) : labelOf("desk")}`;
+      break;
     }
+    case "project":
+      place = projectLabel(scope.project, model);
+      break;
     default:
-      return scope.name;
+      place = labelOf(scope.where);
   }
+  return [place, scope.thread, scope.assignee].filter((part) => part !== null).join(" · ");
+}
+
+/**
+ * The name the scope list gives a project, or its folder name when it has no rows left.
+ * @param {string} project
+ * @param {SidebarModel} model
+ * @returns {string}
+ */
+function projectLabel(project, model) {
+  const item = model.projects.find((p) => p.key === `project:${project}`);
+  return item?.label ?? segments(project).pop() ?? project;
 }
 
 /**
  * The scope the board lists: follow becomes the followed project, else the desk.
+ * The thread and the assignee stay.
  * @param {Scope} scope
  * @param {?string} followed
- * @returns {ListScope}
+ * @returns {Scope}
  */
 export function effectiveScope(scope, followed) {
-  if (scope.kind !== "follow") return scope;
-  return followed ? { kind: "project", project: followed } : { kind: "desk" };
+  if (scope.where !== "follow") return scope;
+  const filters = { thread: scope.thread, assignee: scope.assignee };
+  return followed ? { where: "project", project: followed, ...filters } : { where: "desk", ...filters };
 }
 
 /**
- * Where a task captured from a scope lands: a project scope names the project, a thread
- * scope the thread, an assignee scope the assignee; the rest is the desk.
+ * Where a task captured from a scope lands: the project of a project scope, else the
+ * desk, with the scope's thread and assignee.
  * @param {Scope} scope
  * @returns {{project: ?string, thread: ?string, assignee: ?string}}
  */
 export function captureTarget(scope) {
-  const target = { project: null, thread: null, assignee: null };
-  switch (scope.kind) {
-    case "project":
-      return { ...target, project: scope.project };
-    case "thread":
-      return { ...target, thread: scope.name };
-    case "assignee":
-      return { ...target, assignee: scope.name };
-    default:
-      return target;
-  }
+  return { project: scope.where === "project" ? scope.project : null, thread: scope.thread, assignee: scope.assignee };
 }
 
 /**

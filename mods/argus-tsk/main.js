@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
 import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
 import { parseRows, parseError } from "./model.js";
-import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, rowsInScope, sameScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
+import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, titleChange } from "./board.js";
 import { answerBlock, applyOptimistic, flowOutcome, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, blockChange, changeFor, CHECK_LABELS, detailState, fieldSave, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
@@ -864,8 +864,8 @@ export default class Tasks extends View {
     const board = readBoard();
     const scope = readScope();
     const following = followedOf(board.rows);
-    const model = sidebarModel(board.rows, following);
-    const sections = buildBoard(rowsInScope(board.rows, effectiveScope(scope, following)), liveNumbersOf(board.rows));
+    const model = sidebarModel(board.rows, following, scope);
+    const sections = buildBoard(rowsInScope(board.rows, scope, following), liveNumbersOf(board.rows));
     const onDeck = [...sections.ready, ...sections.inbox];
     const count = sections.needsYou.length + sections.inMotion.length + onDeck.length;
     const blocking = board.error?.kind === "missing" || board.error?.kind === "old";
@@ -946,16 +946,18 @@ export default class Tasks extends View {
 
   renderScopes(t) {
     const board = readBoard();
-    const model = sidebarModel(board.rows, followedOf(board.rows));
-    const current = readScope();
+    const model = sidebarModel(board.rows, followedOf(board.rows), readScope());
     const rename = this.renaming;
+    // The place, the thread and the assignee are separate choices. A list with only
+    // its "any" row has nothing to pick, so it is left out.
     const groups = [
+      ["In", model.where],
       ["Projects", model.projects],
-      ["Threads", model.threads],
-      ["Assignees", model.assignees],
+      ["Threads", model.threads.length > 1 ? model.threads : []],
+      ["Assignees", model.assignees.length > 1 ? model.assignees : []],
     ].filter(([, entries]) => entries.length > 0);
-    const entries = [model.follow, model.desk, model.all, ...groups.flatMap(([, list]) => list)];
-    const active = this.at ?? startAt(entries.map((entry) => ({ current: sameScope(entry.scope, current) })));
+    const entries = groups.flatMap(([, list]) => list);
+    const active = this.at ?? startAt(entries);
     // Height the rename field adds over the row it replaces.
     let extra = 0;
     const item = (entry, index) => {
@@ -967,7 +969,7 @@ export default class Tasks extends View {
         label: entry.label,
         count: String(entry.count),
         active: index === active,
-        current: sameScope(entry.scope, current),
+        current: entry.current,
         tick: this.icon("check"),
         onClick: () => pickScope(entry.scope),
         trailing:
@@ -981,7 +983,7 @@ export default class Tasks extends View {
     };
 
     let index = 0;
-    const parts = [item(model.follow, index++), item(model.desk, index++), item(model.all, index++)];
+    const parts = [];
     for (const [title, list] of groups) {
       parts.push(sectionTitle(t, title));
       for (const entry of list) parts.push(item(entry, index++));
@@ -1464,10 +1466,9 @@ function pickStatus(p, status) {
   if (p.overlay) closeOverlay(p.overlay);
 }
 
+/** Saves a picked scope. The popup stays open, so the other choices can be set too. */
 function pickScope(scope) {
   setShared(SCOPE_KEY, scope);
-  const overlay = props()?.overlay;
-  if (overlay) closeOverlay(overlay);
 }
 
 /**
