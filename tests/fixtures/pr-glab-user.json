@@ -1,0 +1,66 @@
+{
+  "data": {
+    "currentUser": {
+      "authoredMergeRequests": {
+        "nodes": [
+          {
+            "iid": "11",
+            "title": "Example title 11",
+            "webUrl": "https://gitlab.example.com/example-group/example-sub/example-project/-/merge_requests/11",
+            "draft": false,
+            "state": "opened",
+            "sourceBranch": "feature/11",
+            "targetBranch": "main",
+            "updatedAt": "2026-11-12T10:00:00Z",
+            "author": {
+              "username": "octo-user"
+            },
+            "approvedBy": {
+              "nodes": [
+                {
+                  "username": "review-user"
+                }
+              ]
+            },
+            "conflicts": false,
+            "detailedMergeStatus": "MERGEABLE",
+            "headPipeline": {
+              "status": "SUCCESS"
+            },
+            "targetProject": {
+              "fullPath": "example-group/example-sub/example-project"
+            }
+          }
+        ]
+      },
+      "reviewRequestedMergeRequests": {
+        "nodes": [
+          {
+            "iid": "12",
+            "title": "Example title 12",
+            "webUrl": "https://gitlab.example.com/example-group/example-sub/example-project/-/merge_requests/12",
+            "draft": false,
+            "state": "opened",
+            "sourceBranch": "feature/12",
+            "targetBranch": "main",
+            "updatedAt": "2026-11-12T10:00:00Z",
+            "author": {
+              "username": "octo-user"
+            },
+            "approvedBy": {
+              "nodes": []
+            },
+            "conflicts": false,
+            "detailedMergeStatus": "NOT_APPROVED",
+            "headPipeline": {
+              "status": "RUNNING"
+            },
+            "targetProject": {
+              "fullPath": "example-group/example-sub/example-project"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

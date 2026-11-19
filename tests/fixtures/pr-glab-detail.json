@@ -1,0 +1,73 @@
+{
+  "data": {
+    "project": {
+      "mergeRequest": {
+        "iid": "14",
+        "title": "Example title 14",
+        "webUrl": "https://gitlab.example.com/example-group/example-sub/example-project/-/merge_requests/14",
+        "draft": false,
+        "state": "opened",
+        "sourceBranch": "feature/14",
+        "targetBranch": "main",
+        "updatedAt": "2026-11-12T10:00:00Z",
+        "author": {
+          "username": "octo-user"
+        },
+        "approvedBy": {
+          "nodes": []
+        },
+        "conflicts": true,
+        "detailedMergeStatus": "REQUESTED_CHANGES",
+        "headPipeline": {
+          "status": "FAILED",
+          "jobs": {
+            "nodes": [
+              {
+                "name": "build",
+                "status": "SUCCESS"
+              },
+              {
+                "name": "test",
+                "status": "FAILED"
+              }
+            ]
+          }
+        },
+        "targetProject": {
+          "fullPath": "example-group/example-sub/example-project"
+        },
+        "description": "Example description.",
+        "reviewers": {
+          "nodes": [
+            {
+              "username": "review-user",
+              "mergeRequestInteraction": {
+                "reviewState": "REQUESTED_CHANGES"
+              }
+            }
+          ]
+        },
+        "notes": {
+          "nodes": [
+            {
+              "author": {
+                "username": "review-user"
+              },
+              "body": "Example note.",
+              "createdAt": "2026-11-12T09:00:00Z",
+              "system": false
+            },
+            {
+              "author": {
+                "username": "octo-user"
+              },
+              "body": "added 1 commit",
+              "createdAt": "2026-11-12T08:00:00Z",
+              "system": true
+            }
+          ]
+        }
+      }
+    }
+  }
+}

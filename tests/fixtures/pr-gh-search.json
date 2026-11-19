@@ -1,0 +1,10 @@
+[
+  {
+    "number": 101,
+    "url": "https://github.com/example-org/example-repo/pull/101"
+  },
+  {
+    "number": 7,
+    "url": "https://github.com/example-org/other-repo/pull/7"
+  }
+]
