@@ -10,9 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - The Argus layout has a preview picture in Herdr's Settings under Look, drawn in `layouts/Argus.svg` and copied next to the layout by `scripts/build-layout.mjs`.
-- The `argus-settings` mod adds an Argus Settings popup with a Toolbar section, where you move each panel button up or down and save the order.
-- The Argus Settings popup opens with `⌘⌥,` once you merge `mods/argus-settings/keys.json` into your `keys.json`, or with `herdr-app do mod.open`.
-- The toolbar sorts its buttons by the saved order, and by label from A to Z when no order is saved or for a button not in it.
+- The toolbar reads its button order from `argus.json` in Herdr's app folder, as `{ "toolbar": { "order": ["argus-tsk", "argus-claude-usage"] } }`, and follows the file as it changes. Buttons not in the list follow from A to Z by label.
 - The `argus-stay-awake` mod adds a coffee-cup button at the right end of the tab row that keeps the display awake: a click turns it on or off, and a right click keeps it awake until no agent is working.
 - `scripts/build-layout.mjs` places the `argus-stay-awake` button in the tab row, right of the toolbar.
 
