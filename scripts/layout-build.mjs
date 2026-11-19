@@ -3,7 +3,7 @@
 // tab bar and a panel column for this repo's panel mods.
 
 export const TOOLBAR_ID = "argus-toolbar";
-export const AWAKE_ID = "argus-awake";
+export const STAY_AWAKE_ID = "argus-stay-awake";
 export const PANEL_ID = "argus-panel";
 export const STACK_ID = "argus-panels";
 const ROW_ID = "argus-tabs-row";
@@ -11,8 +11,8 @@ const ROW_ID = "argus-tabs-row";
 const PANEL_WIDTH = 440;
 const PANEL_MIN = 280;
 const PANEL_MAX = 900;
-/** The keep-awake block's width in px: one 30 px icon button and a 3 px gap. */
-export const AWAKE_WIDTH = 33;
+/** The keep-awake block's width in px: one 30 px icon button and 10 px of padding. */
+export const STAY_AWAKE_WIDTH = 40;
 
 /**
  * The toolbar's width in px for its buttons: 10 px of padding, then per
@@ -49,13 +49,13 @@ export function panelsFromManifests(entries) {
  *
  * @param {object} main Herdr's layouts/main.json.
  * @param {{ id: string, label: string, icon: string | null }[]} panels
- * @param {{ awake?: boolean }} [options] `awake: false` leaves out the keep-awake button.
+ * @param {{ stayAwake?: boolean }} [options] `stayAwake: false` leaves out the keep-awake button.
  * @returns {object}
  * @throws {Error} When `main` has no `tabs` block or no `work-body` row.
  */
-export function buildLayout(main, panels, { awake = true } = {}) {
+export function buildLayout(main, panels, { stayAwake = true } = {}) {
   const out = structuredClone(main);
-  if (find(out, TOOLBAR_ID) || find(out, AWAKE_ID) || find(out, PANEL_ID)) throw new Error("already has the argus blocks");
+  if (find(out, TOOLBAR_ID) || find(out, STAY_AWAKE_ID) || find(out, PANEL_ID)) throw new Error("already has the argus blocks");
 
   const tabsParent = parentOf(out, "tabs");
   if (!tabsParent) throw new Error("no tabs block");
@@ -71,13 +71,13 @@ export function buildLayout(main, panels, { awake = true } = {}) {
     resizable: false,
     children: [
       { ...tabs, size: { weight: 1 } },
-      ...(awake ? [{ id: AWAKE_ID, type: "block", size: { px: AWAKE_WIDTH }, content: { mod: AWAKE_ID } }] : []),
       {
         id: TOOLBAR_ID,
         type: "block",
         size: { px: toolbarWidth(panels) },
         content: { mod: TOOLBAR_ID, props: { panel: PANEL_ID, stack: STACK_ID, buttons: panels } },
       },
+      ...(stayAwake ? [{ id: STAY_AWAKE_ID, type: "block", size: { px: STAY_AWAKE_WIDTH }, content: { mod: STAY_AWAKE_ID } }] : []),
     ],
   };
 

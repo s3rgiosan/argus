@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The `argus-awake` mod adds a coffee-cup button beside the Argus toolbar that keeps the display awake: a click turns it on or off, and a right click keeps it awake until no agent is working.
-- `scripts/build-layout.mjs` places the `argus-awake` button in the tab row, left of the toolbar.
+- The `argus-stay-awake` mod adds a coffee-cup button at the right end of the tab row that keeps the display awake: a click turns it on or off, and a right click keeps it awake until no agent is working.
+- `scripts/build-layout.mjs` places the `argus-stay-awake` button in the tab row, right of the toolbar.
 
 ## [1.1.0] - 2026-11-18
 

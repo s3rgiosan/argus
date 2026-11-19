@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLayout, panelsFromManifests, toolbarWidth, AWAKE_WIDTH } from "../scripts/layout-build.mjs";
+import { buildLayout, panelsFromManifests, toolbarWidth, STAY_AWAKE_WIDTH } from "../scripts/layout-build.mjs";
 
 const main = () => ({
   id: "root",
@@ -47,8 +47,8 @@ test("wraps the tabs block in a row with the toolbar", () => {
   assert.equal(row.type, "row");
   assert.deepEqual(row.size, { px: 42 });
   assert.equal(row.resizable, false);
-  assert.deepEqual(row.children.map((c) => [c.id, c.size]), [["tabs", { weight: 1 }], ["argus-awake", { px: AWAKE_WIDTH }], ["argus-toolbar", { px: toolbarWidth(panels) }]]);
-  assert.deepEqual(find(out, "argus-awake").content, { mod: "argus-awake" });
+  assert.deepEqual(row.children.map((c) => [c.id, c.size]), [["tabs", { weight: 1 }], ["argus-toolbar", { px: toolbarWidth(panels) }], ["argus-stay-awake", { px: STAY_AWAKE_WIDTH }]]);
+  assert.deepEqual(find(out, "argus-stay-awake").content, { mod: "argus-stay-awake" });
   assert.deepEqual(find(out, "argus-toolbar").content, {
     mod: "argus-toolbar",
     props: { panel: "argus-panel", stack: "argus-panels", buttons: panels },
@@ -115,7 +115,7 @@ test("refuses a layout that already has the argus blocks", () => {
   assert.throws(() => buildLayout(buildLayout(main(), panels), panels), /already has the argus blocks/);
 });
 
-test("refuses a layout that has only the awake block", () => {
+test("refuses a layout that has only the stay-awake block", () => {
   const out = buildLayout(main(), panels);
   const row = find(out, "argus-tabs-row");
   row.children = row.children.filter((c) => c.id !== "argus-toolbar");
@@ -128,9 +128,9 @@ test("the panel column resizes between 280 and 900 px", () => {
   assert.deepEqual([column.min, column.max], [280, 900]);
 });
 
-test("leaves out the awake block when the mod is not installed", () => {
-  const out = buildLayout(main(), panels, { awake: false });
-  assert.equal(find(out, "argus-awake"), null);
+test("leaves out the stay-awake block when the mod is not installed", () => {
+  const out = buildLayout(main(), panels, { stayAwake: false });
+  assert.equal(find(out, "argus-stay-awake"), null);
   assert.deepEqual(find(out, "argus-tabs-row").children.map((c) => c.id), ["tabs", "argus-toolbar"]);
-  assert.deepEqual(find(buildLayout(main(), panels, { awake: true }), "argus-tabs-row").children.map((c) => c.id), ["tabs", "argus-awake", "argus-toolbar"]);
+  assert.deepEqual(find(buildLayout(main(), panels, { stayAwake: true }), "argus-tabs-row").children.map((c) => c.id), ["tabs", "argus-toolbar", "argus-stay-awake"]);
 });

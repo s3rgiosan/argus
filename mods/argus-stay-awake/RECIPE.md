@@ -1,10 +1,10 @@
-# Argus awake
+# Argus stay awake
 
-A button beside the Argus toolbar that keeps the display awake with `caffeinate`.
+A button at the right of the tab row that keeps the display awake with `caffeinate`.
 
 ## What you see
 
-A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, with one button right-aligned 3 px from the edge. The button: 26 px high, 8 px side padding, radius 6, a 14 px Lucide `coffee` icon. `muted` when off, `accent` when on, `accent` with a 5 px dot at its top right when waiting for agents. `hover` on hover. Tooltip: `Keep the display awake · Right-click: until agents finish`.
+A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, with one button right-aligned 10 px from the edge. The button: 26 px high, 8 px side padding, radius 6, a 14 px Lucide `coffee` icon. `muted` when off, `accent` when on, `accent` with a 5 px dot at its top right when waiting for agents. `hover` on hover. Tooltip: `Keep the display awake · Right-click: until agents finish`.
 
 ## How it behaves
 
@@ -17,12 +17,12 @@ A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, with o
 
 ## Built from
 
-- `mod.json`: `{ "place": "none", "title": "Keep awake" }`.
+- `mod.json`: `{ "place": "none", "title": "Stay awake" }`.
 - Mouse: the left button toggles on mouse up; the right button stops propagation and picks agents mode.
-- `awake.js`: `MODES`, `anyWorking`, `leftClick`, `rightClick`, `tick`, `caffeinateArgs`, `shouldRun`, `MAX_RUNS`, `TICK_MS`, `EXEC_TIMEOUT_MS`. No Herdr imports.
+- `stay-awake.js`: `MODES`, `anyWorking`, `leftClick`, `rightClick`, `tick`, `caffeinateArgs`, `shouldRun`, `MAX_RUNS`, `TICK_MS`, `EXEC_TIMEOUT_MS`. No Herdr imports.
 - `main.js`: the view, the timer and `exec`.
 - `icons/coffee.svg` and `icons/LICENSE-Lucide.txt`.
-- `scripts/build-layout.mjs` places block `argus-awake` (33 px wide) in row `argus-tabs-row`, between `tabs` and `argus-toolbar`.
+- `scripts/build-layout.mjs` places block `argus-stay-awake` (40 px wide) in row `argus-tabs-row`, right of `argus-toolbar`, the last child.
 
 ## Watch out
 

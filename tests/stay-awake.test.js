@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MODES, anyWorking, leftClick, rightClick, tick, caffeinateArgs, shouldRun, MAX_RUNS, TICK_MS, EXEC_TIMEOUT_MS } from "../mods/argus-awake/awake.js";
+import { MODES, anyWorking, leftClick, rightClick, tick, caffeinateArgs, shouldRun, MAX_RUNS, TICK_MS, EXEC_TIMEOUT_MS } from "../mods/argus-stay-awake/stay-awake.js";
 
 test("constants", () => {
   assert.deepEqual(MODES, ["off", "on", "agents"]);

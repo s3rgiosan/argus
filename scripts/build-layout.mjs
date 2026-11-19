@@ -75,7 +75,7 @@ const panels = panelsFromManifests(entries);
 
 let layout;
 try {
-  layout = buildLayout(main, panels, { awake: existsSync(join(modsDir, "argus-awake", "main.js")) });
+  layout = buildLayout(main, panels, { stayAwake: existsSync(join(modsDir, "argus-stay-awake", "main.js")) });
 } catch (error) {
   console.error(`build-layout: Herdr's main layout changed shape (${error.message}); nothing written`);
   process.exit(1);

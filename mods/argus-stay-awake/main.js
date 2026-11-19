@@ -6,13 +6,13 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { exec, agents, checking, notify, theme } from "herdr";
-import { anyWorking, leftClick, rightClick, tick, caffeinateArgs, shouldRun, TICK_MS, EXEC_TIMEOUT_MS } from "./awake.js";
+import { anyWorking, leftClick, rightClick, tick, caffeinateArgs, shouldRun, TICK_MS, EXEC_TIMEOUT_MS } from "./stay-awake.js";
 
 const TOOLTIP = "Keep the display awake · Right-click: until agents finish";
-const ICON = "mods/argus-awake/icons/coffee.svg";
+const ICON = "mods/argus-stay-awake/icons/coffee.svg";
 const NEEDS_CAFFEINATE = "Keep awake needs caffeinate (macOS)";
 
-export default class Awake extends View {
+export default class StayAwake extends View {
   init() {
     this.mode = "off";
     this.timer = null;
@@ -33,7 +33,7 @@ export default class Awake extends View {
     return h_flex()
       .size_full()
       .min_w(0)
-      .pr(3)
+      .pr(10)
       .items_center()
       .justify_end()
       .bg(t.chrome)
@@ -41,7 +41,7 @@ export default class Awake extends View {
       .border_color(t.border)
       .child(
         h_flex()
-          .id("awake")
+          .id("stay-awake")
           .relative()
           .h(26)
           .px(8)
