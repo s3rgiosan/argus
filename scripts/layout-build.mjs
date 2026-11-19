@@ -2,6 +2,8 @@
 // blocks stay as they are, with a keep-awake button and a toolbar beside the
 // tab bar and a panel column for this repo's panel mods.
 
+import { toolbarWidthFor } from "../lib/toolbar-width.js";
+
 export const TOOLBAR_ID = "argus-toolbar";
 /** The generated layout's name, which Herdr shows in Settings. */
 export const LAYOUT_NAME = "Argus";
@@ -59,17 +61,6 @@ export function planStateFile({ legacy, target }) {
 }
 
 /**
- * The toolbar's width in px for its buttons: 10 px of padding, then per
- * button 32 px of padding and icon, about 7 px per label character and a
- * 3 px gap.
- *
- * @param {{ label: string }[]} panels
- */
-export function toolbarWidth(panels) {
-  return 10 + panels.reduce((sum, panel) => sum + 32 + 7 * panel.label.length + 3, 0);
-}
-
-/**
  * The panels the installed mods declare with `panel` in their mod.json.
  *
  * @param {{ name: string, manifest: { panel?: { label?: string, icon?: string } } }[]} entries
@@ -93,11 +84,12 @@ export function panelsFromManifests(entries) {
  *
  * @param {object} main Herdr's layouts/main.json.
  * @param {{ id: string, label: string, icon: string | null }[]} panels
- * @param {{ stayAwake?: boolean }} [options] `stayAwake: false` leaves out the keep-awake button.
+ * @param {{ stayAwake?: boolean, display?: string }} [options] `stayAwake: false` leaves out the
+ *   keep-awake button; `display` ("icons", "labels" or "both") sizes the toolbar block.
  * @returns {object}
  * @throws {Error} When `main` has no `tabs` block or no `work-body` row.
  */
-export function buildLayout(main, panels, { stayAwake = true } = {}) {
+export function buildLayout(main, panels, { stayAwake = true, display = "both" } = {}) {
   const out = structuredClone(main);
   if (find(out, TOOLBAR_ID) || find(out, STAY_AWAKE_ID) || find(out, PANEL_ID)) throw new ArgusBlocksError();
 
@@ -118,7 +110,7 @@ export function buildLayout(main, panels, { stayAwake = true } = {}) {
       {
         id: TOOLBAR_ID,
         type: "block",
-        size: { px: toolbarWidth(panels) },
+        size: { px: toolbarWidthFor(panels, display) },
         content: { mod: TOOLBAR_ID, props: { panel: PANEL_ID, stack: STACK_ID, buttons: panels } },
       },
       ...(stayAwake ? [{ id: STAY_AWAKE_ID, type: "block", size: { px: STAY_AWAKE_WIDTH }, content: { mod: STAY_AWAKE_ID } }] : []),

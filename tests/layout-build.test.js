@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLayout, panelsFromManifests, toolbarWidth, STAY_AWAKE_WIDTH } from "../scripts/layout-build.mjs";
+import { buildLayout, panelsFromManifests, STAY_AWAKE_WIDTH } from "../scripts/layout-build.mjs";
+import { toolbarWidth, toolbarWidthFor, toolbarResize } from "../lib/toolbar-width.js";
 
 const main = () => ({
   id: "root",
@@ -133,4 +134,35 @@ test("leaves out the stay-awake block when the mod is not installed", () => {
   assert.equal(find(out, "argus-stay-awake"), null);
   assert.deepEqual(find(out, "argus-tabs-row").children.map((c) => c.id), ["tabs", "argus-toolbar"]);
   assert.deepEqual(find(buildLayout(main(), panels, { stayAwake: true }), "argus-tabs-row").children.map((c) => c.id), ["tabs", "argus-toolbar", "argus-stay-awake"]);
+});
+
+test("toolbarWidthFor: both keeps toolbarWidth", () => {
+  assert.equal(toolbarWidthFor(panels, "both"), toolbarWidth(panels));
+  assert.equal(toolbarWidthFor([], "both"), 10);
+});
+
+test("toolbarWidthFor: labels drop the icon slot, icons drop the label text", () => {
+  assert.equal(toolbarWidthFor(panels, "labels"), 10 + 2 * (16 + 7 * 5 + 3));
+  assert.equal(toolbarWidthFor(panels, "icons"), 10 + 2 * (32 + 3));
+});
+
+test("toolbarWidthFor: a panel without an icon keeps its label in icons mode", () => {
+  const mixed = [{ id: "a", label: "Usage", icon: "x.svg" }, { id: "b", label: "Ports", icon: null }];
+  assert.equal(toolbarWidthFor(mixed, "icons"), 10 + (32 + 3) + (16 + 7 * 5 + 3));
+});
+
+test("toolbarWidthFor: an unknown display counts as both", () => {
+  assert.equal(toolbarWidthFor(panels, "x"), toolbarWidth(panels));
+});
+
+test("buildLayout sizes the toolbar for the given display", () => {
+  const out = buildLayout(main(), panels, { display: "icons" });
+  assert.deepEqual(find(out, "argus-toolbar").size, { px: toolbarWidthFor(panels, "icons") });
+});
+
+test("toolbarResize: gives the width only when the live block differs", () => {
+  const tree = (px) => ({ id: "root", children: [{ id: "argus-toolbar", size: { px } }] });
+  assert.equal(toolbarResize(tree(100), "argus-toolbar", panels, "labels"), toolbarWidthFor(panels, "labels"));
+  assert.equal(toolbarResize(tree(toolbarWidthFor(panels, "labels")), "argus-toolbar", panels, "labels"), null);
+  assert.equal(toolbarResize({ id: "root", children: [] }, "argus-toolbar", panels, "labels"), null);
 });
