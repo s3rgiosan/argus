@@ -4,17 +4,18 @@
 
 import { div, svg, View } from "gpui-kit";
 import { h_flex, v_flex, InputState } from "gpui-base";
-import { exec, home, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused } from "herdr";
+import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused } from "herdr";
 import { randomUUID } from "crypto";
-import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey } from "./remote.js";
-import { INTERVALS, normalizeSettings, commandCandidates, cliError, missingNotes } from "./locate.js";
-import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, GL_USER_QUERY, GL_PROJECT_QUERY } from "./forge.js";
-import { parseGhSearch, parseGhList, parseGhDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
+import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor } from "./remote.js";
+import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
+import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
+import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
 import { assembleBoard, normalizeBoard, pickPairs, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
+import { worktreeRoot, checkoutPlan, spaceFor } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, iconButton, row, scrollArea, field, footer, sectionTitle, note } from "./ui.js";
+import { frame, header, iconButton, row, scrollArea, field, footer, sectionTitle, note, button } from "./ui.js";
 
 const BOARD_KEY = "argus-pull-requests.board";
 const SCOPE_KEY = "argus-pull-requests.scope";
@@ -27,6 +28,7 @@ const GIT_TIMEOUT = 15_000;
 const POLL = 5_000;
 const AGE_TICK = 60_000;
 const LOCK_RETRY = 1_000;
+const GIT_LONG_TIMEOUT = 600_000;
 const SCOPES_WIDTH = 280;
 const SCOPES_HEIGHT = 420;
 const ICON = (name) => `mods/argus-pull-requests/icons/${name}.svg`;
@@ -46,6 +48,12 @@ export default class PullRequests extends View {
     this.repoCache = new Map();
     this.located = { gh: null, glab: null };
     this.login = null;
+    // The pane's read: {key, kind: "loading"|"ok"|"error", detail, error, readAt}.
+    this.shown = null;
+    this.prSeq = 0;
+    // The check out action: {key, running, error}.
+    this.checkout = { key: null, running: false, error: null };
+    this.actionError = null;
 
     const settings = readSettings();
     this.filterInput = this.input("filter", { placeholder: "Filter by title, number, author or branch" }, () => {});
@@ -53,7 +61,15 @@ export default class PullRequests extends View {
     this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
 
-    if (checking() || this.view !== "board") return;
+    if (checking()) return;
+    if (this.view === "pr") {
+      cx.timer.every(POLL, (cx) => {
+        const selected = readSelected();
+        if (selected && this.shown?.key === selected.key && readBoard().readAt > this.shown.readAt) this.loadPr(cx, selected);
+      });
+      return;
+    }
+    if (this.view !== "board") return;
 
     this.startSync(cx);
     cx.timer.every(POLL, (cx) => {
@@ -348,7 +364,7 @@ export default class PullRequests extends View {
       case "scopes":
         return this.renderScopes(t);
       case "pr":
-        return this.renderPr(t);
+        return this.renderPr(t, cx);
       case "settings":
         return this.renderSettings(t);
       default:
@@ -477,12 +493,229 @@ export default class PullRequests extends View {
       .child(scrollArea("argus-pull-requests-settings-list", parts, { padding: 6 }));
   }
 
-  /** The pull request pane. */
-  renderPr(t) {
-    const selected = readSelected();
-    const text = selected ? `${selected.repo} #${selected.number}` : "Pick a pull request on the board.";
-    return frame(t, "argus-pull-requests-pr").rounded_none().border_0().child(header(t, "Pull request")).child(note(t, text));
+  /**
+   * Reads the selected pull request into the pane. A newer call wins over a read
+   * still running. The shown detail stays on screen while the same pull request is read again.
+   */
+  loadPr(cx, selected) {
+    const seq = ++this.prSeq;
+    const readAt = Date.now();
+    if (this.shown?.key !== selected.key) {
+      this.shown = { key: selected.key, kind: "loading", detail: null, error: null, readAt };
+      this.actionError = null;
+    } else {
+      this.shown = { ...this.shown, readAt };
+    }
+    if (checking()) return;
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let next;
+      try {
+        next = { kind: "ok", detail: await this.readDetail(selected), error: null };
+      } catch (error) {
+        next = { kind: "error", detail: null, error: error?.message ?? String(error) };
+      }
+      if (seq !== this.prSeq) return;
+      this.shown = { key: selected.key, readAt, ...next };
+      cx.notify();
+    });
   }
+
+  /** Reads one pull request through gh or glab; throws a readable error. */
+  async readDetail(selected) {
+    const gitLab = selected.provider === "gitlab";
+    const name = gitLab ? "glab" : "gh";
+    const command = await this.locate(name);
+    if (command === null) throw new Error(gitLab ? GLAB_MISSING : GH_MISSING);
+    const args = gitLab
+      ? glabArgs(selected.host, GL_DETAIL_QUERY, { path: selected.repo, iid: String(selected.number) })
+      : ghViewArgs(selected.repo, selected.number);
+    const reply = await exec(command, args, { timeout: CLI_TIMEOUT });
+    if (reply.code !== 0) throw new Error(cliError(name, reply));
+    return gitLab ? parseGlabDetail(reply.stdout, selected.host) : parseGhDetail(reply.stdout, selected.repo);
+  }
+
+  openInBrowser(cx, pr) {
+    this.actionError = null;
+    const open = openArgs(window().platform, pr.url);
+    if (open === null) return;
+    exec(open[0], open[1]).then(
+      (reply) => {
+        if (reply.code === 0) return;
+        this.actionError = cliError(open[0], reply);
+        cx.notify();
+      },
+      (error) => {
+        this.actionError = error?.message ?? String(error);
+        cx.notify();
+      },
+    );
+  }
+
+  /** Opens the space of the pull request's worktree, creating the worktree first when needed. */
+  checkOut(cx, pr, localPath) {
+    const key = prKey(pr);
+    if (this.checkout.running) return;
+    this.checkout = { key, running: true, error: null };
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let error = null;
+      try {
+        error = await this.runCheckout(pr, localPath);
+      } catch (caught) {
+        error = caught?.message ?? String(caught);
+      }
+      this.checkout = { key, running: false, error };
+      cx.notify();
+    });
+  }
+
+  /** Runs the check out plan; gives an error text, or null on success. */
+  async runCheckout(pr, localPath) {
+    const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
+    if ("error" in resolved) return resolved.error;
+    const list = await exec("git", ["worktree", "list", "--porcelain"], { cwd: localPath, timeout: GIT_TIMEOUT });
+    if (list.code !== 0) return cliError("git", list);
+    const plan = checkoutPlan({ pr, localPath, root: resolved.root, porcelain: list.stdout });
+    if (plan.kind === "create") {
+      const fetched = await exec("git", plan.fetch, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
+      if (fetched.code !== 0) return cliError("git", fetched);
+      const added = await exec("git", plan.add, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
+      if (added.code !== 0) return cliError("git", added);
+      run("space.new", { folder: plan.path });
+      return null;
+    }
+    const id = spaceFor(spaces(), panes(), plan.path);
+    if (id !== null) run("space.select", { id });
+    else run("space.new", { folder: plan.path });
+    return null;
+  }
+
+  /** The pull request pane: header, actions and the five sections. */
+  renderPr(t, cx) {
+    const selected = readSelected();
+    // A new selection arrives as a re-render; the read runs as a task.
+    if (selected && this.shown?.key !== selected.key && !checking()) this.loadPr(cx, selected);
+
+    const empty = (text) => frame(t, "argus-pull-requests-pr").rounded_none().border_0().child(note(t, text));
+    if (!selected) return empty("Pick a pull request on the board.");
+    const shown = this.shown;
+    if (!shown || shown.key !== selected.key || shown.kind === "loading") return empty("Loading…");
+    if (shown.kind === "error") {
+      return frame(t, "argus-pull-requests-pr")
+        .rounded_none()
+        .border_0()
+        .child(note(t, "Could not read this pull request."))
+        .child(div().px(8).text_size(12).text_color(t.blocked).whitespace_normal().child(shown.error ?? ""));
+    }
+
+    const detail = shown.detail;
+    const pr = detail.pr;
+    const localPath = localPathFor(readBoard().projects, pr.host, pr.repo);
+    const now = Date.now();
+    const checkout = this.checkout.key === shown.key ? this.checkout : { running: false, error: null };
+    const error = this.actionError ?? checkout.error;
+    const small = (text) => div().text_size(12).text_color(t.muted).child(text);
+
+    const head = v_flex()
+      .flex_none()
+      .p(10)
+      .gap(6)
+      .child(
+        h_flex()
+          .gap(6)
+          .items_center()
+          .child(svg(ICON(pr.provider === "gitlab" ? "gitlab" : "github")).size(14).flex_none().text_color(t.muted))
+          .child(div().min_w(0).truncate().text_size(12).text_color(t.muted).child(pr.repo))
+          .child(small(`#${pr.number}`).flex_none())
+          .child(div().flex_none().text_size(12).text_color(t.muted).child(prState(pr))),
+      )
+      .child(div().text_size(11).text_color(t.dim).whitespace_normal().child(`${pr.headRef} → ${pr.baseRef}`))
+      .child(div().font_semibold().whitespace_normal().child(pr.title))
+      .when(localPath === null, (el) => el.child(note(t, "No local checkout")))
+      .child(
+        h_flex()
+          .gap(8)
+          .child(button(t, "open-browser", "Open in browser", (_e, cx) => this.openInBrowser(cx, pr)))
+          .child(
+            button(t, "check-out", "Check out in a worktree", (_e, cx) => this.checkOut(cx, pr, localPath ?? ""), {
+              enabled: localPath !== null && !checkout.running,
+            }),
+          ),
+      )
+      .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")));
+
+    const text = (value) => div().px(8).py(2).whitespace_normal().child(value);
+    const parts = [sectionTitle(t, "CHECKS")];
+    if (detail.checks.length === 0) parts.push(note(t, "No checks"));
+    for (const [index, check] of detail.checks.entries()) {
+      const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.muted;
+      const mark = check.state === "failed" ? "✗" : check.state === "running" ? "●" : "✓";
+      parts.push(
+        h_flex()
+          .id(`check-${index}`)
+          .px(8)
+          .py(2)
+          .gap(6)
+          .child(div().flex_none().text_color(color).child(mark))
+          .child(div().flex_1().min_w(0).whitespace_normal().child(check.name)),
+      );
+    }
+    parts.push(sectionTitle(t, "REVIEWS"));
+    if (detail.reviewers.length === 0) parts.push(note(t, "No reviews yet"));
+    for (const [index, reviewer] of detail.reviewers.entries()) {
+      parts.push(
+        h_flex()
+          .id(`reviewer-${index}`)
+          .px(8)
+          .py(2)
+          .gap(8)
+          .child(div().flex_1().min_w(0).truncate().child(reviewer.name))
+          .child(div().flex_none().text_color(reviewer.state === "changes_requested" ? t.blocked : t.muted).child(REVIEW_WORDS[reviewer.state] ?? reviewer.state)),
+      );
+    }
+    parts.push(sectionTitle(t, "MERGE STATE"), text(MERGE_WORDS[detail.merge.state] ?? "Not checked yet"));
+    if (detail.merge.reason) parts.push(div().px(8).py(2).text_size(12).text_color(t.muted).whitespace_normal().child(detail.merge.reason));
+    parts.push(sectionTitle(t, "DESCRIPTION"));
+    parts.push(detail.body.trim() === "" ? note(t, "No description") : text(detail.body));
+    parts.push(sectionTitle(t, "CONVERSATION"));
+    if (detail.conversation.length === 0) parts.push(note(t, "No comments"));
+    for (const [index, entry] of detail.conversation.entries()) {
+      parts.push(
+        v_flex()
+          .id(`entry-${index}`)
+          .px(8)
+          .py(4)
+          .gap(2)
+          .child(div().text_size(11).text_color(t.dim).child(`${entry.author} · ${ageText(entry.at, now)}`))
+          .child(div().whitespace_normal().child(entry.body)),
+      );
+    }
+
+    return frame(t, "argus-pull-requests-pr")
+      .rounded_none()
+      .border_0()
+      .child(head)
+      .child(scrollArea("argus-pull-requests-pr-detail", parts, { padding: 6 }));
+  }
+}
+
+const REVIEW_WORDS = {
+  approved: "Approved",
+  changes_requested: "Changes requested",
+  commented: "Commented",
+  dismissed: "Dismissed",
+  pending: "Pending",
+  requested: "Review requested",
+};
+
+const MERGE_WORDS = { mergeable: "Mergeable", conflicting: "Has conflicts", blocked: "Blocked", unknown: "Not checked yet" };
+
+function prState(pr) {
+  if (pr.state === "merged") return "Merged";
+  if (pr.state === "closed") return "Closed";
+  return pr.isDraft ? "Draft" : "Open";
 }
 
 /** A 44 px board row, two lines. Click opens the pull request pane. */
