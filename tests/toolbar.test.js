@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isOpen, clickCommands } from "../mods/argus-toolbar/toolbar-logic.js";
+import { isOpen, clickCommands, toolbarOrder, touchesFile } from "../mods/argus-toolbar/toolbar-logic.js";
 
 const tree = (hidden, active) => ({
   id: "root",
@@ -26,4 +26,55 @@ test("clicking another button selects it and shows the panel", () => {
   ];
   assert.deepEqual(clickCommands(tree(false, "ports"), ids, "argus-claude-usage"), expected);
   assert.deepEqual(clickCommands(tree(true, "argus-claude-usage"), ids, "argus-claude-usage"), expected);
+});
+
+test("toolbarOrder: a missing file gives the default order and no error", () => {
+  assert.deepEqual(toolbarOrder(null), { order: null, error: null });
+  assert.deepEqual(toolbarOrder(undefined), { order: null, error: null });
+});
+
+test("toolbarOrder reads the toolbar order", () => {
+  assert.deepEqual(toolbarOrder('{ "toolbar": { "order": ["argus-tsk", "argus-claude-usage"] } }'), {
+    order: ["argus-tsk", "argus-claude-usage"],
+    error: null,
+  });
+});
+
+test("toolbarOrder: a file without a toolbar order is fine", () => {
+  assert.deepEqual(toolbarOrder("{}"), { order: null, error: null });
+  assert.deepEqual(toolbarOrder('{ "toolbar": {} }'), { order: null, error: null });
+});
+
+test("toolbarOrder: invalid JSON is an error", () => {
+  const result = toolbarOrder("{bad");
+  assert.equal(result.order, null);
+  assert.equal(typeof result.error, "string");
+});
+
+test("toolbarOrder: a wrong shape is an error", () => {
+  for (const text of ["[]", "3", "null", '{ "toolbar": 3 }', '{ "toolbar": [] }', '{ "toolbar": { "order": "a" } }', '{ "toolbar": { "order": null } }']) {
+    const result = toolbarOrder(text);
+    assert.equal(result.order, null, text);
+    assert.equal(typeof result.error, "string", text);
+  }
+});
+
+test("toolbarOrder drops ids that are not non-empty strings", () => {
+  assert.deepEqual(toolbarOrder('{ "toolbar": { "order": ["a", 3, "", null, "b"] } }'), { order: ["a", "b"], error: null });
+});
+
+test("toolbarOrder: empty or blank text counts as a missing file", () => {
+  assert.deepEqual(toolbarOrder(""), { order: null, error: null });
+  assert.deepEqual(toolbarOrder(" \n\t "), { order: null, error: null });
+});
+
+test("touchesFile: only a batch with the file, the folder itself or nothing", () => {
+  const dir = "/home/x/.config/herdr-app";
+  assert.equal(touchesFile([], dir, "argus.json"), true);
+  assert.equal(touchesFile([`${dir}/argus.json`], dir, "argus.json"), true);
+  assert.equal(touchesFile([`${dir}/shared.json`, `${dir}/argus.json`], dir, "argus.json"), true);
+  assert.equal(touchesFile([dir], dir, "argus.json"), true);
+  assert.equal(touchesFile([`${dir}/`], dir, "argus.json"), true);
+  assert.equal(touchesFile([`${dir}/shared.json`, `${dir}/data/x.json`, `${dir}/telemetry`], dir, "argus.json"), false);
+  assert.equal(touchesFile([`${dir}/data/argus.json`], dir, "argus.json"), false);
 });

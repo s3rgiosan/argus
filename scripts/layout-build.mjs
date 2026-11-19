@@ -1,8 +1,13 @@
 // Builds the argus layout from Herdr's shipped main layout: Herdr's
-// blocks stay as they are, with a toolbar beside the tab bar and a panel
-// column for this repo's panel mods.
+// blocks stay as they are, with a keep-awake button and a toolbar beside the
+// tab bar and a panel column for this repo's panel mods.
 
 export const TOOLBAR_ID = "argus-toolbar";
+/** The generated layout's name, which Herdr shows in Settings. */
+export const LAYOUT_NAME = "Argus";
+/** The name earlier versions wrote the layout under. */
+export const LEGACY_NAME = "argus";
+export const STAY_AWAKE_ID = "argus-stay-awake";
 export const PANEL_ID = "argus-panel";
 export const STACK_ID = "argus-panels";
 const ROW_ID = "argus-tabs-row";
@@ -10,6 +15,48 @@ const ROW_ID = "argus-tabs-row";
 const PANEL_WIDTH = 440;
 const PANEL_MIN = 280;
 const PANEL_MAX = 900;
+/** The keep-awake block's width in px: one 30 px icon button and 10 px of padding. */
+export const STAY_AWAKE_WIDTH = 40;
+
+/** The input layout already holds the blocks this script adds. */
+export class ArgusBlocksError extends Error {
+  constructor() {
+    super("main.json already contains argus blocks");
+    this.name = "ArgusBlocksError";
+  }
+}
+
+/**
+ * What to do with the layout files before writing `LAYOUT_NAME`: migrate a
+ * generated legacy file, drop a generated legacy file that sits next to the
+ * new one, or refuse a file the script did not write.
+ *
+ * @param {string[]} files Names in the layouts folder.
+ * @param {(file: string) => boolean} ours Whether the script wrote that file.
+ * @returns {{ migrate: boolean, removeLegacy: boolean, error: string | null }}
+ */
+export function planLayoutFile(files, ours) {
+  const legacy = `${LEGACY_NAME}.json`;
+  const current = `${LAYOUT_NAME}.json`;
+  const hasLegacy = files.includes(legacy);
+  const hasCurrent = files.includes(current);
+  if (hasCurrent && !ours(current)) return { migrate: false, removeLegacy: false, error: `${current} was not written by this script` };
+  if (hasLegacy && hasCurrent) return { migrate: false, removeLegacy: ours(legacy), error: null };
+  if (hasLegacy && !ours(legacy)) return { migrate: false, removeLegacy: false, error: `${legacy} was not written by this script` };
+  return { migrate: hasLegacy, removeLegacy: false, error: null };
+}
+
+/**
+ * Whether to rename the legacy layout state file (`.state/argus.json`) to the
+ * new name: when it exists and the new name does not. On a case-insensitive
+ * disk both names are the same file, so nothing moves.
+ *
+ * @param {{ legacy: boolean, target: boolean }} exists
+ * @returns {{ migrate: boolean }}
+ */
+export function planStateFile({ legacy, target }) {
+  return { migrate: legacy && !target };
+}
 
 /**
  * The toolbar's width in px for its buttons: 10 px of padding, then per
@@ -40,17 +87,19 @@ export function panelsFromManifests(entries) {
 }
 
 /**
- * Returns a new layout: `main` with the toolbar beside its `tabs` block and
- * a hidden panel column at the end of its `work-body` row.
+ * Returns a new layout: `main` with the keep-awake button and the toolbar
+ * beside its `tabs` block and a hidden panel column at the end of its
+ * `work-body` row.
  *
  * @param {object} main Herdr's layouts/main.json.
  * @param {{ id: string, label: string, icon: string | null }[]} panels
+ * @param {{ stayAwake?: boolean }} [options] `stayAwake: false` leaves out the keep-awake button.
  * @returns {object}
  * @throws {Error} When `main` has no `tabs` block or no `work-body` row.
  */
-export function buildLayout(main, panels) {
+export function buildLayout(main, panels, { stayAwake = true } = {}) {
   const out = structuredClone(main);
-  if (find(out, TOOLBAR_ID) || find(out, PANEL_ID)) throw new Error("already has the argus blocks");
+  if (find(out, TOOLBAR_ID) || find(out, STAY_AWAKE_ID) || find(out, PANEL_ID)) throw new ArgusBlocksError();
 
   const tabsParent = parentOf(out, "tabs");
   if (!tabsParent) throw new Error("no tabs block");
@@ -72,6 +121,7 @@ export function buildLayout(main, panels) {
         size: { px: toolbarWidth(panels) },
         content: { mod: TOOLBAR_ID, props: { panel: PANEL_ID, stack: STACK_ID, buttons: panels } },
       },
+      ...(stayAwake ? [{ id: STAY_AWAKE_ID, type: "block", size: { px: STAY_AWAKE_WIDTH }, content: { mod: STAY_AWAKE_ID } }] : []),
     ],
   };
 

@@ -31,6 +31,51 @@ export function clickCommands(tree, ids, target) {
   ];
 }
 
+/**
+ * The button order in the text of `argus.json`: `{ "toolbar": { "order": [ids] } }`.
+ * A missing, empty or blank file, or a missing key, gives `order: null` (the default order). Text
+ * that is not JSON, or a value of the wrong type, gives an `error`.
+ *
+ * @param {string | null | undefined} text
+ * @returns {{ order: string[] | null, error: string | null }}
+ */
+export function toolbarOrder(text) {
+  if (text === null || text === undefined || text.trim() === "") return { order: null, error: null };
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    return { order: null, error: error.message };
+  }
+  if (!isObject(data)) return { order: null, error: "the file is not an object" };
+  if (!("toolbar" in data)) return { order: null, error: null };
+  if (!isObject(data.toolbar)) return { order: null, error: "toolbar is not an object" };
+  if (!("order" in data.toolbar)) return { order: null, error: null };
+  if (!Array.isArray(data.toolbar.order)) return { order: null, error: "toolbar.order is not a list" };
+  return { order: data.toolbar.order.filter((id) => typeof id === "string" && id !== ""), error: null };
+}
+
+/**
+ * Whether a batch from `watchFolder` calls for reading `file` in `dir`: it
+ * names the file or the folder itself, or it is empty (the watch was given up).
+ *
+ * @param {string[]} paths
+ * @param {string} dir
+ * @param {string} file
+ */
+export function touchesFile(paths, dir, file) {
+  if (paths.length === 0) return true;
+  const root = dir.replace(/\/+$/, "");
+  return paths.some((path) => {
+    const clean = path.replace(/\/+$/, "");
+    return clean === root || clean === `${root}/${file}`;
+  });
+}
+
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function find(node, id) {
   if (!node || typeof node !== "object") return null;
   if (node.id === id) return node;

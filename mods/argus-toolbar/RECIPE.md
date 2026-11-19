@@ -11,11 +11,14 @@ A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, button
 - A click on a closed button selects its mod in the panel stack (`layout.select { stack, child }`) and shows the panel column (`layout.show { id }`). A click on the open one hides the column (`layout.hide { id }`).
 - The open state comes from the shown layout (`layout()`): the column not hidden and the stack's `active` child.
 
+- Order: the buttons come from `sortButtons(buttons, order)` (`order.js`): the ids in `order` first, then the rest A to Z by label, case-insensitive. `order` is `toolbar.order` in `argus.json` in the app folder (`appHome()`), read with `readTextFile`. A missing file or key gives the default order.
+- The mod follows the file: from `init` it starts a task that loops on `watchFolder(appHome())`, reads the file after each batch (about 300 ms later) and acts only when the text differs from the last read. When the watch fails it reads every 5 s. Invalid JSON or a wrong type (`toolbarOrder` in `toolbar-logic.js`) shows one toast, `argus.json could not be read; using the default order`, per distinct bad text and keeps the default order.
+
 ## Built from
 
 - `mod.json`: `{ "place": "none", "title": "Argus toolbar" }`.
 - `main.js` reads `props()`: `{ panel: "argus-panel", stack: "argus-panels", buttons: [{ id, label, icon }] }`. `icon` is a path under `~/.config/herdr-app` (`mods/<mod>/<file>.svg`).
-- `toolbar-logic.js`: `isOpen`, `clickCommands`.
+- `toolbar-logic.js`: `isOpen`, `clickCommands`, `toolbarOrder`. `order.js`: a copy of `lib/order.js`.
 - `scripts/build-layout.mjs` (repo) places it: the `tabs` block becomes the first child of row `argus-tabs-row`, followed by this block (width `10 + Σ(32 + 7 × label length + 3)` px); column `argus-panel` (440 px, drags between 280 and 900 px, hidden) with stack `argus-panels` goes last in `work-body`. A mod gets a button by declaring `"panel": { "label", "icon" }` in its `mod.json`.
 
 ## Watch out

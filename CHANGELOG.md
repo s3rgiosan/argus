@@ -5,6 +5,19 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-11-19
+
+### Added
+
+- The Argus layout has a preview picture in Herdr's Settings under Look, drawn in `layouts/Argus.svg` and copied next to the layout by `scripts/build-layout.mjs`.
+- The toolbar reads its button order from `argus.json` in Herdr's app folder, as `{ "toolbar": { "order": ["argus-tsk", "argus-claude-usage"] } }`, and follows the file as it changes. Buttons not in the list follow from A to Z by label.
+- The `argus-stay-awake` mod adds a coffee-cup button at the right end of the tab row that keeps the display awake: a click turns it on or off, and a right click keeps it awake until no agent is working.
+- `scripts/build-layout.mjs` places the `argus-stay-awake` button in the tab row, right of the toolbar.
+
+### Changed
+
+- The generated layout is named Argus, so Herdr shows it as "Argus" in Settings under Look. `scripts/build-layout.mjs` renames a layout it wrote earlier as `argus.json` and switches to the new name when the old one was shown.
+
 ## [1.1.0] - 2026-11-18
 
 ### Added
@@ -42,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.1.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.2.0...HEAD
+[1.2.0]: https://github.com/s3rgiosan/argus/compare/1.1.0...1.2.0
 [1.1.0]: https://github.com/s3rgiosan/argus/compare/1.0.0...1.1.0
 [1.0.0]: https://github.com/s3rgiosan/argus/releases/tag/1.0.0

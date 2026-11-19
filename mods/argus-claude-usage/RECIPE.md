@@ -4,7 +4,7 @@ A panel with Claude plan usage for every Claude Code account on this computer, o
 
 ## What you see
 
-- Opens from the Usage button of `argus-toolbar` in the `argus` layout (`mod.json` declares `"panel": { "label": "Usage", "icon": "icons/chart-line.svg" }`) as a panel in the `argus-panel` column (440 px, drags between 280 and 900 px), as a popup (`mod.open`, 360 × 640 from `mod.json` `overlay`), or as a pane (`pane.split { direction: "right", mod: "argus-claude-usage" }`); the popup's pane button opens the pane and closes the popup.
+- Opens from the Usage button of `argus-toolbar` in the `Argus` layout (`mod.json` declares `"panel": { "label": "Usage", "icon": "icons/chart-line.svg" }`) as a panel in the `argus-panel` column (440 px, drags between 280 and 900 px), as a popup (`mod.open`, 360 × 640 from `mod.json` `overlay`), or as a pane (`pane.split { direction: "right", mod: "argus-claude-usage" }`); the popup's pane button opens the pane and closes the popup.
 - `mod.json` `"place": "none"`: Herdr docks it nowhere by itself.
 - Drawn with `ui.js` (a copy of the repo's `lib/ui.js`), in the sizes of Herdr's own panels: a frame with 10 px corners on `background` with a 1 px `border`, 13 px text; a 42 px header (14 px side padding, semibold title, bottom border) with 26 px icon buttons (14 px Lucide icons in `icons/`: refresh, open as pane in the popup only, settings); a scroll area with 6 px padding and Herdr's scrollbar; a bottom bar (top border) with Status page (status.anthropic.com) as a 28 px row.
 - One section per account, in discovery order, separated by a 1 px `border`:
@@ -42,7 +42,7 @@ A panel with Claude plan usage for every Claude Code account on this computer, o
 - Run the default profile with `CLAUDE_CONFIG_DIR` unset. Set to `~/.claude`, Claude Code uses another Keychain entry.
 - Asking a profile whose sign-in is dead can leave its stored tokens empty; Claude Code does that, not the mod. Only real profile folders are asked.
 - Herdr app 0.1.16 does not load a symlinked mod folder: copy it.
-- Herdr 0.1.16 does not dock a new mod into its shipped `main` layout (tested with `"place": "right"`), its footer and tab bar have no extension points, and mods cannot add palette entries. The `argus` layout (`scripts/build-layout.mjs`) gives it a toolbar button and a panel.
+- Herdr 0.1.16 does not dock a new mod into its shipped `main` layout (tested with `"place": "right"`), its footer and tab bar have no extension points, and mods cannot add palette entries. The `Argus` layout (`scripts/build-layout.mjs`) gives it a toolbar button and a panel.
 - Toasts appear only while a copy runs (the panel, a pane, even in a hidden tab, or the popup).
 - Props reach the mod through `props()` from `herdr`, not through `init`'s first argument.
 - macOS and Linux only.
