@@ -1,8 +1,9 @@
 // Builds the argus layout from Herdr's shipped main layout: Herdr's
-// blocks stay as they are, with a toolbar beside the tab bar and a panel
-// column for this repo's panel mods.
+// blocks stay as they are, with a keep-awake button and a toolbar beside the
+// tab bar and a panel column for this repo's panel mods.
 
 export const TOOLBAR_ID = "argus-toolbar";
+export const AWAKE_ID = "argus-awake";
 export const PANEL_ID = "argus-panel";
 export const STACK_ID = "argus-panels";
 const ROW_ID = "argus-tabs-row";
@@ -10,6 +11,8 @@ const ROW_ID = "argus-tabs-row";
 const PANEL_WIDTH = 440;
 const PANEL_MIN = 280;
 const PANEL_MAX = 900;
+/** The keep-awake block's width in px: one 30 px icon button and a 3 px gap. */
+export const AWAKE_WIDTH = 33;
 
 /**
  * The toolbar's width in px for its buttons: 10 px of padding, then per
@@ -40,8 +43,9 @@ export function panelsFromManifests(entries) {
 }
 
 /**
- * Returns a new layout: `main` with the toolbar beside its `tabs` block and
- * a hidden panel column at the end of its `work-body` row.
+ * Returns a new layout: `main` with the keep-awake button and the toolbar
+ * beside its `tabs` block and a hidden panel column at the end of its
+ * `work-body` row.
  *
  * @param {object} main Herdr's layouts/main.json.
  * @param {{ id: string, label: string, icon: string | null }[]} panels
@@ -50,7 +54,7 @@ export function panelsFromManifests(entries) {
  */
 export function buildLayout(main, panels) {
   const out = structuredClone(main);
-  if (find(out, TOOLBAR_ID) || find(out, PANEL_ID)) throw new Error("already has the argus blocks");
+  if (find(out, TOOLBAR_ID) || find(out, AWAKE_ID) || find(out, PANEL_ID)) throw new Error("already has the argus blocks");
 
   const tabsParent = parentOf(out, "tabs");
   if (!tabsParent) throw new Error("no tabs block");
@@ -66,6 +70,12 @@ export function buildLayout(main, panels) {
     resizable: false,
     children: [
       { ...tabs, size: { weight: 1 } },
+      {
+        id: AWAKE_ID,
+        type: "block",
+        size: { px: AWAKE_WIDTH },
+        content: { mod: AWAKE_ID },
+      },
       {
         id: TOOLBAR_ID,
         type: "block",

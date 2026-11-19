@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLayout, panelsFromManifests, toolbarWidth } from "../scripts/layout-build.mjs";
+import { buildLayout, panelsFromManifests, toolbarWidth, AWAKE_WIDTH } from "../scripts/layout-build.mjs";
 
 const main = () => ({
   id: "root",
@@ -47,7 +47,8 @@ test("wraps the tabs block in a row with the toolbar", () => {
   assert.equal(row.type, "row");
   assert.deepEqual(row.size, { px: 42 });
   assert.equal(row.resizable, false);
-  assert.deepEqual(row.children.map((c) => [c.id, c.size]), [["tabs", { weight: 1 }], ["argus-toolbar", { px: toolbarWidth(panels) }]]);
+  assert.deepEqual(row.children.map((c) => [c.id, c.size]), [["tabs", { weight: 1 }], ["argus-awake", { px: AWAKE_WIDTH }], ["argus-toolbar", { px: toolbarWidth(panels) }]]);
+  assert.deepEqual(find(out, "argus-awake").content, { mod: "argus-awake" });
   assert.deepEqual(find(out, "argus-toolbar").content, {
     mod: "argus-toolbar",
     props: { panel: "argus-panel", stack: "argus-panels", buttons: panels },
@@ -112,6 +113,14 @@ test("panelsFromManifests drops icon paths that leave the mod folder", () => {
 
 test("refuses a layout that already has the argus blocks", () => {
   assert.throws(() => buildLayout(buildLayout(main(), panels), panels), /already has the argus blocks/);
+});
+
+test("refuses a layout that has only the awake block", () => {
+  const out = buildLayout(main(), panels);
+  const row = find(out, "argus-tabs-row");
+  row.children = row.children.filter((c) => c.id !== "argus-toolbar");
+  find(out, "work-body").children = find(out, "work-body").children.filter((c) => c.id !== "argus-panel");
+  assert.throws(() => buildLayout(out, panels), /already has the argus blocks/);
 });
 
 test("the panel column resizes between 280 and 900 px", () => {

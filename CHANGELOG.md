@@ -5,6 +5,13 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- The `argus-awake` mod adds a coffee-cup button beside the Argus toolbar that keeps the display awake: a click turns it on or off, and a right click keeps it awake until no agent is working.
+- `scripts/build-layout.mjs` places the `argus-awake` button in the tab row, left of the toolbar.
+
 ## [1.1.0] - 2026-11-18
 
 ### Added
