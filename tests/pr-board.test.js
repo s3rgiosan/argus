@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ageText,
   emptyMessage,
+  scopeRepos,
   followStatus,
   withFolders,
   prPaneTitle,
@@ -342,4 +343,35 @@ test("emptyMessage: an empty list after failed reads does not claim there are no
   assert.equal(emptyMessage({ ...board, notes: ["gh: error connecting to api.github.com"] }), "No pull requests could be read. See the messages above.");
   // A note that a list was cut is no failed read.
   assert.equal(emptyMessage({ ...board, notes: ["Showing the first 100 pull requests of example-org/example-repo."] }), "No pull requests here");
+});
+
+test("scopeRepos: the provider and host of the repos a scope shows", () => {
+  const lab = { ...project, key: "gitlab.example.com/example-group/example-project", provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project" };
+  const board = assembleBoard(input({ projects: [project, lab] }));
+  const all = { show: "all", where: "all" };
+  assert.deepEqual(scopeRepos(board, all, null), [{ provider: "github", host: "github.com" }, { provider: "gitlab", host: "gitlab.example.com" }]);
+  assert.deepEqual(scopeRepos(board, { show: "all", where: "project", key: lab.key }, null), [{ provider: "gitlab", host: "gitlab.example.com" }]);
+  assert.deepEqual(scopeRepos(board, { show: "mine", where: "follow" }, project.key), [{ provider: "github", host: "github.com" }]);
+  assert.deepEqual(scopeRepos(board, { show: "all", where: "follow" }, null), []);
+  assert.deepEqual(scopeRepos(board, { show: "all", where: "project", key: "unknown" }, null), []);
+});
+
+test("emptyMessage: only a failed read in the scope counts", () => {
+  const board = assembleBoard(input({}));
+  const gh = [{ provider: "github", host: "github.com" }];
+  const gl = [{ provider: "gitlab", host: "gitlab.example.com" }];
+  const failedGl = { ...board, notes: ["glab (gitlab.example.com): 401 Unauthorized"] };
+  assert.equal(emptyMessage(failedGl, gh), "No pull requests here");
+  assert.equal(emptyMessage(failedGl, gl), "No pull requests could be read. See the messages above.");
+  assert.equal(emptyMessage({ ...board, notes: ["glab (other.example.com): timeout"] }, gl), "No pull requests here");
+  const failedGh = { ...board, notes: ["gh: error connecting to api.github.com"] };
+  assert.equal(emptyMessage(failedGh, gl), "No pull requests here");
+  assert.equal(emptyMessage(failedGh, gh), "No pull requests could be read. See the messages above.");
+  assert.equal(emptyMessage({ ...board, notes: ["gh not found. Install GitHub CLI, or set the gh command in Settings."] }, gh), "No pull requests could be read. See the messages above.");
+  assert.equal(emptyMessage({ ...board, notes: ["glab not found. Install GitLab CLI, or set the glab command in Settings."] }, gh), "No pull requests here");
+  // No known repos in scope: any failure counts.
+  assert.equal(emptyMessage(failedGl, []), "No pull requests could be read. See the messages above.");
+  assert.equal(emptyMessage(failedGl), "No pull requests could be read. See the messages above.");
+  // A cut list never counts.
+  assert.equal(emptyMessage({ ...board, notes: ["Showing the first 100 pull requests of example-org/example-repo."] }, gh), "No pull requests here");
 });
