@@ -141,3 +141,21 @@ export function ghDefaultBranchArgs(repo) {
 
 /** The default branch of a GitLab project. Variable: `path`. */
 export const GL_DEFAULT_BRANCH_QUERY = `query($path: ID!) { project(fullPath: $path) { repository { rootRef } } }`;
+
+/** How many issues the New worktree view asks for. */
+export const ISSUE_LIMIT = 50;
+
+/**
+ * The open issues assigned to the signed-in GitHub user.
+ * @param {string} repo
+ * @returns {string[]}
+ */
+export function ghIssuesArgs(repo) {
+  return ["issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open", "--limit", String(ISSUE_LIMIT), "--json", "number,title,updatedAt"];
+}
+
+/** The signed-in GitLab user's username. */
+export const GL_USERNAME_QUERY = "query { currentUser { username } }";
+
+/** The open issues of a GitLab project that one user has. Variables: `path`, `user`. */
+export const GL_ISSUES_QUERY = `query($path: ID!, $user: String!) { project(fullPath: $path) { issues(state: opened, assigneeUsernames: [$user], first: ${ISSUE_LIMIT}) { nodes { iid title updatedAt } } } }`;

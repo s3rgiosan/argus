@@ -5,6 +5,21 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-11-20
+
+### Added
+
+- The `argus-pull-requests` board has a `+` button ("New worktree") right of the filter field. It opens a view that starts a git worktree, and its Herdr space, from a remote branch, a pull request or an issue, for GitHub and GitLab.
+- The view shows one repo, the followed space's repo or else the first, until you pick another. A scrolling list shows the repos, and a repo that leaves the scope gets a note.
+- The Branch tab lists the remote branches without the default branch. A branch that has a worktree shows "worktree" and a pick opens its space. Any other pick checks the name, fetches the branch and adds a worktree. A local branch of the same name moves up to the remote when it is only behind, and a note tells how far it is ahead or behind otherwise.
+- A new branch from a remote branch gets its upstream set after the worktree exists, and a single-branch clone gets a fetch refspec. A failed create deletes the branch it made.
+- The Pull request tab lists the open pull requests of the repo on the board and a pick runs Check out in a worktree.
+- The Issue tab lists the open issues assigned to you, up to 50. A pick adds a worktree on a new branch named after the issue number and title, cut from the fetched default branch, or uses the branch when it exists locally or on the remote.
+- Pull request and Issue rows show "worktree" when a worktree for their branch exists in the Branch list of the repo.
+- The filter field narrows the list, shows "Nothing matches the filter" when it hides every row, and Enter picks the only row left.
+- One create runs at a time across the tabs. Read again keeps the old rows while it reads, and it is hidden on the Pull request tab.
+- The view reads only from GitHub and GitLab, and writes nothing to them.
+
 ## [1.9.0] - 2026-11-20
 
 ### Added
@@ -203,7 +218,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.9.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.10.0...HEAD
+[1.10.0]: https://github.com/s3rgiosan/argus/compare/1.9.0...1.10.0
 [1.9.0]: https://github.com/s3rgiosan/argus/compare/1.8.0...1.9.0
 [1.8.0]: https://github.com/s3rgiosan/argus/compare/1.7.0...1.8.0
 [1.7.0]: https://github.com/s3rgiosan/argus/compare/1.6.0...1.7.0

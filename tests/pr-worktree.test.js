@@ -33,11 +33,24 @@ const PORCELAIN =
 
 test("parseWorktrees", () => {
   assert.deepEqual(parseWorktrees(PORCELAIN), [
-    { path: "/home/test/a", branch: "main" },
-    { path: "/wt/a/pr-42", branch: "pr/42" },
-    { path: "/wt/a/old", branch: null },
+    { path: "/home/test/a", branch: "main", prunable: false },
+    { path: "/wt/a/pr-42", branch: "pr/42", prunable: false },
+    { path: "/wt/a/old", branch: null, prunable: false },
   ]);
   assert.deepEqual(parseWorktrees(""), []);
+});
+
+test("parseWorktrees marks a prunable entry", () => {
+  const text = "worktree /wt/a/gone\nHEAD abc\nbranch refs/heads/pr/7\nprunable gitdir file points to non-existent location\n";
+  assert.deepEqual(parseWorktrees(text), [{ path: "/wt/a/gone", branch: "pr/7", prunable: true }]);
+});
+
+test("checkoutPlan prunes a worktree entry whose folder is gone, then creates", () => {
+  const pr = { provider: "github", number: 7, headRef: "x", repo: "example-org/example-repo", host: "github.com" };
+  const text = "worktree /home/test/a\nHEAD abc\nbranch refs/heads/main\n\nworktree /wt/a/pr-7\nHEAD abc\nbranch refs/heads/pr/7\nprunable gitdir file points to non-existent location\n";
+  const plan = checkoutPlan({ pr, localPath: "/home/test/a", root: "/wt", porcelain: text });
+  assert.equal(plan.kind, "create");
+  assert.deepEqual(plan.prune, ["worktree", "prune"]);
 });
 
 test("checkoutBranch", () => {
@@ -53,6 +66,7 @@ test("checkoutPlan creates a worktree", () => {
     path: "/wt/example-repo/pr-42",
     cwd: "/home/test/example-repo",
     branch: "pr/42",
+    prune: null,
     exists: ["rev-parse", "--verify", "--quiet", "refs/heads/pr/42"],
     peek: ["fetch", "--no-tags", "origin", "refs/pull/42/head"],
     ahead: ["rev-list", "--count", "FETCH_HEAD..refs/heads/pr/42"],
