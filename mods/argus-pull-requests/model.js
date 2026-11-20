@@ -772,3 +772,56 @@ export function parseGlDefaultBranch(text) {
   const name = JSON.parse(text)?.data?.project?.repository?.rootRef;
   return typeof name === "string" && name !== "" ? name : null;
 }
+
+/** @typedef {{number: number, title: string, updatedAt: string}} Issue */
+
+/**
+ * The valid issues, newest update first. An issue needs a positive whole number and a title.
+ * @param {Array<{number: unknown, title: unknown, updatedAt: unknown}>} items
+ * @returns {Issue[]}
+ */
+function issueList(items) {
+  const issues = [];
+  for (const item of items) {
+    if (!isObject(item) || !Number.isInteger(item.number) || item.number <= 0) continue;
+    const title = typeof item.title === "string" ? item.title.trim() : "";
+    if (title === "") continue;
+    issues.push({ number: item.number, title, updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : "" });
+  }
+  return issues.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+}
+
+/**
+ * `ghIssuesArgs` output.
+ * @param {string} text
+ * @returns {Issue[]}
+ */
+export function parseGhIssues(text) {
+  const raw = parseJson(text);
+  if (!Array.isArray(raw)) throw unexpected();
+  return issueList(raw);
+}
+
+/**
+ * `GL_ISSUES_QUERY` output. GitLab gives `iid` as a string.
+ * @param {string} text
+ * @returns {Issue[]}
+ */
+export function parseGlIssues(text) {
+  const data = glReply(text);
+  if (data.project === null) throw new Error("project not found");
+  const nodes = data.project?.issues?.nodes;
+  if (!Array.isArray(nodes)) throw glUnexpected();
+  return issueList(nodes.map((node) => (isObject(node) && /^\d+$/.test(String(node.iid)) ? { ...node, number: Number(node.iid) } : null)));
+}
+
+/**
+ * `GL_USERNAME_QUERY` output.
+ * @param {string} text
+ * @returns {string}
+ */
+export function parseGlUsername(text) {
+  const name = glReply(text).currentUser?.username;
+  if (typeof name !== "string" || name === "") throw glUnexpected();
+  return name;
+}
