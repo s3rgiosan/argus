@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, titleSlug, removePlan, branchDelete, dirtyRefusal, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor } from "../mods/argus-pull-requests/review.js";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, titleSlug, removePlan, branchDelete, dirtyRefusal, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
 
 const known = [
   { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true, agent: true, installed: true, run: ["claude"] },
@@ -125,13 +125,13 @@ test("reviewRuns: worktrees on argus/review-<n>- branches, by pull request", () 
     "worktree /c/repo\nHEAD 1\nbranch refs/heads/main\n\nworktree /w/r12b\nHEAD 2\nbranch refs/heads/argus/review-12-b-2\n\n" +
     "worktree /w/r12a\nHEAD 3\nbranch refs/heads/argus/review-12-a-1\n\nworktree /w/other\nHEAD 4\nbranch refs/heads/argus/reviewer\n\n" +
     "worktree /w/detached\nHEAD 5\ndetached\n";
-  assert.deepEqual(reviewRuns([{ project, porcelain }]), {
+  assert.deepEqual(reviewRuns([{ project, porcelain }], 7), {
     "github.com/example-org/example-repo#12": [
-      { path: "/w/r12a", branch: "argus/review-12-a-1", locked: false, prunable: false },
-      { path: "/w/r12b", branch: "argus/review-12-b-2", locked: false, prunable: false },
+      { path: "/w/r12a", branch: "argus/review-12-a-1", locked: false, prunable: false, seenAt: 7 },
+      { path: "/w/r12b", branch: "argus/review-12-b-2", locked: false, prunable: false, seenAt: 7 },
     ],
   });
-  assert.deepEqual(reviewRuns([]), {});
+  assert.deepEqual(reviewRuns([], 7), {});
 });
 
 test("removePlan and branchDelete", () => {
@@ -168,38 +168,59 @@ const project12 = { key: "github.com/example-org/example-repo", provider: "githu
 
 test("reviewRuns: the main checkout is never a run, even on a review branch", () => {
   const porcelain = "worktree /c/repo\nHEAD 1\nbranch refs/heads/argus/review-30-m\n\nworktree /w/r30\nHEAD 2\nbranch refs/heads/argus/review-30-a\n";
-  assert.deepEqual(reviewRuns([{ project: project12, porcelain }])["github.com/example-org/example-repo#30"].map((r) => r.path), ["/w/r30"]);
+  assert.deepEqual(reviewRuns([{ project: project12, porcelain }], 7)["github.com/example-org/example-repo#30"].map((r) => r.path), ["/w/r30"]);
 });
 
 test("reviewRuns: locked and prunable worktrees carry their flag", () => {
   const porcelain =
     "worktree /c/repo\nHEAD 1\nbranch refs/heads/main\n\nworktree /w/a\nHEAD 2\nbranch refs/heads/argus/review-5-a\nlocked why\n\n" +
     "worktree /w/b\nHEAD 3\nbranch refs/heads/argus/review-5-b\nprunable gitdir file points to non-existent location\n";
-  assert.deepEqual(reviewRuns([{ project: project12, porcelain }])["github.com/example-org/example-repo#5"], [
-    { path: "/w/a", branch: "argus/review-5-a", locked: true, prunable: false },
-    { path: "/w/b", branch: "argus/review-5-b", locked: false, prunable: true },
+  assert.deepEqual(reviewRuns([{ project: project12, porcelain }], 7)["github.com/example-org/example-repo#5"], [
+    { path: "/w/a", branch: "argus/review-5-a", locked: true, prunable: false, seenAt: 7 },
+    { path: "/w/b", branch: "argus/review-5-b", locked: false, prunable: true, seenAt: 7 },
   ]);
 });
 
 test("reviewRuns: PR 12 and PR 123 stay apart", () => {
   const porcelain = "worktree /c/repo\nHEAD 1\nbranch refs/heads/main\n\nworktree /w/a\nHEAD 2\nbranch refs/heads/argus/review-12-x\n\nworktree /w/b\nHEAD 3\nbranch refs/heads/argus/review-123-y\n";
-  const runs = reviewRuns([{ project: project12, porcelain }]);
+  const runs = reviewRuns([{ project: project12, porcelain }], 7);
   assert.deepEqual(Object.keys(runs).sort(), ["github.com/example-org/example-repo#12", "github.com/example-org/example-repo#123"]);
 });
 
-test("keepRuns: a project whose list failed keeps the runs of the last read", () => {
+test("keepRuns: a project whose list failed keeps runs seen in the last 15 minutes", () => {
   const other = { ...project12, key: "github.com/example-org/other", repo: "example-org/other" };
-  const previous = { "github.com/example-org/example-repo#1": [{ path: "/w/old", branch: "argus/review-1-a" }], "github.com/example-org/other#2": [{ path: "/w/gone", branch: "argus/review-2-a" }] };
-  const fresh = { "github.com/example-org/other#3": [{ path: "/w/new", branch: "argus/review-3-a" }] };
-  assert.deepEqual(keepRuns(fresh, previous, [project12]), { ...fresh, "github.com/example-org/example-repo#1": previous["github.com/example-org/example-repo#1"] });
-  assert.deepEqual(keepRuns(fresh, previous, []), fresh);
-  assert.deepEqual(keepRuns(fresh, null, [other]), fresh);
+  const now = 100 * 60 * 1000;
+  const previous = {
+    "github.com/example-org/example-repo#1": [{ path: "/w/old", branch: "argus/review-1-a", seenAt: now - 60 * 1000 }],
+    "github.com/example-org/example-repo#4": [{ path: "/w/stale", branch: "argus/review-4-a", seenAt: now - KEEP_RUNS_MS }],
+    "github.com/example-org/example-repo-two#5": [{ path: "/w/two", branch: "argus/review-5-a", seenAt: now }],
+    "github.com/example-org/other#2": [{ path: "/w/gone", branch: "argus/review-2-a", seenAt: now }],
+  };
+  const fresh = { "github.com/example-org/other#3": [{ path: "/w/new", branch: "argus/review-3-a", seenAt: now }] };
+  assert.deepEqual(keepRuns(fresh, previous, [project12], now), { ...fresh, "github.com/example-org/example-repo#1": previous["github.com/example-org/example-repo#1"] });
+  assert.deepEqual(keepRuns(fresh, previous, [], now), fresh);
+  assert.deepEqual(keepRuns(fresh, null, [other], now), fresh);
+  // A run from an older version has no seenAt and is not kept.
+  assert.deepEqual(keepRuns({}, { "github.com/example-org/example-repo#1": [{ path: "/w", branch: "b" }] }, [project12], now), {});
 });
+
+test("hidesRemoved: a removed row stays hidden only until the board reads again", () => {
+  assert.equal(hidesRemoved({ removed: true, at: 50 }, 40), true);
+  assert.equal(hidesRemoved({ removed: true, at: 50 }, 50), true);
+  assert.equal(hidesRemoved({ removed: true, at: 50 }, 51), false);
+  assert.equal(hidesRemoved({ confirm: null }, 10), false);
+  assert.equal(hidesRemoved(undefined, 10), false);
+});
+
 
 test("startRefusal: the base branch must be a plain name and the head commit hex", () => {
   for (const baseRef of ["x$(id)", "x`id`", "a;b", "-x", "", "a b"]) {
     assert.match(startRefusal({ ...gh, pr: { ...gh.pr, baseRef } }), /base branch/, baseRef);
   }
+  // The message names the branch and says the review cannot start for it.
+  const text = startRefusal({ ...gh, pr: { ...gh.pr, baseRef: "release/1.0+hotfix" } });
+  assert.match(text, /"release\/1\.0\+hotfix"/);
+  assert.match(text, /cannot start/);
   assert.equal(startRefusal({ ...gh, pr: { ...gh.pr, baseRef: "release/1.2_x" } }), null);
   assert.match(startRefusal({ ...gh, headSha: "not-a-sha" }), /head commit/);
   assert.match(startRefusal({ ...gh, pr: { ...gh.pr, state: "closed" } }), /no longer open/);
@@ -219,13 +240,32 @@ test("takesRequest: the pane that opened the dialog runs each request once", () 
   assert.equal(takesRequest({ id: 5, owner: "pane-a" }, "pane-a", null), false);
 });
 
-test("resultFor: the result of this dialog's request only", () => {
-  assert.deepEqual(resultFor({ id: "r1", state: "done", error: null }, "r1"), { state: "done", error: null });
-  assert.deepEqual(resultFor({ id: "r1", state: "done", error: "git: x" }, "r1"), { state: "done", error: "git: x" });
-  assert.deepEqual(resultFor({ id: "r1", state: "running", error: null }, "r1"), { state: "running", error: null });
-  assert.equal(resultFor({ id: "r0", state: "done", error: null }, "r1"), null);
+test("withResult and resultFor: one result per request, old ones dropped", () => {
+  let map = withResult(null, "r1", "running", null, 1000);
+  map = withResult(map, "r2", "done", "git: x", 2000);
+  assert.deepEqual(resultFor(map, "r1"), { state: "running", error: null, seen: false });
+  assert.deepEqual(resultFor(map, "r2"), { state: "done", error: "git: x", seen: false });
+  assert.equal(resultFor(map, "r0"), null);
   assert.equal(resultFor(null, "r1"), null);
+  assert.equal(resultFor({ r1: "bad" }, "r1"), null);
+  // A result older than ten minutes goes when another is written.
+  assert.equal(resultFor(withResult(map, "r3", "running", null, 1000 + 10 * 60 * 1000), "r1"), null);
+  assert.equal(resultFor(markSeen(map, "r2"), "r2").seen, true);
+  assert.equal(markSeen(map, "r9"), map);
 });
+
+test("startState: waiting, lost, running, stuck, done", () => {
+  assert.equal(startState(null, 0, REVIEW_TAKE_MS - 1), "waiting");
+  assert.equal(startState(null, 0, REVIEW_TAKE_MS), "lost");
+  assert.equal(startState({ state: "running", error: null }, 0, REVIEW_RUN_MS - 1), "running");
+  assert.equal(startState({ state: "running", error: null }, 0, REVIEW_RUN_MS), "stuck");
+  assert.equal(startState({ state: "done", error: null }, 0, REVIEW_RUN_MS * 2), "done");
+  assert.match(startMessage("lost"), /pane is not open/);
+  assert.match(startMessage("stuck"), /did not finish/);
+  assert.match(startMessage("stuck"), /Agent tab/);
+  assert.equal(startMessage("running"), null);
+});
+
 
 test("agentChoices: every Claude account hidden leaves Claude Code out", () => {
   const choices = agentChoices(known, profiles, { names: {}, hidden: ["~/.claude", "~/.claude-work"] }, "/home/test");

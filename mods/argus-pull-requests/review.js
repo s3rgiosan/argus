@@ -8,7 +8,7 @@ import { fetchRef } from "./forge.js";
 /** @typedef {import("./accounts.js").Profile} Profile */
 /** @typedef {import("./model.js").Detail} Detail */
 /** @typedef {import("./remote.js").Project} Project */
-/** @typedef {{path: string, branch: string, locked: boolean, prunable: boolean}} Run */
+/** @typedef {{path: string, branch: string, locked: boolean, prunable: boolean, seenAt: number}} Run */
 /**
  * @typedef {{key: string, name: string, icon: string|null, tint: boolean, agent: boolean, installed: boolean, run: string[]}} KnownAgent
  * @typedef {{id: string, label: string, argv: string[], model: boolean, icon: string|null, tint: boolean}} Choice
@@ -223,9 +223,10 @@ function linkedWorktrees(porcelain) {
  * The review runs of each pull request, keyed like `prKey`: the linked worktrees of each
  * project whose branch starts `argus/review-<number>-`, sorted by branch.
  * @param {{project: Project, porcelain: string}[]} listings `git worktree list --porcelain` per project.
+ * @param {number} now When the lists were read; each run keeps it as `seenAt`.
  * @returns {Record<string, Run[]>}
  */
-export function reviewRuns(listings) {
+export function reviewRuns(listings, now) {
   /** @type {Record<string, Run[]>} */
   const runs = {};
   for (const { project, porcelain } of listings) {
@@ -233,29 +234,46 @@ export function reviewRuns(listings) {
       const match = worktree.branch === null ? null : REVIEW_BRANCH.exec(worktree.branch);
       if (!match) continue;
       const key = `${project.host}/${project.repo}#${Number(match[1])}`.toLowerCase();
-      (runs[key] ??= []).push({ path: worktree.path, branch: worktree.branch, locked: worktree.locked, prunable: worktree.prunable });
+      (runs[key] ??= []).push({ path: worktree.path, branch: worktree.branch, locked: worktree.locked, prunable: worktree.prunable, seenAt: now });
     }
   }
   for (const list of Object.values(runs)) list.sort((a, b) => (a.branch < b.branch ? -1 : a.branch > b.branch ? 1 : 0));
   return runs;
 }
 
+/** How long a run seen in a read stays on the board while its project's worktree list fails. */
+export const KEEP_RUNS_MS = 15 * 60 * 1000;
+
 /**
- * The runs of a read, with the runs of the last read kept for each project whose
- * worktree list failed, so one slow git call does not hide them until the next read.
+ * The runs of a read, with the runs of the last read kept for each project whose worktree
+ * list failed, so one slow git call does not hide them. A run not seen for KEEP_RUNS_MS goes,
+ * so a project whose list always fails does not keep its runs forever.
  * @param {Record<string, Run[]>} fresh
  * @param {Record<string, Run[]>|null} previous
  * @param {Project[]} failed
+ * @param {number} now
  * @returns {Record<string, Run[]>}
  */
-export function keepRuns(fresh, previous, failed) {
+export function keepRuns(fresh, previous, failed, now) {
   const out = { ...fresh };
   if (!previous) return out;
   const prefixes = failed.map((project) => `${project.host}/${project.repo}#`.toLowerCase());
   for (const [key, list] of Object.entries(previous)) {
-    if (prefixes.some((prefix) => key.startsWith(prefix))) out[key] = list;
+    if (!prefixes.some((prefix) => key.startsWith(prefix))) continue;
+    const recent = list.filter((run) => typeof run.seenAt === "number" && now - run.seenAt < KEEP_RUNS_MS);
+    if (recent.length > 0) out[key] = recent;
   }
   return out;
+}
+
+/**
+ * True when a removed run's row stays hidden: from the removal until the board reads again.
+ * @param {{removed?: boolean, at?: number}|undefined} state The row's removal state.
+ * @param {number} boardReadAt When the board was read (`fetchedAtOf`).
+ * @returns {boolean}
+ */
+export function hidesRemoved(state, boardReadAt) {
+  return state?.removed === true && typeof state.at === "number" && boardReadAt <= state.at;
 }
 
 /**
@@ -309,17 +327,81 @@ export function takesRequest(request, owner, taken) {
   return typeof id === "string" && by === owner && id !== taken;
 }
 
+/** How long the dialog waits for its pane to take a Start request. */
+export const REVIEW_TAKE_MS = 5_000;
+
+/** How long a Start may run before the dialog calls it stuck: the reads and a slow worktree add. */
+export const REVIEW_RUN_MS = 120_000;
+
+/** How long a finished Start result stays in shared state. */
+const RESULT_KEEP_MS = 10 * 60 * 1000;
+
 /**
- * The state of the dialog's Start request in the shared result, or null when the result is for another request.
- * @param {unknown} result The shared result: {id, state: "running"|"done", error}.
+ * A copy of the shared results with request `id` at `state`. Results older than ten minutes
+ * go, so the map stays small; each request has its own entry, so two starts never overwrite each other.
+ * @param {unknown} map The shared map of request id to {state, error, at, seen}.
  * @param {string} id
- * @returns {{state: string, error: string|null}|null}
+ * @param {"running"|"done"} state
+ * @param {string|null} error
+ * @param {number} now
+ * @returns {Record<string, {state: string, error: string|null, at: number, seen: boolean}>}
  */
-export function resultFor(result, id) {
-  if (!result || typeof result !== "object") return null;
-  const r = /** @type {Record<string, unknown>} */ (result);
-  if (r.id !== id || typeof r.state !== "string") return null;
-  return { state: r.state, error: typeof r.error === "string" ? r.error : null };
+export function withResult(map, id, state, error, now) {
+  const base = map && typeof map === "object" ? map : {};
+  const kept = Object.fromEntries(Object.entries(base).filter(([, entry]) => entry && typeof entry === "object" && now - entry.at < RESULT_KEEP_MS));
+  return { ...kept, [id]: { state, error, at: now, seen: false } };
+}
+
+/**
+ * A copy of the shared results with request `id` marked as seen by its dialog, or the map itself when `id` is not in it.
+ * @param {unknown} map
+ * @param {string} id
+ */
+export function markSeen(map, id) {
+  if (!map || typeof map !== "object" || !map[id]) return map;
+  return { ...map, [id]: { ...map[id], seen: true } };
+}
+
+/**
+ * The result of the dialog's Start request, or null when the pane has not written one.
+ * @param {unknown} map The shared results.
+ * @param {string} id
+ * @returns {{state: string, error: string|null, seen: boolean}|null}
+ */
+export function resultFor(map, id) {
+  const entry = map && typeof map === "object" ? map[id] : null;
+  if (!entry || typeof entry !== "object" || typeof entry.state !== "string") return null;
+  return { state: entry.state, error: typeof entry.error === "string" ? entry.error : null, seen: entry.seen === true };
+}
+
+/**
+ * Where a Start request is, as the dialog sees it: no result yet ("waiting", then "lost" after
+ * REVIEW_TAKE_MS), "running", "stuck" after REVIEW_RUN_MS (the pane closed mid-run), or "done".
+ * @param {{state: string}|null} result
+ * @param {number} startedAt
+ * @param {number} now
+ * @returns {"waiting"|"lost"|"running"|"stuck"|"done"}
+ */
+export function startState(result, startedAt, now) {
+  if (result === null) return now - startedAt >= REVIEW_TAKE_MS ? "lost" : "waiting";
+  if (result.state === "done") return "done";
+  return now - startedAt >= REVIEW_RUN_MS ? "stuck" : "running";
+}
+
+/**
+ * The dialog's message for a Start that will not finish, or null.
+ * @param {string} state A `startState` value.
+ * @returns {string|null}
+ */
+export function startMessage(state) {
+  switch (state) {
+    case "lost":
+      return "The pull request pane is not open. Open it, then start again.";
+    case "stuck":
+      return "The start did not finish. The worktree may exist: look in the Agent tab of the pull request pane, where you can open or remove it.";
+    default:
+      return null;
+  }
 }
 
 /**
@@ -333,7 +415,9 @@ export function startRefusal(detail) {
   if (typeof detail.headSha !== "string" || !HEX_SHA.test(detail.headSha)) return "The head commit of this pull request is not known. Read it again, then retry.";
   if (detail.pr.state !== "open") return "This pull request is no longer open.";
   // The prompt puts the base branch in shell commands, so only plain names go through.
-  if (!PLAIN_BRANCH.test(detail.pr.baseRef)) return "The base branch name has characters that the review prompt cannot use in a command.";
+  if (!PLAIN_BRANCH.test(detail.pr.baseRef)) {
+    return `The review cannot start for this pull request: its base branch ${JSON.stringify(detail.pr.baseRef)} has characters other than letters, digits, ".", "_", "/" and "-", which the review prompt cannot put in a shell command.`;
+  }
   return null;
 }
 

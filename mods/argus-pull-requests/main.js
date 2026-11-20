@@ -18,7 +18,7 @@ import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
-import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor } from "./review.js";
+import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, readFirst } from "./accounts.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
@@ -38,10 +38,10 @@ const USAGE_SETTINGS_KEY = "argus-claude-usage.settings";
 // A Start request from a Review with agent dialog, run by the pull request pane that opened it:
 // {id, owner, pr, argv, branch, extra}. The pane keeps running it when the dialog closes.
 const REVIEW_START_KEY = "argus-pull-requests.reviewStart";
-// The state of the last Start request: {id, state: "running"|"done", error}.
+// The state of each recent Start request, by id: {state: "running"|"done", error, at, seen}.
 const REVIEW_RESULT_KEY = "argus-pull-requests.reviewResult";
-// How long a dialog waits for its pane to take a Start request.
-const REVIEW_TAKE_MS = 5_000;
+// How long the pane waits for the dialog to show a failed start before it shows a toast.
+const REVIEW_TOAST_MS = 1_500;
 const REVIEW_WIDTH = 460;
 const REVIEW_HEIGHT = 600;
 const MOD = "argus-pull-requests";
@@ -323,7 +323,8 @@ export default class PullRequests extends View {
       return listing;
     });
     const failed = local.filter((_project, index) => listings[index] === null);
-    return keepRuns(reviewRuns(listings.filter((listing) => listing !== null)), readBoard().reviews, failed);
+    const now = Date.now();
+    return keepRuns(reviewRuns(listings.filter((listing) => listing !== null), now), readBoard().reviews, failed, now);
   }
 
   /** Caches what `folder` is: a repository entry, or null. A rejected probe caches nothing. */
@@ -683,13 +684,21 @@ export default class PullRequests extends View {
     }
     const model = choice.model ? this.modelInput.value() : "";
     const id = randomUUID();
+    const startedAt = Date.now();
     this.review = { ...review, starting: true, error: null, startId: id };
     setShared(REVIEW_START_KEY, { id, owner: review.owner, pr: review.pr, argv: agentArgv(choice, model), branch, extra: this.extraInput.value() });
-    cx.timer.after(REVIEW_TAKE_MS, (cx) => {
-      if (this.review?.startId !== id || resultFor(shared(REVIEW_RESULT_KEY), id) !== null) return;
-      this.review = { ...this.review, starting: false, error: "The pull request pane is not open. Open it, then start again." };
+    // A start the pane never takes, or never finishes, ends with a message, and its request is withdrawn
+    // so the pane cannot run it later.
+    const check = (cx) => {
+      if (this.review?.startId !== id) return;
+      const message = startMessage(startState(resultFor(shared(REVIEW_RESULT_KEY), id), startedAt, Date.now()));
+      if (message === null) return;
+      if (shared(REVIEW_START_KEY)?.id === id) setShared(REVIEW_START_KEY, null);
+      this.review = { ...this.review, starting: false, error: message };
       cx.notify();
-    });
+    };
+    cx.timer.after(REVIEW_TAKE_MS, check);
+    cx.timer.after(REVIEW_RUN_MS, check);
     cx.notify();
   }
 
@@ -697,16 +706,19 @@ export default class PullRequests extends View {
   runRequest(cx, request) {
     cx.spawn(async (cx) => {
       await cx.sleep(0);
-      setShared(REVIEW_RESULT_KEY, { id: request.id, state: "running", error: null });
+      setShared(REVIEW_RESULT_KEY, withResult(shared(REVIEW_RESULT_KEY), request.id, "running", null, Date.now()));
       let error;
       try {
         error = await this.runReview(request.pr, request.argv, request.branch, request.extra);
       } catch (caught) {
         error = caught?.message ?? String(caught);
       }
-      setShared(REVIEW_RESULT_KEY, { id: request.id, state: "done", error });
-      if (error !== null) notify({ title: "Review with agent did not start", body: error, level: "warning" });
+      setShared(REVIEW_RESULT_KEY, withResult(shared(REVIEW_RESULT_KEY), request.id, "done", error, Date.now()));
       cx.notify();
+      if (error === null) return;
+      // The dialog shows the error when it is open; the toast is for a dialog that closed.
+      await cx.sleep(REVIEW_TOAST_MS);
+      if (resultFor(shared(REVIEW_RESULT_KEY), request.id)?.seen !== true) notify({ title: "Review with agent did not start", body: error, level: "warning" });
     });
   }
 
@@ -741,13 +753,14 @@ export default class PullRequests extends View {
     // render; an error shows in it.
     const outcome = this.review?.startId ? resultFor(shared(REVIEW_RESULT_KEY), this.review.startId) : null;
     if (outcome?.state === "done" && this.review.handled !== this.review.startId) {
-      this.review = { ...this.review, handled: this.review.startId, starting: outcome.error !== null ? false : this.review.starting, error: outcome.error };
-      if (outcome.error === null) {
-        cx.spawn(async (cx) => {
-          await cx.sleep(0);
-          closeOverlay(props()?.overlay);
-        });
-      }
+      const id = this.review.startId;
+      this.review = { ...this.review, handled: id, starting: outcome.error !== null ? false : this.review.starting, error: outcome.error };
+      cx.spawn(async (cx) => {
+        await cx.sleep(0);
+        // Marks the result seen, so the pane shows no toast for an error the dialog shows.
+        setShared(REVIEW_RESULT_KEY, markSeen(shared(REVIEW_RESULT_KEY), id));
+        if (outcome.error === null) closeOverlay(props()?.overlay);
+      });
     }
     const review = this.review;
     const pr = review?.pr ?? null;
@@ -828,8 +841,9 @@ export default class PullRequests extends View {
   /** One review run in the Agent section: its branch, Open space and Remove worktree, with the remove confirm. */
   reviewRunRow(t, index, reviewRun, localPath) {
     const state = this.removals.get(reviewRun.path) ?? { confirm: null, running: false, error: null };
-    // A removed run stays on the board until the next read; its row goes at once.
-    if (state.removed) return null;
+    // A removed run stays on the board until the next read; its row goes at once and comes back
+    // only if a later read still lists a worktree at that path.
+    if (hidesRemoved(state, fetchedAtOf(readBoard()))) return null;
     const set = (patch, cx) => {
       this.removals.set(reviewRun.path, { ...state, ...patch });
       cx.notify();
@@ -879,7 +893,7 @@ export default class PullRequests extends View {
       try {
         const removed = await exec("git", removePlan(reviewRun, force), { cwd: localPath, timeout: GIT_TIMEOUT });
         if (removed.code === 0 || goneRefusal(removed.stderr)) {
-          next = { removed: true };
+          next = { removed: true, at: Date.now() };
         } else if (!force && dirtyRefusal(removed.stderr)) {
           next = { confirm: "dirty", running: false, error: null };
         } else {
