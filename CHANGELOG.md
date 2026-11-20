@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `argus-pull-requests` pane shows file comments under their review, with the file, the line and whether the thread is open or resolved, for GitHub and GitLab.
 - The pane header shows the pull request's place in the board's list, with arrows to move to the previous or next one.
 - Merge ▾ lists the merge methods the repo allows, with your default marked.
+- Comments, file comments and the description render as Markdown, and people show by their display name.
 
 ### Changed
 

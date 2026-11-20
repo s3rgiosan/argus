@@ -16,7 +16,7 @@ export const GL_USER_QUERY = `query { currentUser { reviewRequestedMergeRequests
 
 export const GL_PROJECT_QUERY = `query($path: ID!) { project(fullPath: $path) { mergeRequests(state: opened, first: ${LIST_LIMIT}) { nodes { ${GL_MR_FIELDS} } } } }`;
 
-export const GL_DETAIL_QUERY = `query($path: ID!, $iid: String!) { project(fullPath: $path) { mergeRequest(iid: $iid) { ${GL_MR_FIELDS} description diffHeadSha squashOnMerge headPipeline { status jobs(first: 100) { nodes { name status } } } reviewers { nodes { username mergeRequestInteraction { reviewState } } } discussions(first: 100) { nodes { resolved resolvable notes { nodes { author { username } body createdAt system position { filePath newLine oldLine } } } } } targetProject { fullPath squashReadOnly } } } }`;
+export const GL_DETAIL_QUERY = `query($path: ID!, $iid: String!) { project(fullPath: $path) { mergeRequest(iid: $iid) { ${GL_MR_FIELDS} description diffHeadSha squashOnMerge headPipeline { status jobs(first: 100) { nodes { name status } } } reviewers { nodes { username mergeRequestInteraction { reviewState } } } discussions(first: 100) { nodes { resolved resolvable notes { nodes { author { username name } body createdAt system position { filePath newLine oldLine } } } } } targetProject { fullPath squashReadOnly } } } }`;
 
 /** @returns {string[]} */
 export function ghLoginArgs() {
@@ -57,9 +57,9 @@ export function ghViewArgs(repo, number) {
   return ["pr", "view", String(number), "--repo", repo, "--json", GH_VIEW_FIELDS];
 }
 
-/** The review threads of one pull request: file, line, resolved, and comments with their review. */
+/** The review threads of one pull request (file, line, resolved, comments with their review) and the display names of its participants. */
 export const GH_THREADS_QUERY =
-  "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved path line originalLine comments(first: 50) { nodes { author { login } body createdAt pullRequestReview { id } } } } } } } }";
+  "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { participants(first: 100) { nodes { login name } } reviewThreads(first: 100) { nodes { isResolved path line originalLine comments(first: 50) { nodes { author { login } body createdAt pullRequestReview { id } } } } } } } }";
 
 /**
  * The `gh api graphql` arguments for the review threads of pull request `number` in `repo` (`owner/name`).

@@ -12,7 +12,8 @@
  * @typedef {{path: string, line: number|null, resolved: boolean, reviewId: string|null, comments: ThreadComment[]}} Thread
  *   A file comment thread; `reviewId` links it to its GitHub review, null on GitLab.
  */
-/** @typedef {{pr: Pr, body: string, headSha: string|null, squash: boolean, checks: Check[], reviewers: Reviewer[], merge: {state: Pr["mergeable"], reason: string|null}, conversation: Entry[], threads: Thread[], threadsError: string|null, threadsNote: string|null, squashLocked: boolean}} Detail */
+/** @typedef {{pr: Pr, body: string, headSha: string|null, squash: boolean, checks: Check[], reviewers: Reviewer[], merge: {state: Pr["mergeable"], reason: string|null}, conversation: Entry[], threads: Thread[], threadsError: string|null, threadsNote: string|null, squashLocked: boolean, names: Record<string, string>}} Detail */
+/** `names` maps a login to the display name the forge gives, for the logins that have one. */
 
 const GH_HOST = "github.com";
 
@@ -235,7 +236,8 @@ function ghConversation(raw) {
  * by time; a thread belongs to the review of its first comment. `truncated` is true when the
  * list reached its limit of 100.
  * @param {string} text
- * @returns {{threads: Thread[], truncated: boolean}}
+ * `names` maps each participant's login to their display name, when they set one.
+ * @returns {{threads: Thread[], truncated: boolean, names: Record<string, string>}}
  */
 export function parseGhThreads(text) {
   const raw = parseJson(text);
@@ -260,20 +262,27 @@ export function parseGhThreads(text) {
       comments: comments.map(({ author, body, at }) => ({ author, body, at })),
     });
   }
-  return { threads, truncated: nodes.length >= THREAD_LIMIT };
+  /** @type {Record<string, string>} */
+  const names = {};
+  const people = raw.data?.repository?.pullRequest?.participants?.nodes;
+  for (const person of Array.isArray(people) ? people : []) {
+    const name = typeof person?.name === "string" ? person.name.trim() : "";
+    if (typeof person?.login === "string" && name !== "") names[person.login] = name;
+  }
+  return { threads, truncated: nodes.length >= THREAD_LIMIT, names };
 }
 
 /**
  * The detail with the result of the thread read: its threads and limit note, or the read's error.
  * A failed thread read leaves the rest of the detail as it is.
  * @param {Detail} detail
- * @param {{threads: Thread[], truncated: boolean}|null} read
+ * @param {{threads: Thread[], truncated: boolean, names?: Record<string, string>}|null} read
  * @param {string|null} error
  * @returns {Detail}
  */
 export function mergeThreads(detail, read, error) {
   if (read === null) return { ...detail, threads: [], threadsNote: null, threadsError: error };
-  return { ...detail, threads: read.threads, threadsNote: read.truncated ? THREADS_LIMIT_NOTE : null, threadsError: null };
+  return { ...detail, threads: read.threads, threadsNote: read.truncated ? THREADS_LIMIT_NOTE : null, threadsError: null, names: { ...detail.names, ...(read.names ?? {}) } };
 }
 
 /**
@@ -298,6 +307,7 @@ export function parseGhDetail(text, repo) {
     threadsError: null,
     threadsNote: null,
     squashLocked: false,
+    names: {},
   };
 }
 
@@ -516,31 +526,35 @@ const THREAD_LIMIT = 100;
 
 /**
  * The human notes of a GitLab discussion, oldest first, without system notes.
- * @returns {Array<{author: string, body: string, at: string, position: unknown}>}
+ * @returns {Array<{author: string, name: string, body: string, at: string, position: unknown}>}
  */
 function glNotes(discussion) {
   const nodes = discussion?.notes?.nodes;
   if (!Array.isArray(nodes)) return [];
   return nodes
     .filter((note) => isObject(note) && note.system !== true && String(note.body ?? "") !== "")
-    .map((note) => ({ author: String(note.author?.username ?? ""), body: String(note.body), at: String(note.createdAt ?? ""), position: note.position }))
+    .map((note) => ({ author: String(note.author?.username ?? ""), name: typeof note.author?.name === "string" ? note.author.name.trim() : "", body: String(note.body), at: String(note.createdAt ?? ""), position: note.position }))
     .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }
 
 /**
  * The conversation and the file threads of a GitLab merge request. A discussion whose
  * first note has a file position is a thread; the notes of every other discussion are entries.
- * @returns {{conversation: Entry[], threads: Thread[], threadsNote: string|null}}
+ * `names` maps each note author's username to their display name.
+ * @returns {{conversation: Entry[], threads: Thread[], threadsNote: string|null, names: Record<string, string>}}
  */
 function glDiscussions(node) {
   const nodes = node.discussions?.nodes;
-  if (!Array.isArray(nodes)) return { conversation: [], threads: [], threadsNote: null };
+  if (!Array.isArray(nodes)) return { conversation: [], threads: [], threadsNote: null, names: {} };
   const conversation = [];
   const threads = [];
+  /** @type {Record<string, string>} */
+  const names = {};
   for (const discussion of nodes) {
     if (!isObject(discussion)) continue;
     const notes = glNotes(discussion);
     if (notes.length === 0) continue;
+    for (const note of notes) if (note.author !== "" && note.name !== "") names[note.author] = note.name;
     const position = notes[0].position;
     if (isObject(position) && typeof position.filePath === "string") {
       const line = Number.isInteger(position.newLine) ? position.newLine : Number.isInteger(position.oldLine) ? position.oldLine : null;
@@ -556,7 +570,7 @@ function glDiscussions(node) {
     for (const { author, body, at } of notes) conversation.push({ author, body, at, kind: "comment", state: null, id: null });
   }
   conversation.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
-  return { conversation, threads, threadsNote: nodes.length >= THREAD_LIMIT ? THREADS_LIMIT_NOTE : null };
+  return { conversation, threads, threadsNote: nodes.length >= THREAD_LIMIT ? THREADS_LIMIT_NOTE : null, names };
 }
 
 /**

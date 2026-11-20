@@ -59,7 +59,8 @@
                 "nodes": [
                   {
                     "author": {
-                      "username": "review-user"
+                      "username": "review-user",
+                      "name": "Review User"
                     },
                     "body": "Example note.",
                     "createdAt": "2026-11-12T09:00:00Z",
@@ -68,7 +69,8 @@
                   },
                   {
                     "author": {
-                      "username": "octo-user"
+                      "username": "octo-user",
+                      "name": "Octo User"
                     },
                     "body": "added 1 commit",
                     "createdAt": "2026-11-12T08:00:00Z",
@@ -85,7 +87,8 @@
                 "nodes": [
                   {
                     "author": {
-                      "username": "review-user"
+                      "username": "review-user",
+                      "name": "Review User"
                     },
                     "body": "Rename this.",
                     "createdAt": "2026-11-12T09:20:00Z",
@@ -98,7 +101,8 @@
                   },
                   {
                     "author": {
-                      "username": "octo-user"
+                      "username": "octo-user",
+                      "name": "Octo User"
                     },
                     "body": "Done.",
                     "createdAt": "2026-11-12T09:30:00Z",

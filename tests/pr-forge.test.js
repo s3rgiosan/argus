@@ -81,3 +81,8 @@ test("ghThreadsArgs asks GraphQL for the review threads of one pull request", ()
   ]);
   assert.match(GH_THREADS_QUERY, /reviewThreads\(first: 100\) \{ nodes \{ isResolved path line originalLine comments\(first: 50\)/);
 });
+
+test("the detail reads ask for display names", () => {
+  assert.match(GH_THREADS_QUERY, /participants\(first: 100\) \{ nodes \{ login name \} \}/);
+  assert.match(GL_DETAIL_QUERY, /author \{ username name \} body createdAt system position/);
+});

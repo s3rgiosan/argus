@@ -86,6 +86,24 @@ export function checkGroups(checks) {
   };
 }
 
+/** At most this many checks show one by one when none failed or runs. */
+const FEW_CHECKS = 5;
+
+/**
+ * The Checks section: the rows to list and the line that folds the passed checks, or null for
+ * no line. Failed and running checks are always listed; passed ones fold into one line that
+ * `passedOpen` opens, except a few passed checks with nothing failed or running, which are listed as they are.
+ * @param {import("./model.js").Check[]} checks
+ * @param {boolean} passedOpen
+ * @returns {{rows: import("./model.js").Check[], passedLine: {count: number, open: boolean}|null}}
+ */
+export function checkLayout(checks, passedOpen) {
+  const { problems, passed } = checkGroups(checks);
+  if (passed.length === 0) return { rows: problems, passedLine: null };
+  if (problems.length === 0 && passed.length <= FEW_CHECKS) return { rows: passed, passedLine: null };
+  return { rows: passedOpen ? [...problems, ...passed] : problems, passedLine: { count: passed.length, open: passedOpen } };
+}
+
 /**
  * The text beside each section heading, so a folded section still says what it holds.
  * @param {Detail} detail

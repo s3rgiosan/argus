@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkGroups, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
+import { checkGroups, checkLayout, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
 import { NO_METHOD } from "../mods/argus-pull-requests/actions.js";
 import { assembleBoard } from "../mods/argus-pull-requests/board.js";
 
@@ -188,4 +188,15 @@ test("sectionSummaries: the text beside each section heading", () => {
   assert.equal(sectionSummaries(detail(), [{ path: "/w", branch: "b" }, { path: "/x", branch: "c" }], true).agent, "2 worktrees");
   assert.equal(sectionSummaries(detail(), [], false).agent, "no local checkout");
   assert.deepEqual(sectionSummaries(detail(), [], true), { checks: "none", reviews: "none yet", agent: "none yet", conversation: "no comments" });
+});
+
+test("checkLayout: problems listed, passed ones in one line unless few and nothing failed", () => {
+  const passed = check("passed", 12);
+  const problems = [{ name: "lint", state: "failed" }];
+  assert.deepEqual(checkLayout([...problems, ...passed], false), { rows: problems, passedLine: { count: 12, open: false } });
+  assert.deepEqual(checkLayout([...problems, ...passed], true), { rows: [...problems, ...passed], passedLine: { count: 12, open: true } });
+  // With nothing failed or running and five checks or fewer, they are listed without the line.
+  assert.deepEqual(checkLayout(check("passed", 3), false), { rows: check("passed", 3), passedLine: null });
+  assert.deepEqual(checkLayout(check("passed", 6), false), { rows: [], passedLine: { count: 6, open: false } });
+  assert.deepEqual(checkLayout([], false), { rows: [], passedLine: null });
 });

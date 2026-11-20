@@ -3,8 +3,8 @@
 // State, reads and actions stay in main.js; handlers come in through `on`.
 
 import { div, svg } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
-import { frame, scrollArea, note } from "./ui.js";
+import { h_flex, v_flex, TextView } from "gpui-base";
+import { frame, scrollArea } from "./ui.js";
 
 /** The pane's sections, in order. */
 export const SECTIONS = [
@@ -34,6 +34,16 @@ function verdictTone(t, group) {
   }
 }
 
+/** Muted text inside a section, with no padding of its own, so it lines up with the other rows. */
+function muted(t, text) {
+  return div().text_color(t.muted).whitespace_normal().child(text);
+}
+
+/** Markdown from a comment or a description, as Herdr's TextView draws it. */
+function markdown(t, id, text) {
+  return div().text_color(t.foreground).child(TextView.markdown(id, text).selectable(true));
+}
+
 /** A small tinted label, as Herdr's "Needs you" chip. */
 function chip(t, id, text, color) {
   return div().id(id).flex_none().px(6).h(20).flex().items_center().rounded(5).bg(`${color}26`).text_size(11).font_medium().text_color(color).child(text);
@@ -51,7 +61,7 @@ export function iconAction(t, id, path, onClick, { enabled = true, tooltip = nul
  * The pull request pane.
  * @param {object} t The theme.
  * @param {object} view What to show: `detail`, `verdict` (`verdictOf`), `summaries` (`sectionSummaries`),
- *   `open` (the open section ids), `checks` (`checkGroups`), `passedOpen`, `items` (`conversationItems`),
+ *   `open` (the open section ids), `checks` (`checkLayout`), `items` (`conversationItems`), `nameOf(login)`,
  *   `position` (`positionIn` or null), `hasCheckout`, `checkingOut`, `error`, `now`, `age(at, now)`,
  *   `icon(name)` (a path), `agentRows` (elements), `bottom` (an element: the area under the scroll).
  * @param {object} on Handlers, each given the click's `cx` last: `toggle(section, cx)`, `togglePassed(cx)`,
@@ -105,9 +115,9 @@ export function prPane(t, view, on) {
     parts.push(
       h_flex()
         .id(`sec-${id}`)
-        .mt(6)
+        .mt(4)
         .px(14)
-        .py(4)
+        .py(6)
         .gap(6)
         .items_center()
         .cursor_pointer()
@@ -118,7 +128,8 @@ export function prPane(t, view, on) {
         .child(div().flex_1())
         .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(view.summaries[id] ?? "")),
     );
-    if (open) parts.push(v_flex().px(14).pt(2).pb(4).gap(6).children(sectionBody(t, id, view, on)));
+    // Every section body has the same inset and gap, so text, rows and notes line up.
+    if (open) parts.push(v_flex().px(14).pt(4).pb(10).gap(8).children(sectionBody(t, id, view, on)));
   }
   parts.push(div().h(10));
 
@@ -133,44 +144,51 @@ function sectionBody(t, id, view, on) {
   const { detail } = view;
   switch (id) {
     case "checks": {
-      const { problems, passed } = view.checks;
-      if (problems.length === 0 && passed.length === 0) return [note(t, "No checks")];
-      const rows = problems.map((check, index) => checkRow(t, `check-p-${index}`, check));
-      if (passed.length > 0) {
-        rows.push(
+      const { rows, passedLine } = view.checks;
+      if (rows.length === 0 && passedLine === null) return [muted(t, "No checks")];
+      const out = rows.map((check, index) => checkRow(t, `check-${index}`, check));
+      if (passedLine !== null) {
+        out.push(
           h_flex()
             .id("checks-passed")
-            .gap(6)
-            .cursor_pointer()
-            .text_color(t.dim)
-            .hover((s) => s.text_color(t.foreground))
-            .on_click((_e, cx) => on.togglePassed(cx))
-            .child(svg(view.icon(view.passedOpen ? "chevron-down" : "chevron-right")).size(12).flex_none())
-            .child(`${passed.length} passed`),
+            .gap(8)
+            .items_center()
+            .child(div().flex_none().text_color(t.done).child("✓"))
+            .child(div().flex_1().text_color(t.muted).child(`${passedLine.count} passed`))
+            .child(
+              div()
+                .id("checks-passed-toggle")
+                .flex_none()
+                .text_size(12)
+                .text_color(t.accent)
+                .cursor_pointer()
+                .hover((s) => s.text_color(t.foreground))
+                .on_click((_e, cx) => on.togglePassed(cx))
+                .child(passedLine.open ? "Hide" : "Show"),
+            ),
         );
-        if (view.passedOpen) passed.forEach((check, index) => rows.push(checkRow(t, `check-ok-${index}`, check)));
       }
-      return rows;
+      return out;
     }
     case "reviews":
-      if (detail.reviewers.length === 0) return [note(t, "No reviewers")];
+      if (detail.reviewers.length === 0) return [muted(t, "No reviewers")];
       return detail.reviewers.map((reviewer, index) =>
         h_flex()
           .id(`reviewer-${index}`)
           .gap(8)
-          .child(div().flex_1().min_w(0).truncate().child(reviewer.name))
+          .child(div().flex_1().min_w(0).truncate().child(view.nameOf(reviewer.name)))
           .child(div().flex_none().text_color(reviewer.state === "changes_requested" ? t.blocked : reviewer.state === "approved" ? t.done : t.muted).child(REVIEWER_WORDS[reviewer.state] ?? reviewer.state)),
       );
     case "agent":
-      if (!view.hasCheckout) return [note(t, "No local checkout, so no review agent can start here.")];
-      return view.agentRows.length > 0 ? view.agentRows : [note(t, "No review agent yet. Review with agent starts one.")];
+      if (!view.hasCheckout) return [muted(t, "No local checkout, so no review agent can start here.")];
+      return view.agentRows.length > 0 ? view.agentRows : [muted(t, "No review agent yet. Review with agent starts one.")];
     case "description":
-      return [detail.body.trim() === "" ? note(t, "No description") : div().whitespace_normal().child(detail.body)];
+      return [detail.body.trim() === "" ? muted(t, "No description") : markdown(t, "md-description", detail.body)];
     default: {
       const rows = [];
       if (detail.threadsError) rows.push(div().text_size(11.5).text_color(t.blocked).whitespace_normal().child(`File comments could not be read: ${detail.threadsError}`));
       if (detail.threadsNote) rows.push(div().text_size(11.5).text_color(t.muted).child(detail.threadsNote));
-      if (view.items.length === 0) rows.push(note(t, "No comments"));
+      if (view.items.length === 0) rows.push(muted(t, "No comments"));
       view.items.forEach((item, index) => rows.push(itemView(t, view, item, index)));
       return rows;
     }
@@ -196,13 +214,13 @@ function itemView(t, view, item, index) {
       h_flex()
         .gap(6)
         .items_center()
-        .child(div().flex_none().font_semibold().child(entry.author))
+        .child(div().flex_none().font_semibold().child(view.nameOf(entry.author)))
         .child(div().flex_none().text_color(t.muted).child(action))
         .when(entry.kind === "review" && entry.state !== null, (el) => el.child(chip(t, `item-state-${index}`, STATE_WORDS[entry.state] ?? entry.state, stateColor)))
         .child(div().flex_1())
         .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(entry.at, view.now))),
     )
-    .when(entry.body.trim() !== "", (el) => el.child(div().whitespace_normal().child(entry.body)))
+    .when(entry.body.trim() !== "", (el) => el.child(markdown(t, `md-item-${index}`, entry.body)))
     .when(threads.length > 0, (el) => el.child(v_flex().pl(16).gap(6).children(threads)));
 }
 
@@ -234,8 +252,8 @@ function threadView(t, view, thread, key) {
             v_flex()
               .id(`thread-${key}-${n}`)
               .gap(2)
-              .child(div().text_size(11.5).text_color(t.dim).child(`${comment.author} · ${view.age(comment.at, view.now)}`))
-              .child(div().whitespace_normal().child(comment.body)),
+              .child(div().text_size(11.5).text_color(t.dim).child(`${view.nameOf(comment.author)} · ${view.age(comment.at, view.now)}`))
+              .child(markdown(t, `md-thread-${key}-${n}`, comment.body)),
           ),
         ),
     );

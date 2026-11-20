@@ -167,3 +167,7 @@ test("parseGlabDetail notes a thread list that reached its limit", () => {
   raw.data.project.mergeRequest.discussions.nodes = Array.from({ length: 100 }, () => thread);
   assert.equal(parseGlabDetail(JSON.stringify(raw), "gitlab.example.com").threadsNote, "Showing the first 100 file comment threads.");
 });
+
+test("parseGlabDetail: display names of the note authors", () => {
+  assert.deepEqual(parseGlabDetail(fixture("pr-glab-detail.json"), "gitlab.example.com").names, { "review-user": "Review User", "octo-user": "Octo User" });
+});

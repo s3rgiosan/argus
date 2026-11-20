@@ -9,7 +9,20 @@
               "path": "src/old.js",
               "line": null,
               "originalLine": 7,
-              "comments": { "nodes": [{ "author": { "login": "review-user" }, "body": "Old remark.", "createdAt": "2026-11-12T09:01:00Z", "pullRequestReview": { "id": "PRR_example0" } }] }
+              "comments": {
+                "nodes": [
+                  {
+                    "author": {
+                      "login": "review-user"
+                    },
+                    "body": "Old remark.",
+                    "createdAt": "2026-11-12T09:01:00Z",
+                    "pullRequestReview": {
+                      "id": "PRR_example0"
+                    }
+                  }
+                ]
+              }
             },
             {
               "isResolved": false,
@@ -18,10 +31,44 @@
               "originalLine": 10,
               "comments": {
                 "nodes": [
-                  { "author": { "login": "octo-user" }, "body": "Fixed.", "createdAt": "2026-11-12T09:20:00Z", "pullRequestReview": { "id": "PRR_example3" } },
-                  { "author": { "login": "octo-reviewer" }, "body": "Rename this.", "createdAt": "2026-11-12T09:10:00Z", "pullRequestReview": { "id": "PRR_example1" } }
+                  {
+                    "author": {
+                      "login": "octo-user"
+                    },
+                    "body": "Fixed.",
+                    "createdAt": "2026-11-12T09:20:00Z",
+                    "pullRequestReview": {
+                      "id": "PRR_example3"
+                    }
+                  },
+                  {
+                    "author": {
+                      "login": "octo-reviewer"
+                    },
+                    "body": "Rename this.",
+                    "createdAt": "2026-11-12T09:10:00Z",
+                    "pullRequestReview": {
+                      "id": "PRR_example1"
+                    }
+                  }
                 ]
               }
+            }
+          ]
+        },
+        "participants": {
+          "nodes": [
+            {
+              "login": "octo-user",
+              "name": "Octo User"
+            },
+            {
+              "login": "review-user",
+              "name": ""
+            },
+            {
+              "login": "octo-reviewer",
+              "name": null
             }
           ]
         }
