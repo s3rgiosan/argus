@@ -5,6 +5,16 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-11-20
+
+### Added
+
+- The `argus-pull-requests` board has a `+` button ("New worktree") right of the filter field. It opens a view that starts a git worktree, and its Herdr space, from a remote branch, a pull request or an issue, for GitHub and GitLab.
+- The Branch tab lists the remote branches without the default branch. A branch that has a worktree shows "open" and a pick opens its space. Any other pick fetches the branch and adds a worktree.
+- The Pull request tab lists the open pull requests of the repo on the board and a pick runs Check out in a worktree.
+- The Issue tab lists the open issues assigned to you. A pick adds a worktree on a new branch named after the issue number and title, cut from the fetched default branch.
+- The view reads only from GitHub and GitLab, and writes nothing to them.
+
 ## [1.9.0] - 2026-11-20
 
 ### Added
@@ -203,7 +213,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.9.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.10.0...HEAD
+[1.10.0]: https://github.com/s3rgiosan/argus/compare/1.9.0...1.10.0
 [1.9.0]: https://github.com/s3rgiosan/argus/compare/1.8.0...1.9.0
 [1.8.0]: https://github.com/s3rgiosan/argus/compare/1.7.0...1.8.0
 [1.7.0]: https://github.com/s3rgiosan/argus/compare/1.6.0...1.7.0

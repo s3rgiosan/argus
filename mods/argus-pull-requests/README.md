@@ -94,6 +94,19 @@ When there are extra instructions, Argus adds them after the prompt, under the l
 { "pullRequests": { "review": { "instructions": "Use the <name> skill.", "promptFile": "~/prompts/pr-review.md" } } }
 ```
 
+## New worktree
+
+The `+` button right of the filter field ("New worktree") starts a git worktree, and its Herdr space, from a remote branch, a pull request or an issue. Nothing is written to GitHub or GitLab.
+
+- Repo: the repos of the board's scope that have a local checkout. The followed space's repo is the default, else the first. With more than one repo, "Change" shows the list. With none, the view says "No repo with a local checkout in this scope."
+- Three tabs: Branch, Pull request, Issue. The filter field narrows the list by branch name, number or title. The refresh button ("Read again") reads the tab again.
+- Branch: the remote branches of `origin`, without the default branch. A branch that has a worktree shows "open", and a pick opens its space. Any other pick fetches the branch and adds a worktree. A local branch of the same name stays as it is; without one, a new branch tracks the remote branch.
+- Pull request: the open pull requests of the repo on the board. A pick runs Check out in a worktree.
+- Issue: the open issues assigned to you. A pick adds a worktree on a new branch cut from the fetched default branch, with no upstream. If the branch exists, a pick opens its worktree, or adds one for the branch and leaves the branch as it is.
+- Issue branch names are `<number>-<title as lowercase ASCII words>`, at most 60 characters. A title with no ASCII letters or digits gives just the number. git checks the name before it creates anything.
+- Worktrees go in the Herdr worktrees folder, as `<folder>/<repo folder>/<branch with / and other characters turned into ->`.
+- A failed create shows the git error under the list. Escape goes back to the board.
+
 ## Merged worktrees
 
 Settings > Worktrees > "Remove merged worktrees…" opens this view. It lists worktrees whose pull request is merged, so you can remove them in one step.
