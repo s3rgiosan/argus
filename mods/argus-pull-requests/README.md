@@ -33,6 +33,7 @@ Gear icon in the header:
 - gh command: empty uses `gh` from PATH, else the usual install folders. A set command that fails also falls back to the bare name on PATH and the usual install folders.
 - glab command: empty uses `glab` from PATH, else the usual install folders. A set command that fails falls back the same way.
 - Refresh every: 1, 3, 5, 10 or 15 minutes.
+- Conversation: Oldest first (the default) or Newest first, for the comments in the pull request pane.
 
 Tested on `gh` 2.104.0 and `glab` 1.131.0, signed in. You need `gh`, `glab` or both.
 

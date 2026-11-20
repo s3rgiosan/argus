@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Claude Code shows once per account in the dialog, with the names from the Usage panel, and takes a model.
 - `pullRequests.review.instructions` in `argus.json` adds instructions to every review prompt.
 - A board row shows a dot when a review agent worktree exists for it, and the pane lists those worktrees with Open space and Remove worktree.
+- The `argus-pull-requests` settings have a Conversation choice, Oldest first or Newest first, for the comments in the pull request pane.
 
 ### Changed
 

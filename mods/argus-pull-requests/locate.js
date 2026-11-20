@@ -10,9 +10,10 @@ export const GH_MISSING = "gh not found. Install GitHub CLI, or set the gh comma
 export const GLAB_MISSING = "glab not found. Install GitLab CLI, or set the glab command in Settings.";
 
 /**
- * The mod's settings: the gh and glab commands ("" when unset) and the refresh interval.
+ * The mod's settings: the gh and glab commands ("" when unset), the refresh interval, and
+ * the order of the pane's conversation ("oldest" first by default, or "newest" first).
  * @param {unknown} value
- * @returns {{gh: string, glab: string, interval: number}}
+ * @returns {{gh: string, glab: string, interval: number, conversation: string}}
  */
 export function normalizeSettings(value) {
   const v = value && typeof value === "object" ? /** @type {Record<string, unknown>} */ (value) : {};
@@ -20,7 +21,22 @@ export function normalizeSettings(value) {
   const interval = INTERVALS.includes(/** @type {number} */ (v.interval))
     ? /** @type {number} */ (v.interval)
     : DEFAULT_INTERVAL;
-  return { gh: text(v.gh), glab: text(v.glab), interval };
+  const conversation = CONVERSATION_ORDERS.includes(/** @type {string} */ (v.conversation)) ? /** @type {string} */ (v.conversation) : "oldest";
+  return { gh: text(v.gh), glab: text(v.glab), interval, conversation };
+}
+
+/** The orders the pane can show a conversation in. */
+export const CONVERSATION_ORDERS = ["oldest", "newest"];
+
+/**
+ * A pull request's conversation in the chosen order. The model gives it oldest first.
+ * @template T
+ * @param {T[]} entries
+ * @param {string} order "oldest" or "newest".
+ * @returns {T[]}
+ */
+export function orderConversation(entries, order) {
+  return order === "newest" ? [...entries].reverse() : [...entries];
 }
 
 /**

@@ -9,7 +9,7 @@ import { exec, home, appHome, readTextFile, window, checking, theme, shared, set
 import { readdir, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
-import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
+import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs, orderConversation } from "./locate.js";
 import { NO_METHOD, OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
@@ -931,6 +931,22 @@ export default class PullRequests extends View {
             (minutes) => setShared(SETTINGS_KEY, { ...readSettings(), interval: minutes }),
           ),
         ),
+      sectionTitle(t, "Conversation"),
+      h_flex()
+        .px(8)
+        .py(4)
+        .child(
+          segmented(
+            t,
+            "conversation",
+            [
+              { value: "oldest", label: "Oldest first" },
+              { value: "newest", label: "Newest first" },
+            ],
+            settings.conversation,
+            (order) => setShared(SETTINGS_KEY, { ...readSettings(), conversation: order }),
+          ),
+        ),
     ];
     return frame(t, "argus-pull-requests-settings")
       .child(subHeader(t, back, "Settings", icon("chevron-left")))
@@ -1343,7 +1359,7 @@ export default class PullRequests extends View {
     parts.push(body === "" ? note(t, "No description") : text(detail.body));
     parts.push(sectionTitle(t, "Conversation"));
     if (detail.conversation.length === 0) parts.push(note(t, "No comments"));
-    for (const [index, entry] of detail.conversation.entries()) {
+    for (const [index, entry] of orderConversation(detail.conversation, readSettings().conversation).entries()) {
       parts.push(
         v_flex()
           .id(`entry-${index}`)
