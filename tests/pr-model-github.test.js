@@ -204,3 +204,12 @@ test("parseGhThreads keeps display names for logins that match Object properties
   assert.equal(detail.names.constructor, "C Name");
   assert.equal(Object.getOwnPropertyDescriptor(detail.names, "__proto__").value, "P Name");
 });
+
+test("parseGhDetail ignores a review state or merge state that names an Object property", () => {
+  const raw = JSON.parse(fixture("pr-gh-view.json"));
+  raw.latestReviews = [{ author: { login: "octo-user" }, state: "constructor" }];
+  raw.mergeStateStatus = "toString";
+  const d = parseGhDetail(JSON.stringify(raw), "example-org/example-repo");
+  assert.deepEqual(d.reviewers.filter((r) => r.name === "octo-user"), []);
+  assert.equal(d.merge.reason, null);
+});

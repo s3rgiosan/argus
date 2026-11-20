@@ -22,21 +22,23 @@ const GH_PASSED = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const GH_FAILED = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"]);
 const GH_CONTEXT_FAILED = new Set(["ERROR", "FAILURE"]);
 
-const GH_REVIEW_STATES = {
+// Forge values are looked up here, so the map has no prototype: "constructor" finds nothing.
+const GH_REVIEW_STATES = Object.assign(Object.create(null), {
   APPROVED: "approved",
   CHANGES_REQUESTED: "changes_requested",
   COMMENTED: "commented",
   DISMISSED: "dismissed",
   PENDING: "pending",
-};
+});
 
-const GH_MERGE_REASONS = {
+// Forge values are looked up here, so the map has no prototype: "constructor" finds nothing.
+const GH_MERGE_REASONS = Object.assign(Object.create(null), {
   BEHIND: "The head branch is behind the base branch.",
   BLOCKED: "Blocked by branch protection: required reviews or checks.",
   DIRTY: "There are merge conflicts.",
   UNSTABLE: "Mergeable, but some checks are not passing.",
   UNKNOWN: "GitHub is still checking.",
-};
+});
 
 function unexpected() {
   return new Error("unexpected gh output");
@@ -354,16 +356,18 @@ const GL_PASSED = new Set(["SUCCESS", "SKIPPED"]);
 const GL_FAILED = new Set(["FAILED", "CANCELED"]);
 const GL_UNKNOWN_MERGE = new Set(["CHECKING", "UNCHECKED", "PREPARING", "APPROVALS_SYNCING"]);
 
-const GL_REVIEW_STATES = {
+// Forge values are looked up here, so the map has no prototype: "constructor" finds nothing.
+const GL_REVIEW_STATES = Object.assign(Object.create(null), {
   APPROVED: "approved",
   REQUESTED_CHANGES: "changes_requested",
   REVIEWED: "commented",
   REVIEW_STARTED: "pending",
   UNAPPROVED: "dismissed",
   UNREVIEWED: "requested",
-};
+});
 
-const GL_MERGE_REASONS = {
+// Forge values are looked up here, so the map has no prototype: "constructor" finds nothing.
+const GL_MERGE_REASONS = Object.assign(Object.create(null), {
   UNCHECKED: "Merge status has not been checked.",
   CHECKING: "Currently checking for mergeability.",
   COMMITS_STATUS: "Source branch exists and contains commits.",
@@ -387,7 +391,7 @@ const GL_MERGE_REASONS = {
   TITLE_NOT_MATCHING: "Merge request title does not match required regex.",
   REQUESTED_CHANGES: "Indicates a reviewer has requested changes.",
   SECURITY_POLICY_PIPELINE_CHECK: "All security policy pipelines must succeed.",
-};
+});
 
 function glUnexpected() {
   return new Error("unexpected glab output");
