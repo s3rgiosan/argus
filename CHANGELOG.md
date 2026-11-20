@@ -25,7 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A footer holds Review with agent, Merge ▾ and a ⋯ menu with Comment, Approve, Request changes, Check out in a worktree and Open in browser.
 - Every review shows in the conversation with its state, also an approval without text. A comment review with no text and no file comments of its own is left out, because its replies show in their threads.
 - GitLab merge requests read their discussions in place of their notes.
-
 - The verdict names a draft and a merge state that is not known yet, uses display names, counts one check in the singular, and gives a line of its own when a group other than Ready to merge has no reason. A reviewer's open request for changes moves a pull request that is not a draft to Needs work.
 - The Reviews summary counts reviewers who only commented.
 - A section you folded opens again when its default changes, for example when a check fails after you closed Checks while all checks passed.
