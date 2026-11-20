@@ -64,8 +64,12 @@ export function badge(t, text) {
   return div().flex_none().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(text);
 }
 
-/** A 26 px square button holding a 14 px icon; `busy` turns the icon. */
-export function iconButton(t, id, icon, onClick, { busy = false } = {}) {
+/**
+ * A 26 px square button holding a 14 px icon; `busy` turns the icon. A button
+ * that is not `enabled` shows a dim icon and takes no clicks. `tooltip` names it.
+ */
+export function iconButton(t, id, icon, onClick, { busy = false, enabled = true, tooltip = null } = {}) {
+  const glyph = busy ? svg(icon).size(14).spin(SPIN_MS) : svg(icon).size(14);
   return div()
     .id(id)
     .size(26)
@@ -74,11 +78,49 @@ export function iconButton(t, id, icon, onClick, { busy = false } = {}) {
     .items_center()
     .justify_center()
     .rounded(6)
+    .text_color(enabled ? t.muted : t.dim)
+    .when(tooltip !== null, (el) => el.tooltip(tooltip))
+    .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(onClick))
+    .child(glyph);
+}
+
+/** A small tinted label, as Herdr's "Needs you" chip. */
+export function chip(t, id, text, color) {
+  return div().id(id).flex_none().px(6).h(18).flex().items_center().rounded(5).bg(`${color}26`).text_size(10.5).font_semibold().text_color(color).child(text);
+}
+
+/** A dropdown button: a muted label and a 12 px chevron. `chevron` is the icon's path. */
+export function dropdownButton(t, id, label, chevron, onClick) {
+  return h_flex()
+    .id(id)
+    .h(26)
+    .min_w(0)
+    .px(8)
+    .gap(4)
+    .items_center()
+    .rounded(6)
     .cursor_pointer()
+    .text_size(12)
     .text_color(t.muted)
     .hover((s) => s.bg(t.hover).text_color(t.foreground))
     .on_click(onClick)
-    .child(busy ? svg(icon).size(14).spin(SPIN_MS) : svg(icon).size(14));
+    .child(div().min_w(0).truncate().child(label))
+    .child(svg(chevron).size(12).flex_none());
+}
+
+/** The label of a form field: 12 px, semibold. */
+export function fieldLabel(t, text) {
+  return div().text_size(12).font_semibold().text_color(t.foreground).child(text);
+}
+
+/** A help line under a field or a group: 11 px, dim, wrapping. */
+export function hint(t, text) {
+  return div().text_size(11).text_color(t.dim).whitespace_normal().child(text);
+}
+
+/** A block-level error: 12 px, `blocked`, wrapping. */
+export function errorLine(t, text) {
+  return div().px(8).py(6).text_size(12).text_color(t.blocked).whitespace_normal().child(text);
 }
 
 /** A 28 px list row, on `selected` when `selected` is true. */
@@ -131,7 +173,7 @@ export function field(t, id, state, focused) {
     .child(Input.new(state).w_full().text_size(12).text_color(t.foreground));
 }
 
-/** A multi-line text box around a `TextareaState`; `focused` draws the accent border. */
+/** A multi-line text box around a `TextareaState`, 12 px text; `focused` draws the accent border. */
 export function textBox(t, id, state, focused) {
   return div()
     .id(id)
@@ -142,12 +184,12 @@ export function textBox(t, id, state, focused) {
     .border_1()
     .border_color(focused ? t.accent : t.border)
     .cursor_text()
-    .child(Textarea.new(state).w_full().text_color(t.foreground));
+    .child(Textarea.new(state).w_full().text_size(12).text_color(t.foreground));
 }
 
 /**
- * A button: `primary` is the solid main action, 32 px high; the other is
- * Herdr's raised button with a border and a hover.
+ * A 32 px button: `primary` is the solid main action; the other is Herdr's
+ * raised button with an `input` border and a hover.
  */
 export function button(t, id, label, onClick, { primary = false, enabled = true } = {}) {
   const base = div().id(id).flex().flex_none().items_center();
@@ -163,13 +205,13 @@ export function button(t, id, label, onClick, { primary = false, enabled = true 
       .child(label);
   }
   return base
-    .px(12)
-    .py(5)
-    .rounded(7)
+    .h(32)
+    .px(14)
+    .rounded(8)
     .border_1()
-    .border_color(t.border)
+    .border_color(t.input)
     .bg(t.raised)
-    .text_size(13)
+    .text_size(12)
     .text_color(enabled ? t.foreground : t.dim)
     .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick))
     .child(label);

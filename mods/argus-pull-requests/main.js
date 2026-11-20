@@ -23,7 +23,7 @@ import { discover, expandHome, readFirst } from "./accounts.js";
 import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -565,22 +565,7 @@ export default class PullRequests extends View {
     const now = Date.now();
 
     const icon = iconResolver(MOD, this.found);
-    const scopeButton = h_flex()
-      .id("scope")
-      .h(26)
-      .px(8)
-      .gap(4)
-      .min_w(0)
-      .items_center()
-      .rounded(6)
-      .max_w(150)
-      .text_size(12)
-      .cursor_pointer()
-      .text_color(t.muted)
-      .hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .on_click(() => openScopes())
-      .child(div().min_w(0).truncate().child(scopeTitle(scope, board, followed)))
-      .child(svg(icon("chevron-down")).size(12).flex_none());
+    const scopeButton = dropdownButton(t, "scope", scopeTitle(scope, board, followed), icon("chevron-down"), () => openScopes()).max_w(150);
     const refresh = iconButton(
       t,
       "refresh",
@@ -597,7 +582,7 @@ export default class PullRequests extends View {
     const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx));
     const head = header(t, "Pull requests", [scopeButton, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
 
-    const parts = board.notes.map((message, index) => div().id(`note-${index}`).px(8).py(6).text_size(12).text_color(t.blocked).whitespace_normal().child(message));
+    const parts = board.notes.map((message, index) => errorLine(t, message).id(`note-${index}`));
     if (following === "pending") {
       parts.push(note(t, "Reading this space…"));
     } else if (unfollowed) {
@@ -800,8 +785,6 @@ export default class PullRequests extends View {
     const review = this.review;
     const pr = review?.pr ?? null;
     const close = () => closeOverlay(props()?.overlay);
-    // A label reads as a heading for its field: larger, bolder and brighter than the help line under the field.
-    const label = (text) => div().text_size(12.5).font_semibold().text_color(t.foreground).child(text);
     const choices = review?.choices ?? null;
     const choice = choices?.[review.picked] ?? null;
     const tiles = (choices ?? []).map((entry, index) => {
@@ -824,18 +807,17 @@ export default class PullRequests extends View {
           cx.notify();
         })
         .when(pic !== null, (el) => el.child(pic))
-        .child(div().w_full().text_size(11.5).text_center().whitespace_normal().child(entry.label));
+        .child(div().w_full().text_size(11).text_center().whitespace_normal().child(entry.label));
     });
     const canStart = pr !== null && !review.starting && choice !== null;
     const starting = Boolean(review?.starting);
     // A field grows along its row, so each one sits in its own row.
     const row = (child) => h_flex().w_full().child(child);
-    const help = (text) => div().text_size(11).text_color(t.dim).whitespace_normal().child(text);
     // Each field is a tight group (label, control, help line); the groups sit further apart.
     const group = (id, children) => v_flex().id(id).gap(6).children(children);
     const body = [
       group("group-agent", [
-        label("Agent"),
+        fieldLabel(t, "Agent"),
         choices === null
           ? note(t, "Looking for agents…")
           : choices.length === 0
@@ -844,36 +826,36 @@ export default class PullRequests extends View {
       ]),
     ];
     if (choice?.model) {
-      body.push(group("group-model", [label("Model"), row(field(t, "model", this.modelInput, this.focused === "model")), help("Empty uses your default model. Or type an alias, such as sonnet or opus, or a full model ID.")]));
+      body.push(group("group-model", [fieldLabel(t, "Model"), row(field(t, "model", this.modelInput, this.focused === "model")), hint(t, "Empty uses your default model. Or type an alias, such as sonnet or opus, or a full model ID.")]));
     }
     body.push(
       group("group-branch", [
-        label("Branch"),
+        fieldLabel(t, "Branch"),
         row(field(t, "branch", this.branchInput, this.focused === "branch")),
-        help(`The review worktree's branch. Keep the ${review?.pr ? `argus/review-${review.pr.number}-` : "argus/review-<number>-"} start: the board finds review runs by it.`),
+        hint(t, `The review worktree's branch. Keep the ${review?.pr ? `argus/review-${review.pr.number}-` : "argus/review-<number>-"} start: the board finds review runs by it.`),
       ]),
       group("group-extra", [
-        label("Extra instructions"),
+        fieldLabel(t, "Extra instructions"),
         textBox(t, "extra", this.extraInput, this.focused === "extra"),
-        help("Optional. Added to the end of the review prompt, for example: Use the <name> skill. Text for every review, or a whole prompt of your own, goes in argus.json (pullRequests.review)."),
+        hint(t, "Optional. Added to the end of the review prompt, for example: Use the <name> skill. Text for every review, or a whole prompt of your own, goes in argus.json (pullRequests.review)."),
       ]),
     );
     return v_flex()
       .id("argus-pull-requests-review")
       .track_focus(this.handle)
       .size_full()
-      .p(14)
+      .p(18)
       .gap(10)
       .bg(t.popover)
       .text_color(t.foreground)
-      .text_size(12.8)
+      .text_size(13)
       .on_key_down((e, cx) => {
         // The pane runs a started review, so closing the dialog never stops it.
         if (e.key !== "escape") return;
         cx.stop_propagation();
         close();
       })
-      .child(div().flex_none().text_size(14).font_semibold().child("Review with agent"))
+      .child(div().flex_none().text_size(15).font_semibold().child("Review with agent"))
       .when(pr !== null, (el) =>
         el.child(h_flex().flex_none().gap(8).px(10).py(8).rounded(8).bg(t.raised).child(div().flex_none().text_color(t.muted).child(`#${pr.number}`)).child(div().flex_1().min_w(0).truncate().child(pr.title))),
       )
@@ -978,14 +960,13 @@ export default class PullRequests extends View {
       this.view = "board";
       cx.notify();
     };
-    const hint = (text) => div().px(8).text_size(11).text_color(t.dim).child(text);
     const parts = [
       sectionTitle(t, "gh command"),
       h_flex().px(8).py(4).child(field(t, "gh", this.ghInput, this.focused === "gh")),
-      hint("Leave empty to use gh from PATH, else its usual install folders."),
+      hint(t, "Leave empty to use gh from PATH, else its usual install folders.").px(8),
       sectionTitle(t, "glab command"),
       h_flex().px(8).py(4).child(field(t, "glab", this.glabInput, this.focused === "glab")),
-      hint("Leave empty to use glab from PATH, else its usual install folders. Both fields save on Enter or when you leave them."),
+      hint(t, "Leave empty to use glab from PATH, else its usual install folders. Both fields save on Enter or when you leave them.").px(8),
       sectionTitle(t, "Refresh every"),
       h_flex()
         .px(8)
@@ -1370,7 +1351,7 @@ export default class PullRequests extends View {
         .rounded_none()
         .border_0()
         .child(note(t, "Could not read this pull request."))
-        .child(div().px(8).text_size(12).text_color(t.blocked).whitespace_normal().child(shown.error ?? ""));
+        .child(errorLine(t, shown.error ?? ""));
     }
 
     const detail = shown.detail;
@@ -1456,7 +1437,7 @@ export default class PullRequests extends View {
     // A null login leaves the buttons on; GitHub's own message then explains a refusal.
     const own = ownPr(pr, this.login?.value ?? null);
     const tick = iconResolver(MOD, this.found)("check");
-    const line = (text, color) => div().text_size(11.5).text_color(color).whitespace_normal().child(text);
+    const line = (text, color) => div().text_size(11).text_color(color).whitespace_normal().child(text);
     const menuBox = (id, rows) => v_flex().id(id).p(MENU_PAD).rounded(8).border_1().border_color(t.border).bg(t.popover).children(rows);
     // What shows above the footer row. It scrolls past a maximum height, so the footer stays in view.
     const above = [];
@@ -1480,7 +1461,7 @@ export default class PullRequests extends View {
       );
     }
     if (busy) above.push(line("Working…", t.muted));
-    if (act.error !== null) above.push(line(act.error, t.blocked));
+    if (act.error !== null) above.push(errorLine(t, act.error));
     if (live && own) above.push(line(OWN_PR, t.muted));
 
     if (live && act.composing !== null && this.bodyInput) {
@@ -1509,7 +1490,7 @@ export default class PullRequests extends View {
       const methods = pr.provider === "gitlab" ? glMergeMethods(detail) : act.methods;
       let rows;
       if (!methods || methods.loading) rows = [note(t, "Loading…")];
-      else if ("error" in methods) rows = [div().px(8).py(4).text_size(12).text_color(t.blocked).whitespace_normal().child(methods.error)];
+      else if ("error" in methods) rows = [errorLine(t, methods.error)];
       else {
         rows = methods.methods.map((entry, index) =>
           menuRow(t, `merge-method-${index}`, {
@@ -1523,7 +1504,7 @@ export default class PullRequests extends View {
         );
       }
       const menuNote = mergeMenuNote(detail);
-      if (menuNote !== null) rows.push(div().px(8).py(4).text_size(11.5).text_color(t.muted).whitespace_normal().child(menuNote));
+      if (menuNote !== null) rows.push(div().px(8).py(4).text_size(11).text_color(t.muted).whitespace_normal().child(menuNote));
       above.push(menuBox("merge-menu", rows));
     }
     if (act.menu === "more") {

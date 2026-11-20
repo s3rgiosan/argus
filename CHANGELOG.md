@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Start refuses a repo or host with characters that the review prompt cannot put in a shell command. A prompt file without `{{base}}` skips the base branch check, and `promptFile` must be an absolute or `~/` path, without a NUL character and at most 100000 characters.
 - Placeholder names in a prompt file are case-sensitive, and `{{head_sha}}` or `{{base-branch}}` are refused as unknown.
 - A check link with whitespace is dropped, and a GitLab check link keeps the origin of the merge request's own web URL.
+- Secondary buttons have the size of primary buttons (32 px high, `input` border), and icon buttons in the pull request pane use the shared 26 px button.
+- Field labels are 12 px semibold and help lines are 11 px dim in the review dialog, the Block and Request Review forms, and the settings views. Text boxes use 12 px text.
+- The scope and status dropdowns, the review check chips and the error lines look the same in every Argus panel, and the Tasks header follows the Pull requests header.
+- The review dialog uses the padding and the title and text sizes of Herdr's dialogs, and notes in the pull request pane use 11 px text.
 
 ### Fixed
 

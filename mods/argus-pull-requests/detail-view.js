@@ -4,7 +4,7 @@
 
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, TextView } from "gpui-base";
-import { frame, scrollArea } from "./ui.js";
+import { frame, scrollArea, iconButton, chip, errorLine } from "./ui.js";
 
 /** The pane's sections, in order. */
 export const SECTIONS = [
@@ -73,19 +73,6 @@ function threadKey(thread) {
   return `${thread.path}:${thread.line ?? ""}:${thread.comments[0]?.at ?? ""}`;
 }
 
-/** A small tinted label, as Herdr's "Needs you" chip. */
-function chip(t, id, text, color) {
-  return div().id(id).flex_none().px(6).h(20).flex().items_center().rounded(5).bg(`${color}26`).text_size(11).font_medium().text_color(color).child(text);
-}
-
-/** A 24 px icon button; off when `enabled` is false. */
-export function iconAction(t, id, path, onClick, { enabled = true, tooltip = null } = {}) {
-  let el = div().id(id).flex_none().size(24).flex().items_center().justify_center().rounded(5).text_color(enabled ? t.muted : t.dim);
-  if (tooltip) el = el.tooltip(tooltip);
-  if (enabled) el = el.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(onClick);
-  return el.child(svg(path).size(14));
-}
-
 /**
  * The pull request pane.
  * @param {object} t The theme.
@@ -114,11 +101,11 @@ export function prPane(t, view, on) {
         .when(position !== null, (el) =>
           el
             .child(div().flex_none().text_size(12).text_color(t.dim).child(`${position.index} of ${position.total}`))
-            .child(iconAction(t, "pr-prev", view.icon("arrow-up"), (_e, cx) => on.prev(cx), { enabled: position.prev !== null, tooltip: "Previous pull request" }))
-            .child(iconAction(t, "pr-next", view.icon("arrow-down"), (_e, cx) => on.next(cx), { enabled: position.next !== null, tooltip: "Next pull request" })),
+            .child(iconButton(t, "pr-prev", view.icon("arrow-up"), (_e, cx) => on.prev(cx), { enabled: position.prev !== null, tooltip: "Previous pull request" }))
+            .child(iconButton(t, "pr-next", view.icon("arrow-down"), (_e, cx) => on.next(cx), { enabled: position.next !== null, tooltip: "Next pull request" })),
         )
-        .child(iconAction(t, "pr-browser", view.icon("external-link"), (_e, cx) => on.openBrowser(cx), { tooltip: "Open in browser" }))
-        .child(iconAction(t, "pr-checkout", view.icon("git-branch"), (_e, cx) => on.checkOut(cx), { enabled: view.hasCheckout && !view.checkingOut, tooltip: "Check out in a worktree" })),
+        .child(iconButton(t, "pr-browser", view.icon("external-link"), (_e, cx) => on.openBrowser(cx), { tooltip: "Open in browser" }))
+        .child(iconButton(t, "pr-checkout", view.icon("git-branch"), (_e, cx) => on.checkOut(cx), { enabled: view.hasCheckout && !view.checkingOut, tooltip: "Check out in a worktree" })),
     )
     .child(div().text_size(16).font_semibold().whitespace_normal().child(pr.title))
     .child(div().min_w(0).text_size(12).text_color(t.dim).whitespace_normal().child(`${pr.headRef} → ${pr.baseRef}`))
@@ -134,9 +121,9 @@ export function prPane(t, view, on) {
         .child(div().text_size(14).font_semibold().text_color(color).child(verdict.title))
         .child(div().text_size(12).text_color(t.muted).whitespace_normal().child(verdict.reasons)),
     )
-    .when(!view.hasCheckout, (el) => el.child(div().text_size(11.5).text_color(t.muted).child("No local checkout")))
-    .when(view.checkingOut, (el) => el.child(div().text_size(11.5).text_color(t.muted).child("Checking out…")))
-    .when(Boolean(view.error), (el) => el.child(div().text_size(11.5).text_color(t.blocked).whitespace_normal().child(view.error ?? "")));
+    .when(!view.hasCheckout, (el) => el.child(div().text_size(11).text_color(t.muted).child("No local checkout")))
+    .when(view.checkingOut, (el) => el.child(div().text_size(11).text_color(t.muted).child("Checking out…")))
+    .when(Boolean(view.error), (el) => el.child(errorLine(t, view.error ?? "").px(0)));
 
   const parts = [head];
   for (const [id, label] of SECTIONS) {
@@ -219,8 +206,8 @@ function sectionBody(t, id, view, on) {
       return [detail.body.trim() === "" ? muted(t, "No description") : markdown(t, "md-description", detail.body, on)];
     default: {
       const rows = [];
-      if (detail.threadsError) rows.push(div().text_size(11.5).text_color(t.blocked).whitespace_normal().child(`File comments could not be read: ${detail.threadsError}`));
-      if (detail.threadsNote) rows.push(div().text_size(11.5).text_color(t.muted).child(detail.threadsNote));
+      if (detail.threadsError) rows.push(div().text_size(11).text_color(t.blocked).whitespace_normal().child(`File comments could not be read: ${detail.threadsError}`));
+      if (detail.threadsNote) rows.push(div().text_size(11).text_color(t.muted).child(detail.threadsNote));
       if (view.items.length === 0) rows.push(muted(t, "No comments"));
       const keys = uniqueKeys(view.items.map(itemKey));
       view.items.forEach((item, index) => rows.push(itemView(t, view, on, item, keys[index])));
@@ -231,10 +218,10 @@ function sectionBody(t, id, view, on) {
 
 /** One check; a check with a run or job page opens it in the browser on click. */
 function checkRow(t, view, on, id, check) {
-  const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.muted;
+  const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.done;
   const mark = check.state === "failed" ? "✗" : check.state === "running" ? "●" : "✓";
   // The row's padding gives its hover room; the negative margin keeps its text in line with the section.
-  let row = h_flex().id(id).mx(-8).px(8).py(4).gap(8).items_center().rounded(6).child(div().flex_none().text_color(color).child(mark)).child(div().flex_1().min_w(0).whitespace_normal().child(check.name));
+  let row = h_flex().id(id).mx(-8).px(8).py(4).gap(8).items_center().rounded(7).child(div().flex_none().text_color(color).child(mark)).child(div().flex_1().min_w(0).whitespace_normal().child(check.name));
   if (!check.url) return row;
   const url = check.url;
   return row
@@ -270,7 +257,7 @@ function itemView(t, view, on, item, key) {
         .child(nameView(t, `item-name-${key}`, view, author).font_semibold())
         .child(chip(t, `item-state-${key}`, label, color))
         .child(div().flex_1())
-        .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(item.at, view.now))),
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(view.age(item.at, view.now))),
     )
     .when(parts.length > 0, (el) => el.child(v_flex().id(`balloon-${key}`).rounded(8).border_1().border_color(t.border).overflow_hidden().children(parts)));
 }
@@ -313,7 +300,7 @@ function threadSection(t, view, on, thread, key, author, divided) {
                     .text_size(12)
                     .child(nameView(t, `thread-name-${key}|${commentKeys[n]}`, view, comment.author).font_semibold())
                     .child(div().flex_1())
-                    .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(comment.at, view.now))),
+                    .child(div().flex_none().text_size(11).text_color(t.dim).child(view.age(comment.at, view.now))),
                 ),
               )
               .when(comment.body.trim() !== "", (el) => el.child(markdown(t, `md-thread-${key}|${commentKeys[n]}`, comment.body, on))),
