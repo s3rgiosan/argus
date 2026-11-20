@@ -9,19 +9,21 @@ import { exec, home, appHome, readTextFile, window, checking, theme, shared, set
 import { readdir, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
-import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs, orderConversation } from "./locate.js";
-import { NO_METHOD, OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
-import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
-import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
-import { assembleBoard, normalizeBoard, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
+import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
+import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
+import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
+import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
+import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
-import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
-import { discover, readFirst } from "./accounts.js";
+import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
+import { discover, expandHome, readFirst } from "./accounts.js";
+import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
+import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -53,6 +55,9 @@ const LOCK_RETRY = 1_000;
 const GIT_LONG_TIMEOUT = 600_000;
 // How many gh or glab calls run at once when listing repos and filling in pull requests.
 const CLI_CONCURRENCY = 4;
+
+/** The most height, in px, of the area above the pane's footer row. */
+const BOTTOM_MAX_HEIGHT = 260;
 const SCOPES_WIDTH = 280;
 const SCOPES_HEIGHT = 420;
 const ICON = (name) => `mods/${MOD}/icons/${name}.svg`;
@@ -83,7 +88,7 @@ export default class PullRequests extends View {
     this.checkouts = new Map();
     // The failed open in browser action: {key, text}, shown on that pull request only.
     this.actionError = null;
-    // PR key -> {running, error, composing, confirm, text, draftText} for the review and merge actions of each pull
+    // PR key -> {running, error, confirm, text, draftText, menu, methods} for the review and merge actions of each pull
     // request. `draftText` is the comment this pane left as a pending GitLab draft.
     this.actions = new Map();
     // The PR key whose comment the comment box holds now.
@@ -108,12 +113,17 @@ export default class PullRequests extends View {
     this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     // The body of a review comment, for Request changes and Comment.
-    this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Write a comment", rows: 4 }, (cx) => this.submitBody(cx), { multiline: true }) : null;
+    this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Write a comment", rows: 4 }, (cx) => this.submitComment(cx), { multiline: true }) : null;
+    // PR key -> {section: open} for the sections the person folded or opened, and the PR keys whose passed checks show.
+    this.folds = new Map();
+    this.passedOpen = new Set();
+    // Repo -> the merge methods `ghMergeMethods` read for it, kept for this pane copy.
+    this.methodCache = new Map();
     if (this.review) {
       const pr = this.review.pr;
-      this.modelInput = this.input("model", { placeholder: "Agent default" }, (cx) => this.startReview(cx));
+      this.modelInput = this.input("model", {}, (cx) => this.startReview(cx));
       this.branchInput = this.input("branch", { value: pr ? reviewBranch(pr, randomUUID().replaceAll("-", "").slice(0, 8)) : "" }, (cx) => this.startReview(cx));
-      this.extraInput = this.input("extra", { placeholder: "Extra instructions (optional)", rows: 4 }, (cx) => this.startReview(cx), { multiline: true });
+      this.extraInput = this.input("extra", { rows: 4 }, (cx) => this.startReview(cx), { multiline: true });
     }
 
     if (checking()) return;
@@ -200,10 +210,16 @@ export default class PullRequests extends View {
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       try {
-        await Promise.all(unseen.filter((folder) => !this.repoCache.has(folder)).map((folder) => this.probe(folder)));
+        await mapPool(unseen.filter((folder) => !this.repoCache.has(folder)), CLI_CONCURRENCY, (folder) => this.probe(folder));
         const entries = unseen.map((folder) => this.repoCache.get(folder) ?? null);
         const fresh = newProjectKeys(entries, readBoard().projects);
-        if (fresh.length === 0) return;
+        if (fresh.length === 0) {
+          // No new project: the board lists the probed folders at once, so Follow space stops waiting on them.
+          const board = readBoard();
+          const listed = withFolders(board, unseen.filter((folder) => this.repoCache.has(folder)));
+          if (listed !== board) setShared(BOARD_KEY, listed);
+          return;
+        }
         if (!this.force) this.forceKeys = [];
         if (this.forceKeys !== null) this.forceKeys = [...new Set([...this.forceKeys, ...fresh])];
         this.force = true;
@@ -259,9 +275,13 @@ export default class PullRequests extends View {
       this.reading = true;
       cx.notify();
 
+      const folderedBefore = new Set(readBoard().folders);
       const next = await this.readBoard(startedAt);
       if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-      setShared(BOARD_KEY, keepStale(next, readBoard(), startedAt));
+      const current = readBoard();
+      // Folders that the folder watch added to the board during the read stay on it.
+      const added = current.folders.filter((folder) => !folderedBefore.has(folder));
+      setShared(BOARD_KEY, withFolders(keepStale(next, current, startedAt), added));
     } finally {
       this.reading = false;
       this.releaseLock();
@@ -279,7 +299,7 @@ export default class PullRequests extends View {
     const notes = [];
     const folders = localFolders(spaces(), panes());
 
-    await Promise.all(folders.filter((folder) => !this.repoCache.has(folder)).map((folder) => this.probe(folder)));
+    await mapPool(folders.filter((folder) => !this.repoCache.has(folder)), CLI_CONCURRENCY, (folder) => this.probe(folder));
     const entries = folders.map((folder) => this.repoCache.get(folder)).filter((entry) => entry);
     const projects = mergeProjects(entries);
     this.renewLock();
@@ -536,29 +556,16 @@ export default class PullRequests extends View {
     const board = readBoard();
     const scope = readScope();
     const followed = followedOf(board);
-    const unfollowed = scope.where === "follow" && followed === null;
+    // A new space's folder is unknown until a read or the folder watch lists it; until then, Follow space waits.
+    const following = scope.where === "follow" ? followStatus(board, followFolder(focused(), panes(), spaces()), followed) : "followed";
+    const unfollowed = following !== "followed";
     const text = this.filterInput.value();
     const shown = prsInScope(board, scope, followed).filter((pr) => matchesFilter(pr, text));
     const selected = readSelected()?.key ?? null;
     const now = Date.now();
 
     const icon = iconResolver(MOD, this.found);
-    const scopeButton = h_flex()
-      .id("scope")
-      .h(26)
-      .px(8)
-      .gap(4)
-      .min_w(0)
-      .items_center()
-      .rounded(6)
-      .max_w(150)
-      .text_size(12)
-      .cursor_pointer()
-      .text_color(t.muted)
-      .hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .on_click(() => openScopes())
-      .child(div().min_w(0).truncate().child(scopeTitle(scope, board, followed)))
-      .child(svg(icon("chevron-down")).size(12).flex_none());
+    const scopeButton = dropdownButton(t, "scope", scopeTitle(scope, board, followed), icon("chevron-down"), () => openScopes()).max_w(150);
     const refresh = iconButton(
       t,
       "refresh",
@@ -575,11 +582,13 @@ export default class PullRequests extends View {
     const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx));
     const head = header(t, "Pull requests", [scopeButton, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
 
-    const parts = board.notes.map((message, index) => div().id(`note-${index}`).px(8).py(6).text_size(12).text_color(t.blocked).whitespace_normal().child(message));
-    if (unfollowed) {
+    const parts = board.notes.map((message, index) => errorLine(t, message).id(`note-${index}`));
+    if (following === "pending") {
+      parts.push(note(t, "Reading this space…"));
+    } else if (unfollowed) {
       parts.push(note(t, "This space is not a GitHub or GitLab repo."));
     } else if (shown.length === 0) {
-      parts.push(note(t, board.readAt > 0 ? "No pull requests here" : "Loading…"));
+      parts.push(note(t, emptyMessage(board, scopeRepos(board, scope, followed))));
     } else {
       for (const group of buildGroups(shown)) {
         parts.push(sectionTitle(t, `${group.title} · ${group.prs.length}`));
@@ -728,9 +737,20 @@ export default class PullRequests extends View {
     if ("error" in resolved) return resolved.error;
     const configured = reviewInstructions(await readTextFile(`${appHome()}/argus.json`));
     if (configured.error !== null) return configured.error;
+    // A prompt file from argus.json replaces the built-in prompt.
+    let template = null;
+    if (configured.promptFile !== null) {
+      const pathRefusal = promptFileRefusal(configured.promptFile);
+      if (pathRefusal !== null) return pathRefusal;
+      template = await readTextFile(expandHome(configured.promptFile, home()));
+      if (template === null) return `Could not read the prompt file ${configured.promptFile} from argus.json.`;
+      const refusal = templateRefusal(template);
+      if (refusal !== null) return refusal;
+    }
     // The prompt names the head commit, so the pull request is read again now. A gh or glab error throws.
     const detail = await this.readDetail(pr);
-    const refusal = startRefusal(detail);
+    // Only a prompt that uses {{base}} puts the base branch in a command.
+    const refusal = startRefusal(detail, { checksBase: template === null || templateUses(template, "base") });
     if (refusal !== null) return refusal;
     const plan = reviewPlan({ localPath: pr.localPath, root: resolved.root, branch });
     const checked = await exec("git", plan.check, { cwd: plan.cwd, timeout: GIT_TIMEOUT });
@@ -741,7 +761,7 @@ export default class PullRequests extends View {
       name: `PR #${pr.number} · ${pr.title}`,
       folder: plan.path,
       argv,
-      task: reviewPrompt({ detail, configured: configured.instructions, extra }),
+      task: reviewPrompt({ detail, configured: configured.instructions, extra, template }),
     });
     setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
     return null;
@@ -765,7 +785,6 @@ export default class PullRequests extends View {
     const review = this.review;
     const pr = review?.pr ?? null;
     const close = () => closeOverlay(props()?.overlay);
-    const label = (text) => div().text_size(11.5).font_medium().text_color(t.dim).child(text);
     const choices = review?.choices ?? null;
     const choice = choices?.[review.picked] ?? null;
     const tiles = (choices ?? []).map((entry, index) => {
@@ -788,44 +807,61 @@ export default class PullRequests extends View {
           cx.notify();
         })
         .when(pic !== null, (el) => el.child(pic))
-        .child(div().w_full().text_size(11.5).text_center().whitespace_normal().child(entry.label));
+        .child(div().w_full().text_size(11).text_center().whitespace_normal().child(entry.label));
     });
     const canStart = pr !== null && !review.starting && choice !== null;
     const starting = Boolean(review?.starting);
     // A field grows along its row, so each one sits in its own row.
     const row = (child) => h_flex().w_full().child(child);
+    // Each field is a tight group (label, control, help line); the groups sit further apart.
+    const group = (id, children) => v_flex().id(id).gap(6).children(children);
     const body = [
-      label("Agent"),
-      choices === null
-        ? note(t, "Looking for agents…")
-        : choices.length === 0
-          ? note(t, "No agent is installed.")
-          : h_flex().flex_wrap().gap(8).children(tiles),
+      group("group-agent", [
+        fieldLabel(t, "Agent"),
+        choices === null
+          ? note(t, "Looking for agents…")
+          : choices.length === 0
+            ? note(t, "No agent is installed.")
+            : h_flex().flex_wrap().gap(8).children(tiles),
+      ]),
     ];
-    if (choice?.model) body.push(label("Model"), row(field(t, "model", this.modelInput, this.focused === "model")));
-    body.push(label("Branch"), row(field(t, "branch", this.branchInput, this.focused === "branch")));
-    body.push(label("Extra instructions"), textBox(t, "extra", this.extraInput, this.focused === "extra"));
+    if (choice?.model) {
+      body.push(group("group-model", [fieldLabel(t, "Model"), row(field(t, "model", this.modelInput, this.focused === "model")), hint(t, "Empty uses your default model. Or type an alias, such as sonnet or opus, or a full model ID.")]));
+    }
+    body.push(
+      group("group-branch", [
+        fieldLabel(t, "Branch"),
+        row(field(t, "branch", this.branchInput, this.focused === "branch")),
+        hint(t, `The review worktree's branch. Keep the ${review?.pr ? `argus/review-${review.pr.number}-` : "argus/review-<number>-"} start: the board finds review runs by it.`),
+      ]),
+      group("group-extra", [
+        fieldLabel(t, "Extra instructions"),
+        textBox(t, "extra", this.extraInput, this.focused === "extra"),
+        hint(t, "Optional. Added to the end of the review prompt, for example: Use the <name> skill. Text for every review, or a whole prompt of your own, goes in argus.json (pullRequests.review)."),
+      ]),
+    );
     return v_flex()
       .id("argus-pull-requests-review")
       .track_focus(this.handle)
       .size_full()
-      .p(14)
+      .p(18)
       .gap(10)
       .bg(t.popover)
       .text_color(t.foreground)
-      .text_size(12.8)
+      .text_size(13)
       .on_key_down((e, cx) => {
         // The pane runs a started review, so closing the dialog never stops it.
         if (e.key !== "escape") return;
         cx.stop_propagation();
         close();
       })
-      .child(div().flex_none().text_size(14).font_semibold().child("Review with agent"))
+      .child(div().flex_none().text_size(15).font_semibold().child("Review with agent"))
       .when(pr !== null, (el) =>
         el.child(h_flex().flex_none().gap(8).px(10).py(8).rounded(8).bg(t.raised).child(div().flex_none().text_color(t.muted).child(`#${pr.number}`)).child(div().flex_1().min_w(0).truncate().child(pr.title))),
       )
       // The fields scroll, so Cancel and Start stay in view with many agents.
-      .child(scrollArea("argus-pull-requests-review-body", body, { padding: 0, gap: 10 }))
+      // The body keeps clear of the scrollbar on its right.
+      .child(scrollArea("argus-pull-requests-review-body", [v_flex().pr(14).gap(18).children(body)], { padding: 0 }))
       // The error stays in view below the fields.
       .when(Boolean(this.review?.error), (el) => el.child(div().flex_none().text_size(11).text_color(t.blocked).whitespace_normal().child(this.review?.error ?? "")))
       .child(
@@ -924,14 +960,13 @@ export default class PullRequests extends View {
       this.view = "board";
       cx.notify();
     };
-    const hint = (text) => div().px(8).text_size(11).text_color(t.dim).child(text);
     const parts = [
       sectionTitle(t, "gh command"),
       h_flex().px(8).py(4).child(field(t, "gh", this.ghInput, this.focused === "gh")),
-      hint("Leave empty to use gh from PATH, else its usual install folders."),
+      hint(t, "Leave empty to use gh from PATH, else its usual install folders.").px(8),
       sectionTitle(t, "glab command"),
       h_flex().px(8).py(4).child(field(t, "glab", this.glabInput, this.focused === "glab")),
-      hint("Leave empty to use glab from PATH, else its usual install folders. Both fields save on Enter or when you leave them."),
+      hint(t, "Leave empty to use glab from PATH, else its usual install folders. Both fields save on Enter or when you leave them.").px(8),
       sectionTitle(t, "Refresh every"),
       h_flex()
         .px(8)
@@ -1008,15 +1043,32 @@ export default class PullRequests extends View {
       : ghViewArgs(selected.repo, selected.number);
     // The pane needs the GitHub login to turn off the review buttons on your own pull request.
     if (!gitLab) await this.ghLogin(command, [], true);
-    const reply = await exec(command, args, { timeout: CLI_TIMEOUT });
+    if (gitLab) {
+      const reply = await exec(command, args, { timeout: CLI_TIMEOUT });
+      if (reply.code !== 0) throw new Error(cliError(name, reply));
+      return parseGlabDetail(reply.stdout, selected.host);
+    }
+    // The review threads come from a second read beside the detail. Its failure leaves the pane working without them.
+    const [reply, threads] = await Promise.all([
+      exec(command, args, { timeout: CLI_TIMEOUT }),
+      exec(command, ghThreadsArgs(selected.repo, selected.number), { timeout: CLI_TIMEOUT }).catch((error) => ({ code: -1, stdout: "", stderr: error?.message ?? String(error) })),
+    ]);
     if (reply.code !== 0) throw new Error(cliError(name, reply));
-    return gitLab ? parseGlabDetail(reply.stdout, selected.host) : parseGhDetail(reply.stdout, selected.repo);
+    const detail = parseGhDetail(reply.stdout, selected.repo);
+    if (threads.code !== 0) return mergeThreads(detail, null, cliError(name, threads));
+    try {
+      return mergeThreads(detail, parseGhThreads(threads.stdout), null);
+    } catch (error) {
+      return mergeThreads(detail, null, error?.message ?? String(error));
+    }
   }
 
-  openInBrowser(cx, pr) {
+  openInBrowser(cx, pr, url = pr.url) {
     const key = prKey(pr);
     this.actionError = null;
-    const open = openArgs(window().platform, pr.url);
+    // Draw again, so an old error goes away.
+    cx.notify();
+    const open = openArgs(window().platform, url);
     if (open === null) return;
     cx.spawn(async (cx) => {
       await cx.sleep(0);
@@ -1086,7 +1138,7 @@ export default class PullRequests extends View {
 
   /** The review and merge state of one pull request in this pane. */
   actionState(key) {
-    return this.actions.get(key) ?? { running: null, error: null, composing: null, confirm: null, text: "", draftText: null };
+    return this.actions.get(key) ?? { running: null, error: null, confirm: null, text: "", draftText: null, menu: null, methods: null, composing: null };
   }
 
   /** The action running on a pull request in this copy or in another copy of the mod, or null. */
@@ -1125,15 +1177,15 @@ export default class PullRequests extends View {
     this.actions.set(key, { ...this.actionState(key), ...patch });
   }
 
-  /** Opens the composer for Request changes or Comment. */
+  /** Opens the comment field above the footer for Comment or Request changes. */
   compose(cx, key, kind) {
-    this.setAction(key, { composing: kind, confirm: null, error: null });
+    this.setAction(key, { composing: kind, menu: null, confirm: null, error: null });
     cx.timer.after(0, () => this.bodyInput?.focus());
     cx.notify();
   }
 
-  /** Runs the composer's action with the typed body. */
-  submitBody(cx) {
+  /** Runs the open comment field's action with its text. */
+  submitComment(cx) {
     const shown = this.shown;
     if (shown?.kind !== "ok") return;
     const state = this.actionState(shown.key);
@@ -1142,48 +1194,65 @@ export default class PullRequests extends View {
     this.runAction(cx, shown.key, state.composing, shown.detail, this.bodyInput?.value() ?? "", null);
   }
 
-  /** Shows the merge confirm; on GitHub it reads the repo's merge method first. */
-  askMerge(cx, key, detail) {
-    if (this.runningOn(key) !== null) return;
-    // The confirm keeps the head it was shown for; a merge of a newer head fails.
-    const headSha = detail.headSha;
+  /** Opens or closes a menu of the footer: "merge" (the merge methods) or "more" (⋯: comment, review, check out, browser). */
+  toggleMenu(cx, key, detail, menu) {
+    const open = this.actionState(key).menu === menu ? null : menu;
+    this.setAction(key, { menu: open, error: null });
+    if (open === "merge") this.loadMethods(cx, key, detail);
+    cx.notify();
+  }
+
+  /** Fills the merge menu: GitLab's methods come with the detail; GitHub's are read once per repo. */
+  loadMethods(cx, key, detail) {
     if (detail.pr.provider === "gitlab") {
-      this.setAction(key, { confirm: { method: null, headSha }, composing: null, error: null });
-      cx.notify();
+      this.setAction(key, { methods: glMergeMethods(detail) });
       return;
     }
-    this.setAction(key, { running: "merge", composing: null, confirm: null, error: null });
-    cx.notify();
+    const cached = this.methodCache.get(detail.pr.repo);
+    if (cached) {
+      this.setAction(key, { methods: cached });
+      return;
+    }
+    this.setAction(key, { methods: { loading: true } });
     cx.spawn(async (cx) => {
       await cx.sleep(0);
-      let patch;
+      let methods;
       try {
         const gh = await this.locate("gh");
         if (gh === null) {
-          patch = { error: GH_MISSING };
+          methods = { error: GH_MISSING };
         } else {
           const reply = await exec(gh, ghMethodArgs(detail.pr.repo), { timeout: CLI_TIMEOUT });
-          const method = reply.code === 0 ? pickMergeMethod(reply.stdout) : null;
-          if (reply.code !== 0) patch = { error: cliError("gh", reply) };
-          else if (method === null) patch = { error: NO_METHOD };
-          // A merge confirm shows only on the pull request it was asked for.
-          else patch = this.shown?.key === key ? { confirm: { method, headSha } } : {};
+          methods = reply.code === 0 ? ghMergeMethods(reply.stdout) : { error: cliError("gh", reply) };
+          if ("methods" in methods) this.methodCache.set(detail.pr.repo, methods);
         }
       } catch (error) {
-        patch = { error: error?.message ?? String(error) };
+        methods = { error: error?.message ?? String(error) };
       }
-      this.setAction(key, { running: null, ...patch });
+      this.setAction(key, { methods });
       cx.notify();
     });
   }
 
+  /** Opens the merge confirm for a picked method. The confirm keeps the head it was shown for; a merge of a newer head fails. */
+  pickMethod(cx, key, detail, method) {
+    this.setAction(key, { menu: null, confirm: { method, headSha: detail.headSha }, error: null });
+    cx.notify();
+  }
+
   /**
    * Runs one review or merge action, then reads the pull request again and marks the board
-   * stale so a board copy reads it. On success it closes the confirm, and the composer after
-   * its own action while the box still holds the sent text.
+   * stale so a board copy reads it. On success it closes the confirm, and clears the comment
+   * bar after its own action while the bar still holds the sent text.
    */
   runAction(cx, key, kind, detail, body, method) {
     if (this.runningOn(key) !== null) return;
+    // A confirm opened before a re-read may name a method the merge request no longer allows.
+    if (kind === "merge" && method !== null && !mergeAllowed(detail, method)) {
+      this.setAction(key, { confirm: null, error: "The merge options changed. Pick a merge method again." });
+      cx.notify();
+      return;
+    }
     const command = actionCommand({ kind, detail, body, method });
     if ("error" in command) {
       this.setAction(key, { error: command.error });
@@ -1242,7 +1311,7 @@ export default class PullRequests extends View {
         const inBox = this.boxKey === key;
         const current = inBox ? (this.bodyInput?.value() ?? "") : this.actionState(key).text;
         const clear = clearsComment(after, body, current);
-        this.finishRunning(key, { error: null, confirm: null, ...done, ...(clear ? { composing: null, text: "" } : {}) });
+        this.finishRunning(key, { error: null, confirm: null, ...done, ...(clear ? { text: "", composing: null } : {}) });
         if (clear && inBox) this.bodyInput?.set_value("");
       }
       // A failed action may still have reached the forge (a timeout), so the board reads it again either way.
@@ -1282,182 +1351,210 @@ export default class PullRequests extends View {
         .rounded_none()
         .border_0()
         .child(note(t, "Could not read this pull request."))
-        .child(div().px(8).text_size(12).text_color(t.blocked).whitespace_normal().child(shown.error ?? ""));
+        .child(errorLine(t, shown.error ?? ""));
     }
 
     const detail = shown.detail;
     const pr = detail.pr;
-    const localPath = localPathFor(readBoard().projects, pr.host, pr.repo);
-    const now = Date.now();
-    const checkout = this.checkouts.get(shown.key) ?? { running: false, error: null };
-    const act = this.actionState(shown.key);
-    const busy = this.runningOn(shown.key) !== null;
-    const error = (this.actionError?.key === shown.key ? this.actionError.text : null) ?? checkout.error;
-    const small = (text) => div().text_size(12).text_color(t.muted).child(text);
-
-    const head = v_flex()
-      .flex_none()
-      .p(10)
-      .gap(6)
-      .child(
-        h_flex()
-          .gap(6)
-          .items_center()
-          .child(svg(ICON(pr.provider === "gitlab" ? "gitlab" : "github")).size(14).flex_none().text_color(t.muted))
-          .child(div().min_w(0).truncate().text_size(12).text_color(t.muted).child(pr.repo))
-          .child(small(`#${pr.number}`).flex_none())
-          .child(div().flex_none().text_size(12).text_color(t.muted).child(prState(pr))),
-      )
-      .child(div().text_size(11).text_color(t.dim).whitespace_normal().child(`${pr.headRef} → ${pr.baseRef}`))
-      .child(div().font_semibold().whitespace_normal().child(pr.title))
-      .when(localPath === null, (el) => el.child(note(t, "No local checkout")))
-      .child(
-        h_flex()
-          .flex_wrap()
-          .gap(8)
-          .child(button(t, "open-browser", "Open in browser", (_e, cx) => this.openInBrowser(cx, pr)))
-          .child(
-            button(t, "check-out", "Check out in a worktree", (_e, cx) => this.checkOut(cx, pr, localPath ?? ""), {
-              enabled: localPath !== null && !checkout.running,
-            }),
-          )
-          .child(button(t, "review-agent", "Review with agent", () => openReview(pr, localPath ?? "", this.owner), { enabled: localPath !== null && canAct(pr) })),
-      )
-      .when(checkout.running, (el) => el.child(div().text_size(11).text_color(t.muted).child("Checking out…")))
-      .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")))
-      .when(canAct(pr), (el) => el.child(this.reviewActions(t, shown.key, detail, act)))
-      .when(busy, (el) => el.child(div().text_size(11).text_color(t.muted).child("Working…")))
-      .when(act.error !== null, (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(act.error ?? "")));
-
-    const text = (value) => div().px(8).py(2).whitespace_normal().child(value);
-    const parts = [sectionTitle(t, "Checks")];
-    if (detail.checks.length === 0) parts.push(note(t, "No checks"));
-    for (const [index, check] of detail.checks.entries()) {
-      const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.muted;
-      const mark = check.state === "failed" ? "✗" : check.state === "running" ? "●" : "✓";
-      parts.push(
-        h_flex()
-          .id(`check-${index}`)
-          .px(8)
-          .py(2)
-          .gap(6)
-          .child(div().flex_none().text_color(color).child(mark))
-          .child(div().flex_1().min_w(0).whitespace_normal().child(check.name)),
-      );
-    }
-    parts.push(sectionTitle(t, "Reviews"));
-    if (detail.reviewers.length === 0) parts.push(note(t, "No reviews yet"));
-    for (const [index, reviewer] of detail.reviewers.entries()) {
-      parts.push(
-        h_flex()
-          .id(`reviewer-${index}`)
-          .px(8)
-          .py(2)
-          .gap(8)
-          .child(div().flex_1().min_w(0).truncate().child(reviewer.name))
-          .child(div().flex_none().text_color(reviewer.state === "changes_requested" ? t.blocked : t.muted).child(REVIEW_WORDS[reviewer.state] ?? reviewer.state)),
-      );
-    }
-    parts.push(sectionTitle(t, "Merge state"), text(MERGE_WORDS[detail.merge.state] ?? "Not checked yet"));
-    if (detail.merge.reason) parts.push(div().px(8).py(2).text_size(12).text_color(t.muted).whitespace_normal().child(detail.merge.reason));
-    const runs = readBoard().reviews[shown.key] ?? [];
-    if (runs.length > 0 && localPath !== null) {
-      parts.push(sectionTitle(t, "Agent"));
+    const board = readBoard();
+    const key = shown.key;
+    const localPath = localPathFor(board.projects, pr.host, pr.repo);
+    const checkout = this.checkouts.get(key) ?? { running: false, error: null };
+    const runs = board.reviews[key] ?? [];
+    const position = positionIn(shownOrder(board, readScope(), followedOf(board)), key);
+    // The runs the section shows: a removed run stays out until the board reads again.
+    const shownRuns = [];
+    const agentRows = [];
+    if (localPath !== null) {
       runs.forEach((reviewRun, index) => {
         const row = this.reviewRunRow(t, index, reviewRun, localPath);
-        if (row !== null) parts.push(row);
+        if (row === null) return;
+        shownRuns.push(reviewRun);
+        agentRows.push(row);
       });
     }
-    parts.push(sectionTitle(t, "Description"));
-    const body = detail.body.trim();
-    parts.push(body === "" ? note(t, "No description") : text(detail.body));
-    parts.push(sectionTitle(t, "Conversation"));
-    if (detail.conversation.length === 0) parts.push(note(t, "No comments"));
-    for (const [index, entry] of orderConversation(detail.conversation, readSettings().conversation).entries()) {
-      parts.push(
-        v_flex()
-          .id(`entry-${index}`)
-          .px(8)
-          .py(4)
-          .gap(2)
-          .child(div().text_size(11).text_color(t.dim).child(`${entry.author} · ${ageText(entry.at, now)}`))
-          .child(div().whitespace_normal().child(entry.body)),
-      );
-    }
-
-    return frame(t, "argus-pull-requests-pr")
-      .rounded_none()
-      .border_0()
-      .child(head)
-      .child(scrollArea("argus-pull-requests-pr-detail", parts, { padding: 6 }));
+    // A section the person folded or opened keeps that choice while its default stays the same; the others follow what needs them.
+    const defaults = openByDefault(detail, shownRuns);
+    const folds = this.folds.get(key) ?? {};
+    const open = new Set(["checks", "reviews", "agent", "description", "conversation"].filter((id) => sectionOpen(folds[id], defaults.has(id))));
+    // Moves to a neighbour in the board's order, as a row click does.
+    const go = (target) => {
+      const next = target === null ? null : board.prs.find((candidate) => prKey(candidate) === target);
+      if (next) selectPr(next);
+    };
+    const view = {
+      detail,
+      verdict: verdictOf(detail),
+      summaries: sectionSummaries(detail, shownRuns, localPath !== null),
+      open,
+      checks: checkLayout(detail.checks, this.passedOpen.has(key)),
+      // The display name the forge gives a login, a known bot's name, else the login.
+      nameOf: (login) => displayName(login, detail.names),
+      items: conversationItems(detail, readSettings().conversation),
+      position,
+      hasCheckout: localPath !== null,
+      checkingOut: checkout.running,
+      error: (this.actionError?.key === key ? this.actionError.text : null) ?? checkout.error,
+      now: Date.now(),
+      age: ageText,
+      icon: ICON,
+      agentRows,
+      bottom: this.bottomBar(t, key, detail, localPath, checkout.running),
+    };
+    const on = {
+      toggle: (id, cx) => {
+        this.folds.set(key, { ...folds, [id]: { open: !open.has(id), defaultWas: defaults.has(id) } });
+        cx.notify();
+      },
+      togglePassed: (cx) => {
+        if (this.passedOpen.has(key)) this.passedOpen.delete(key);
+        else this.passedOpen.add(key);
+        cx.notify();
+      },
+      prev: () => go(position?.prev ?? null),
+      next: () => go(position?.next ?? null),
+      openBrowser: (cx) => this.openInBrowser(cx, pr),
+      // A check's run or job page; an error shows under the header like Open in browser's.
+      openCheck: (url, cx) => this.openInBrowser(cx, pr, url),
+      // A link in a comment or the description; only http and https open.
+      openLink: (url, cx) => this.openInBrowser(cx, pr, url),
+      checkOut: (cx) => this.checkOut(cx, pr, localPath ?? ""),
+    };
+    return prPane(t, view, on);
   }
 
-  /** Approve, Request changes, Comment and Merge, with the open composer or merge confirm under them. */
-  reviewActions(t, key, detail, act) {
-    const enabled = this.runningOn(key) === null;
+  /**
+   * The area under the pane's scroll: the kept GitLab draft, the merge confirm, the running and
+   * error lines, the own-PR note, the comment field when open, the open menu, then the footer with
+   * Review with agent, Merge ▾ and ⋯. A pull request that is no longer open keeps only ⋯.
+   */
+  bottomBar(t, key, detail, localPath, checkingOut) {
+    const pr = detail.pr;
+    const act = this.actionState(key);
+    const busy = this.runningOn(key) !== null;
+    const enabled = !busy;
+    const live = canAct(pr);
     // A null login leaves the buttons on; GitHub's own message then explains a refusal.
-    const own = ownPr(detail.pr, this.login?.value ?? null);
-    const cancel = (patch) => (_e, cx) => {
-      this.setAction(key, { ...patch, error: null });
-      cx.notify();
-    };
-    let box = v_flex()
-      .gap(6)
-      .child(
+    const own = ownPr(pr, this.login?.value ?? null);
+    const tick = iconResolver(MOD, this.found)("check");
+    const line = (text, color) => div().text_size(11).text_color(color).whitespace_normal().child(text);
+    const menuBox = (id, rows) => v_flex().id(id).p(MENU_PAD).rounded(8).border_1().border_color(t.border).bg(t.popover).children(rows);
+    // What shows above the footer row. It scrolls past a maximum height, so the footer stays in view.
+    const above = [];
+
+    if (live && act.draftText !== null) above.push(line("Your comment is a pending review comment on the merge request. Request changes with the same text publishes it.", t.muted));
+    if (live && act.confirm !== null) {
+      const method = act.confirm.method;
+      above.push(
         h_flex()
           .flex_wrap()
           .gap(8)
-          .child(button(t, "approve", "Approve", (_e, cx) => this.runAction(cx, key, "approve", detail, "", null), { enabled: enabled && !own }))
-          .child(button(t, "request-changes", "Request changes", (_e, cx) => this.compose(cx, key, "request_changes"), { enabled: enabled && !own }))
-          .child(button(t, "comment", "Comment", (_e, cx) => this.compose(cx, key, "comment"), { enabled }))
-          .child(button(t, "merge", "Merge", (_e, cx) => this.askMerge(cx, key, detail), { enabled })),
-      )
-      .when(own, (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child(OWN_PR)));
-    if (act.composing !== null && this.bodyInput) {
-      box = box.child(
+          .items_center()
+          .child(div().flex_1().min_w(0).whitespace_normal().child(mergePrompt(detail, method)))
+          .child(button(t, "confirm-merge", "Merge", (_e, cx) => this.runAction(cx, key, "merge", confirmedDetail(detail, act.confirm), "", method), { primary: true, enabled }))
+          .child(
+            button(t, "cancel-merge", "Cancel", (_e, cx) => {
+              this.setAction(key, { confirm: null, error: null });
+              cx.notify();
+            }),
+          ),
+      );
+    }
+    if (busy) above.push(line("Working…", t.muted));
+    if (act.error !== null) above.push(errorLine(t, act.error));
+    if (live && own) above.push(line(OWN_PR, t.muted));
+
+    if (live && act.composing !== null && this.bodyInput) {
+      above.push(
         v_flex()
           .gap(6)
           .child(div().text_size(12).font_semibold().child(act.composing === "request_changes" ? "Request changes" : "Comment"))
-          .when(act.composing === "request_changes" && act.draftText !== null, (el) =>
-            el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Your comment is already a pending review comment. Submit publishes it.")),
-          )
           .child(textBox(t, "body", this.bodyInput, this.focused === "body"))
           .child(
             h_flex()
+              .flex_wrap()
               .gap(8)
-              .child(button(t, "submit-body", "Submit", (_e, cx) => this.submitBody(cx), { primary: true, enabled }))
-              .child(button(t, "cancel-body", "Cancel", cancel({ composing: null }))),
+              .child(button(t, "submit-body", act.composing === "request_changes" ? "Request changes" : "Comment", (_e, cx) => this.submitComment(cx), { primary: true, enabled }))
+              .child(
+                button(t, "cancel-body", "Cancel", (_e, cx) => {
+                  this.setAction(key, { composing: null, error: null });
+                  cx.notify();
+                }),
+              ),
           ),
       );
     }
-    if (act.confirm !== null) {
-      const method = act.confirm.method;
-      box = box.child(
-        v_flex()
+
+    if (live && act.menu === "merge") {
+      // GitLab's methods follow the merge request as read now; GitHub's come from the repo read.
+      const methods = pr.provider === "gitlab" ? glMergeMethods(detail) : act.methods;
+      let rows;
+      if (!methods || methods.loading) rows = [note(t, "Loading…")];
+      else if ("error" in methods) rows = [errorLine(t, methods.error)];
+      else {
+        rows = methods.methods.map((entry, index) =>
+          menuRow(t, `merge-method-${index}`, {
+            label: entry.label,
+            count: entry.isDefault ? "default" : null,
+            current: entry.isDefault,
+            enabled,
+            tick,
+            onClick: (_e, cx) => this.pickMethod(cx, key, detail, entry.method),
+          }),
+        );
+      }
+      const menuNote = mergeMenuNote(detail);
+      if (menuNote !== null) rows.push(div().px(8).py(4).text_size(11).text_color(t.muted).whitespace_normal().child(menuNote));
+      above.push(menuBox("merge-menu", rows));
+    }
+    if (act.menu === "more") {
+      const pick = (run) => (_e, cx) => {
+        this.setAction(key, { menu: null });
+        run(cx);
+        // Draw again, so the menu closes.
+        cx.notify();
+      };
+      const rows = [];
+      if (live) {
+        rows.push(
+          menuRow(t, "more-comment", { label: "Comment…", enabled, tick, onClick: pick((cx) => this.compose(cx, key, "comment")) }),
+          menuRow(t, "more-approve", { label: "Approve", enabled: enabled && !own, tick, onClick: pick((cx) => this.runAction(cx, key, "approve", detail, "", null)) }),
+          menuRow(t, "more-request", { label: "Request changes…", enabled: enabled && !own, tick, onClick: pick((cx) => this.compose(cx, key, "request_changes")) }),
+          div().my(4).h(1).bg(t.border),
+        );
+      }
+      rows.push(
+        menuRow(t, "more-checkout", { label: "Check out in a worktree", enabled: localPath !== null && !checkingOut, tick, onClick: pick((cx) => this.checkOut(cx, pr, localPath ?? "")) }),
+        menuRow(t, "more-browser", { label: "Open in browser", tick, onClick: pick((cx) => this.openInBrowser(cx, pr)) }),
+      );
+      above.push(menuBox("more-menu", rows));
+    }
+
+    return v_flex()
+      .flex_none()
+      .px(12)
+      .py(10)
+      .gap(8)
+      .border_t(1)
+      .border_color(t.border)
+      .bg(t.background)
+      .when(above.length > 0, (el) => el.child(v_flex().id("bottom-above").max_h(BOTTOM_MAX_HEIGHT).overflow_y_scroll().gap(8).children(above)))
+      .child(
+        h_flex()
+          .flex_wrap()
           .gap(6)
-          .child(div().text_size(12).whitespace_normal().child(mergePrompt(detail, method)))
-          .child(
-            h_flex()
-              .gap(8)
-              .child(button(t, "confirm-merge", "Merge", (_e, cx) => this.runAction(cx, key, "merge", confirmedDetail(detail, act.confirm), "", method), { primary: true, enabled }))
-              .child(button(t, "cancel-merge", "Cancel", cancel({ confirm: null }))),
-          ),
+          .items_center()
+          .when(live, (el) =>
+            el
+              .child(button(t, "review-agent", "Review with agent", () => openReview(pr, localPath ?? "", this.owner), { primary: true, enabled: localPath !== null }))
+              .child(button(t, "merge", "Merge ▾", (_e, cx) => this.toggleMenu(cx, key, detail, "merge"), { enabled })),
+          )
+          .child(div().flex_1())
+          .child(button(t, "more", "⋯", (_e, cx) => this.toggleMenu(cx, key, detail, "more"))),
       );
-    }
-    return box;
   }
+
 }
-
-const REVIEW_WORDS = {
-  approved: "Approved",
-  changes_requested: "Changes requested",
-  commented: "Commented",
-  dismissed: "Dismissed",
-  pending: "Pending",
-  requested: "Review requested",
-};
-
-const MERGE_WORDS = { mergeable: "Mergeable", conflicting: "Has conflicts", blocked: "Blocked", unknown: "Not checked yet" };
 
 function prState(pr) {
   if (pr.state === "merged") return "Merged";
@@ -1562,8 +1659,13 @@ function pickScope(scope) {
  * Selects a pull request and shows it: focuses this mod's pane in the shown tab,
  * or splits the tab's focused pane to the right to open one.
  */
-export function openPr(pr) {
+/** Makes `pr` the selected pull request, which every pull request pane shows. */
+function selectPr(pr) {
   setShared(SELECTED_KEY, { key: prKey(pr), provider: pr.provider, host: pr.host, repo: pr.repo, number: pr.number });
+}
+
+export function openPr(pr) {
+  selectPr(pr);
   const tab = spaces()
     .find((space) => space.active)
     ?.tabs.find((candidate) => candidate.active);

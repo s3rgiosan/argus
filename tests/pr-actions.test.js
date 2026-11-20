@@ -83,6 +83,11 @@ test("merge args pin the head", () => {
   ]);
 });
 
+test("GitLab merge follows the picked method", () => {
+  assert.deepEqual(actionCommand({ kind: "merge", detail: gl, body: "", method: "squash" }).args.slice(-1), ["--squash"]);
+  assert.deepEqual(actionCommand({ kind: "merge", detail: gl, body: "", method: "rebase" }), { error: NO_METHOD });
+});
+
 test("missing sha refuses", () => {
   for (const [kind, d] of [["merge", gh], ["merge", gl], ["approve", gl]]) {
     assert.deepEqual(actionCommand({ kind, detail: { ...d, headSha: null }, body: "", method: "merge" }), { error: NO_SHA });
@@ -274,16 +279,18 @@ test("afterAction after a failed request changes keeps the comment", () => {
 });
 
 test("leavePr keeps the typed text and a running action, and drops the rest", () => {
-  const idle = { running: null, error: null, composing: null, confirm: null, text: "", draftText: null };
+  const idle = { running: null, error: null, confirm: null, text: "", draftText: null, menu: null, methods: null, composing: null };
   assert.equal(leavePr(idle, ""), null);
   assert.equal(leavePr({ ...idle, error: "gh: old" }, ""), null);
   assert.equal(leavePr({ ...idle, confirm: { method: "merge" } }, ""), null);
-  assert.deepEqual(leavePr({ ...idle, composing: "comment", error: "gh: old" }, "half a comment"), { ...idle, composing: "comment", text: "half a comment" });
+  assert.deepEqual(leavePr({ ...idle, error: "gh: old" }, "half a comment"), { ...idle, text: "half a comment" });
   // A running action keeps its state, so its result still lands there.
-  assert.deepEqual(leavePr({ ...idle, running: "comment", composing: "comment", confirm: { method: "merge" } }, "sent text"), {
-    ...idle, running: "comment", composing: "comment", text: "sent text",
-  });
-  assert.deepEqual(leavePr({ ...idle, draftText: "Fix it", composing: "request_changes" }, ""), { ...idle, draftText: "Fix it", composing: "request_changes" });
+  assert.deepEqual(leavePr({ ...idle, running: "comment", confirm: { method: "merge" } }, "sent text"), { ...idle, running: "comment", text: "sent text" });
+  assert.deepEqual(leavePr({ ...idle, draftText: "Fix it" }, ""), { ...idle, draftText: "Fix it" });
+  // An open menu and the merge methods it read are dropped; the text stays.
+  assert.deepEqual(leavePr({ ...idle, menu: "merge", methods: { loading: true }, text: "x" }, "x"), { ...idle, text: "x" });
+  // An open comment field stays open with its text.
+  assert.deepEqual(leavePr({ ...idle, composing: "request_changes", menu: "more" }, ""), { ...idle, composing: "request_changes" });
 });
 
 test("ownPr is true for the signed-in author of a GitHub pull request", () => {
@@ -293,4 +300,14 @@ test("ownPr is true for the signed-in author of a GitHub pull request", () => {
   assert.equal(ownPr(gh.pr, null), false);
   // GitLab projects decide whether authors may approve, so the buttons stay.
   assert.equal(ownPr(gl.pr, "octo-user"), false);
+});
+
+test("mergePrompt on GitLab names the picked method", () => {
+  assert.equal(mergePrompt({ ...gl, squash: false }, "squash"), "Merge #12 into main with squash?");
+  assert.equal(mergePrompt({ ...gl, squash: true }, "merge"), "Merge #12 into main?");
+  assert.equal(mergePrompt({ ...gl, squash: true }, null), "Merge #12 into main with squash?");
+});
+
+test("GitLab Merge sends no squash flag, because glab sends nothing for --squash=false", () => {
+  assert.deepEqual(actionCommand({ kind: "merge", detail: { ...gl, squash: false }, body: "", method: "merge" }).args.slice(-2), ["--sha", "abc123"]);
 });

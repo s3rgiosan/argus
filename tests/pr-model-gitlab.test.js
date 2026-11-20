@@ -50,13 +50,28 @@ test("parseGlabDetail builds the detail view", () => {
   assert.equal(detail.pr.reviewDecision, "changes_requested");
   assert.equal(detail.body, "Example description.");
   assert.deepEqual(detail.checks, [
-    { name: "build", state: "passed" },
-    { name: "test", state: "failed" },
+    { name: "build", state: "passed", url: "https://gitlab.example.com/example-group/example-sub/example-project/-/jobs/8" },
+    { name: "test", state: "failed", url: null },
   ]);
   assert.deepEqual(detail.reviewers, [{ name: "review-user", state: "changes_requested" }]);
   assert.deepEqual(detail.conversation, [
-    { author: "review-user", body: "Example note.", at: "2026-11-12T09:00:00Z", kind: "comment" },
+    { author: "review-user", body: "Example note.", at: "2026-11-12T09:00:00Z", kind: "comment", state: null, id: null },
   ]);
+  assert.deepEqual(detail.threads, [
+    {
+      path: "src/Example.php",
+      line: 12,
+      resolved: false,
+      reviewId: null,
+      comments: [
+        { author: "review-user", body: "Rename this.", at: "2026-11-12T09:20:00Z" },
+        { author: "octo-user", body: "Done.", at: "2026-11-12T09:30:00Z" },
+      ],
+    },
+  ]);
+  assert.equal(detail.squashLocked, true);
+  assert.equal(detail.threadsNote, null);
+  assert.equal(detail.threadsError, null);
   assert.deepEqual(detail.merge, { state: "conflicting", reason: "Indicates a reviewer has requested changes." });
 });
 
@@ -71,7 +86,8 @@ test("parseGlabDetail falls back to one pipeline check, requested reviewers and 
     { username: "b-user", mergeRequestInteraction: null },
   ];
   const detail = parseGlabDetail(JSON.stringify(raw), host);
-  assert.deepEqual(detail.checks, [{ name: "pipeline", state: "running" }]);
+  // This pipeline has no path, so its check has no link.
+  assert.deepEqual(detail.checks, [{ name: "pipeline", state: "running", url: null }]);
   assert.deepEqual(detail.reviewers, [
     { name: "a-user", state: "requested" },
     { name: "b-user", state: "requested" },
@@ -144,4 +160,53 @@ test("parseGlabDetail reads squash only when it is true", () => {
   const d = parseGlabDetail(JSON.stringify(raw), host);
   assert.equal(d.squash, false);
   assert.equal(d.headSha, null);
+});
+
+test("parseGlabDetail notes a thread list that reached its limit", () => {
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  const thread = raw.data.project.mergeRequest.discussions.nodes[1];
+  raw.data.project.mergeRequest.discussions.nodes = Array.from({ length: 100 }, () => thread);
+  assert.equal(parseGlabDetail(JSON.stringify(raw), "gitlab.example.com").threadsNote, "Showing the first 100 file comment threads.");
+});
+
+test("parseGlabDetail: display names of the note authors", () => {
+  const names = parseGlabDetail(fixture("pr-glab-detail.json"), "gitlab.example.com").names;
+  assert.equal(names["review-user"], "Review User");
+  assert.equal(names["octo-user"], "Octo User");
+  // A reviewer who has not commented gets the name from the reviewer list.
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  raw.data.project.mergeRequest.reviewers.nodes.push({ username: "quiet-user", name: "Quiet User", mergeRequestInteraction: { reviewState: "UNREVIEWED" } });
+  assert.equal(parseGlabDetail(JSON.stringify(raw), "gitlab.example.com").names["quiet-user"], "Quiet User");
+});
+
+test("parseGlabDetail links the pipeline when it has no jobs", () => {
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  raw.data.project.mergeRequest.headPipeline.jobs.nodes = [];
+  assert.deepEqual(parseGlabDetail(JSON.stringify(raw), "gitlab.example.com").checks, [
+    { name: "pipeline", state: "failed", url: "https://gitlab.example.com/example-group/example-sub/example-project/-/pipelines/7" },
+  ]);
+});
+
+test("parseGlabDetail keeps names for logins that match Object properties", () => {
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  const mr = raw.data.project.mergeRequest;
+  mr.discussions.nodes[0].notes.nodes[0].author = { username: "constructor", name: "C Name" };
+  mr.reviewers.nodes.push({ username: "__proto__", name: "P Name", mergeRequestInteraction: { reviewState: "UNREVIEWED" } });
+  const names = parseGlabDetail(JSON.stringify(raw), host).names;
+  assert.equal(Object.hasOwn(names, "constructor"), true);
+  assert.equal(names.constructor, "C Name");
+  assert.equal(Object.hasOwn(names, "__proto__"), true);
+  assert.equal(Object.getOwnPropertyDescriptor(names, "__proto__").value, "P Name");
+});
+
+test("parseGlabDetail: a check link with whitespace is dropped, and the origin of an http-only merge request is kept", () => {
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  const mr = raw.data.project.mergeRequest;
+  mr.headPipeline.jobs.nodes[0].webPath = "/example-group/a b/-/jobs/8";
+  assert.equal(parseGlabDetail(JSON.stringify(raw), host).checks[0].url, null);
+  mr.headPipeline.jobs.nodes[0].webPath = "/example-group/example-project/-/jobs/8";
+  mr.webUrl = "http://gitlab.example.com:8080/example-group/example-project/-/merge_requests/14";
+  assert.equal(parseGlabDetail(JSON.stringify(raw), host).checks[0].url, "http://gitlab.example.com:8080/example-group/example-project/-/jobs/8");
+  mr.webUrl = "not a url";
+  assert.equal(parseGlabDetail(JSON.stringify(raw), host).checks[0].url, `https://${host}/example-group/example-project/-/jobs/8`);
 });

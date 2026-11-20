@@ -1,0 +1,276 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { checkGroups, checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
+import { NO_METHOD } from "../mods/argus-pull-requests/actions.js";
+import { assembleBoard } from "../mods/argus-pull-requests/board.js";
+
+const basePr = {
+  provider: "github", host: "github.com", repo: "example-org/example-repo", number: 12, title: "Example", url: "", author: "octo-user",
+  headRef: "feature/example", baseRef: "main", isDraft: false, state: "open", reviewDecision: null,
+  checks: { passed: 0, failed: 0, running: 0, total: 0 }, mergeable: "mergeable", updatedAt: "2026-01-01T00:00:00Z", localPath: null,
+};
+const check = (state, n) => Array.from({ length: n }, (_, i) => ({ name: `${state}-${i}`, state }));
+const detail = (over = {}) => ({
+  pr: { ...basePr, ...(over.pr ?? {}) }, body: "", headSha: "0123456789abcdef0123456789abcdef01234567", squash: false, checks: [], reviewers: [],
+  merge: { state: "mergeable", reason: null }, conversation: [], threads: [], threadsError: null, threadsNote: null, squashLocked: false,
+  ...over, pr: { ...basePr, ...(over.pr ?? {}) },
+});
+const entry = (author, at, extra = {}) => ({ author, body: "text", at, kind: "comment", state: null, id: null, ...extra });
+const thread = (path, line, at, extra = {}) => ({ path, line, resolved: false, reviewId: null, comments: [{ author: "review-user", body: "note", at }], ...extra });
+
+
+
+
+
+test("summaryOf: requested changes, open threads, comments and people", () => {
+  const d = detail({
+    reviewers: [{ name: "a", state: "changes_requested" }, { name: "b", state: "approved" }],
+    conversation: [entry("A", "1"), entry("B", "2", { kind: "review", state: "approved", body: "" }), entry("B", "3", { kind: "review", state: "commented", body: "x" })],
+    threads: [
+      { path: "a.js", line: 1, resolved: false, reviewId: null, comments: [{ author: "A", body: "y", at: "4" }, { author: "C", body: "z", at: "5" }] },
+      { path: "b.js", line: 2, resolved: true, reviewId: null, comments: [] },
+    ],
+  });
+  assert.deepEqual(summaryOf(d), { requested: 1, openThreads: 1, comments: 4, people: 3 });
+});
+
+test("summaryOf: only empty approvals count no comments", () => {
+  const d = detail({ conversation: [entry("A", "1", { kind: "review", state: "approved", body: "" })] });
+  assert.deepEqual(summaryOf(d), { requested: 0, openThreads: 0, comments: 0, people: 0 });
+});
+
+test("conversationItems: threads under their review, by path then line; an orphan thread by its time", () => {
+  const review = entry("B", "2026-01-02", { kind: "review", state: "changes_requested", id: "PRR_example1", body: "" });
+  const d = detail({
+    conversation: [entry("A", "2026-01-01"), review, entry("C", "2026-01-04")],
+    threads: [
+      thread("b.js", 3, "2026-01-02", { reviewId: "PRR_example1" }),
+      thread("a.js", 9, "2026-01-02", { reviewId: "PRR_example1" }),
+      thread("c.js", 1, "2026-01-03", { reviewId: "PRR_missing" }),
+    ],
+  });
+  const items = conversationItems(d, "oldest");
+  assert.deepEqual(items.map((i) => [i.kind, i.at]), [["comment", "2026-01-01"], ["review", "2026-01-02"], ["thread", "2026-01-03"], ["comment", "2026-01-04"]]);
+  assert.deepEqual(items[1].threads.map((t) => t.path), ["a.js", "b.js"]);
+  assert.deepEqual(items[2].threads.map((t) => t.path), ["c.js"]);
+  assert.deepEqual(conversationItems(d, "newest").map((i) => i.at), ["2026-01-04", "2026-01-03", "2026-01-02", "2026-01-01"]);
+});
+
+test("conversationItems: GitLab threads have no review and show by time", () => {
+  const d = detail({ conversation: [entry("A", "2026-01-02")], threads: [thread("a.js", 2, "2026-01-01")] });
+  assert.deepEqual(conversationItems(d, "oldest").map((i) => i.kind), ["thread", "comment"]);
+});
+
+test("positionIn", () => {
+  assert.deepEqual(positionIn(["a", "b", "c"], "b"), { index: 2, total: 3, prev: "a", next: "c" });
+  assert.deepEqual(positionIn(["a", "b", "c"], "a"), { index: 1, total: 3, prev: null, next: "b" });
+  assert.deepEqual(positionIn(["a", "b", "c"], "c").next, null);
+  assert.equal(positionIn(["a", "b", "c"], "z"), null);
+});
+
+test("shownOrder follows the board's groups: ready before draft", () => {
+  const project = { key: "github.com/example-org/example-repo", provider: "github", host: "github.com", repo: "example-org/example-repo", localPath: "/c", folders: ["/c"] };
+  const ready = { ...basePr, number: 1, reviewDecision: "approved", checks: { passed: 1, failed: 0, running: 0, total: 1 } };
+  const draft = { ...basePr, number: 2, isDraft: true, updatedAt: "2026-06-01T00:00:00Z" };
+  const board = assembleBoard({ projects: [project], folders: ["/c"], needsReview: [], mine: [], projectPrs: { [project.key]: [draft, ready] }, notes: [], readAt: 1 });
+  assert.deepEqual(shownOrder(board, { show: "all", where: "all" }, null), ["github.com/example-org/example-repo#1", "github.com/example-org/example-repo#2"]);
+});
+
+test("ghMergeMethods: the allowed methods, the default marked", () => {
+  const r = (o) => JSON.stringify({ mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, viewerDefaultMergeMethod: "SQUASH", ...o });
+  assert.deepEqual(ghMergeMethods(r({})), {
+    methods: [
+      { method: "merge", label: "Merge commit", isDefault: false },
+      { method: "squash", label: "Squash and merge", isDefault: true },
+      { method: "rebase", label: "Rebase and merge", isDefault: false },
+    ],
+  });
+  assert.deepEqual(ghMergeMethods(r({ mergeCommitAllowed: false, squashMergeAllowed: false })).methods, [{ method: "rebase", label: "Rebase and merge", isDefault: true }]);
+  assert.deepEqual(ghMergeMethods(r({ mergeCommitAllowed: false, squashMergeAllowed: false, rebaseMergeAllowed: false })), { error: NO_METHOD });
+  assert.ok("error" in ghMergeMethods("not json"));
+});
+
+test("glMergeMethods: an enforced squash setting offers one method", () => {
+  assert.deepEqual(glMergeMethods(detail({ squashLocked: true, squash: true })).methods, [{ method: "squash", label: "Squash and merge", isDefault: true }]);
+  assert.deepEqual(glMergeMethods(detail({ squashLocked: true, squash: false })).methods, [{ method: "merge", label: "Merge", isDefault: true }]);
+  // A merge request set to squash cannot be merged without squash through glab, so only squash is offered.
+  assert.deepEqual(glMergeMethods(detail({ squashLocked: false, squash: true })).methods, [{ method: "squash", label: "Squash and merge", isDefault: true }]);
+  assert.deepEqual(glMergeMethods(detail({ squashLocked: false, squash: false })).methods, [
+    { method: "merge", label: "Merge", isDefault: true },
+    { method: "squash", label: "Squash and merge", isDefault: false },
+  ]);
+});
+
+
+
+
+
+test("conversationItems: an empty commented review with no threads is left out", () => {
+  const reply = entry("B", "2026-01-02", { kind: "review", state: "commented", id: "PRR_reply", body: "" });
+  const approval = entry("C", "2026-01-03", { kind: "review", state: "approved", id: "PRR_ok", body: "" });
+  const withThread = entry("D", "2026-01-04", { kind: "review", state: "commented", id: "PRR_t", body: "" });
+  const d = detail({ conversation: [reply, approval, withThread], threads: [thread("a.js", 1, "2026-01-04", { reviewId: "PRR_t" })] });
+  assert.deepEqual(conversationItems(d, "oldest").map((i) => i.entry?.id), ["PRR_ok", "PRR_t"]);
+});
+
+
+
+test("conversationItems keeps empty commented reviews when the thread list was cut", () => {
+  const reply = entry("B", "2026-01-02", { kind: "review", state: "commented", id: "PRR_reply", body: "" });
+  assert.equal(conversationItems(detail({ conversation: [reply], threadsNote: "Showing the first 100 file comment threads." }), "oldest").length, 1);
+});
+
+test("mergeAllowed: a GitLab confirm is good only while its method is still offered", () => {
+  const gl = (over) => detail({ pr: { provider: "gitlab", host: "gitlab.example.com" }, ...over });
+  assert.equal(mergeAllowed(gl({ squash: false }), "merge"), true);
+  assert.equal(mergeAllowed(gl({ squash: true }), "merge"), false);
+  assert.equal(mergeAllowed(gl({ squash: true }), "squash"), true);
+  assert.equal(mergeAllowed(gl({ squashLocked: true, squash: false }), "squash"), false);
+  // GitHub methods come from the repo read, which the confirm already used.
+  assert.equal(mergeAllowed(detail(), "rebase"), true);
+});
+
+test("mergeMenuNote explains a missing Merge on a GitLab merge request set to squash", () => {
+  const gl = (over) => detail({ pr: { provider: "gitlab", host: "gitlab.example.com" }, ...over });
+  assert.match(mergeMenuNote(gl({ squash: true, squashLocked: false })), /set to squash/);
+  assert.equal(mergeMenuNote(gl({ squash: true, squashLocked: true })), null);
+  assert.equal(mergeMenuNote(gl({ squash: false })), null);
+  assert.equal(mergeMenuNote(detail({ squash: true })), null);
+});
+
+const sum = (passed, failed, running) => ({ passed, failed, running, total: passed + failed + running });
+
+test("verdictOf: the board's group, with the reasons in one line", () => {
+  const needs = detail({
+    pr: { checks: sum(12, 2, 0), reviewDecision: "changes_requested" },
+    checks: [...check("passed", 12), ...check("failed", 2)],
+    reviewers: [{ name: "review-user", state: "changes_requested" }],
+  });
+  assert.deepEqual(verdictOf(needs), { group: "needsWork", title: "Needs work", reasons: "2 of 14 checks failed · changes requested by review-user" });
+  const ready = detail({ pr: { checks: sum(3, 0, 0), reviewDecision: "approved" }, checks: check("passed", 3), reviewers: [{ name: "a", state: "approved" }] });
+  assert.deepEqual(verdictOf(ready), { group: "ready", title: "Ready to merge", reasons: "3 checks passed · approved by a" });
+  const waiting = detail({ pr: { checks: sum(1, 0, 2), reviewDecision: "review_required" }, checks: [...check("passed", 1), ...check("running", 2)] });
+  assert.deepEqual(verdictOf(waiting), { group: "waiting", title: "Waiting on review", reasons: "2 of 3 checks running · review required" });
+  assert.deepEqual(verdictOf(detail({ pr: { isDraft: true } })), { group: "draft", title: "Draft", reasons: "draft" });
+  assert.equal(verdictOf(detail({ pr: { mergeable: "conflicting" }, merge: { state: "conflicting", reason: null } })).reasons, "merge conflicts");
+  assert.equal(verdictOf(detail({ pr: { mergeable: "blocked" }, merge: { state: "blocked", reason: "Blocked by branch protection." } })).reasons, "Blocked by branch protection.");
+  assert.equal(verdictOf(detail()).reasons, "Nothing blocks the merge");
+});
+
+test("verdictOf: merged and closed pull requests", () => {
+  assert.deepEqual(verdictOf(detail({ pr: { state: "merged" } })), { group: "merged", title: "Merged", reasons: "Merged into main" });
+  assert.deepEqual(verdictOf(detail({ pr: { state: "closed" } })), { group: "closed", title: "Closed", reasons: "Closed without a merge" });
+});
+
+test("openByDefault: sections that need you open by themselves", () => {
+  assert.deepEqual([...openByDefault(detail(), [])], []);
+  assert.deepEqual([...openByDefault(detail({ checks: check("failed", 1) }), [])], ["checks"]);
+  assert.deepEqual([...openByDefault(detail({ checks: check("running", 1) }), [])], ["checks"]);
+  assert.deepEqual([...openByDefault(detail({ threads: [thread("a.js", 1, "1")] }), [])], ["conversation"]);
+  assert.deepEqual([...openByDefault(detail({ threads: [thread("a.js", 1, "1", { resolved: true })] }), [])], []);
+  assert.deepEqual([...openByDefault(detail(), [{ path: "/w", branch: "b" }])], ["agent"]);
+});
+
+test("checkGroups: failed, then running, then the passed ones apart", () => {
+  const groups = checkGroups([{ name: "a", state: "passed" }, { name: "b", state: "running" }, { name: "c", state: "failed" }]);
+  assert.deepEqual(groups.problems.map((c) => c.name), ["c", "b"]);
+  assert.deepEqual(groups.passed.map((c) => c.name), ["a"]);
+});
+
+test("sectionSummaries: the text beside each section heading", () => {
+  const d = detail({
+    checks: [...check("passed", 12), ...check("failed", 2)],
+    reviewers: [{ name: "a", state: "changes_requested" }, { name: "b", state: "approved" }, { name: "c", state: "requested" }],
+    conversation: [entry("A", "1")],
+    threads: [thread("a.js", 1, "2"), thread("b.js", 2, "3", { resolved: true })],
+  });
+  assert.deepEqual(sectionSummaries(d, [], true), { checks: "12 / 14", reviews: "1 changes requested · 1 approved · 1 waiting", agent: "none yet", conversation: "3 comments · 1 open thread" });
+  assert.equal(sectionSummaries(detail(), [{ path: "/w", branch: "b" }, { path: "/x", branch: "c" }], true).agent, "2 worktrees");
+  assert.equal(sectionSummaries(detail(), [], false).agent, "no local checkout");
+  assert.deepEqual(sectionSummaries(detail(), [], true), { checks: "none", reviews: "none yet", agent: "none yet", conversation: "no comments" });
+});
+
+test("checkLayout: problems listed, passed ones in one line unless few and nothing failed", () => {
+  const passed = check("passed", 12);
+  const problems = [{ name: "lint", state: "failed" }];
+  assert.deepEqual(checkLayout([...problems, ...passed], false), { rows: problems, passedLine: { count: 12, open: false } });
+  assert.deepEqual(checkLayout([...problems, ...passed], true), { rows: [...problems, ...passed], passedLine: { count: 12, open: true } });
+  // With nothing failed or running and five checks or fewer, they are listed without the line.
+  assert.deepEqual(checkLayout(check("passed", 3), false), { rows: check("passed", 3), passedLine: null });
+  assert.deepEqual(checkLayout(check("passed", 6), false), { rows: [], passedLine: { count: 6, open: false } });
+  assert.deepEqual(checkLayout([], false), { rows: [], passedLine: null });
+});
+
+test("displayName: the forge's name, else a known bot's name, else the login", () => {
+  assert.equal(displayName("octo-user", { "octo-user": "Octo User" }), "Octo User");
+  assert.equal(displayName("copilot-pull-request-reviewer", {}), "Copilot");
+  assert.equal(displayName("app/dependabot", {}), "Dependabot");
+  // Another app shows without the app/ prefix that gh adds.
+  assert.equal(displayName("app/example-bot", {}), "example-bot");
+  assert.equal(displayName("cli-triage", {}), "cli-triage");
+  assert.equal(displayName("octo-user", undefined), "octo-user");
+});
+
+test("displayName: a login that matches an Object property is a plain name", () => {
+  assert.equal(displayName("constructor", {}), "constructor");
+  assert.equal(displayName("constructor", { constructor: "C Name" }), "C Name");
+  assert.equal(displayName("app/constructor", undefined), "constructor");
+  assert.equal(displayName("__proto__", {}), "__proto__");
+  assert.equal(displayName("toString", {}), "toString");
+});
+
+test("verdictOf: changes requested by a reviewer move an undecided pull request to Needs work", () => {
+  const d = detail({
+    pr: { checks: sum(2, 0, 0), reviewDecision: "review_required" },
+    checks: check("passed", 2),
+    reviewers: [{ name: "review-user", state: "changes_requested" }, { name: "a", state: "approved" }],
+    names: { "review-user": "Review User" },
+  });
+  assert.deepEqual(verdictOf(d), { group: "needsWork", title: "Needs work", reasons: "2 checks passed · review required · changes requested by Review User" });
+  const none = detail({ pr: { reviewDecision: null }, reviewers: [{ name: "review-user", state: "changes_requested" }] });
+  assert.deepEqual(verdictOf(none), { group: "needsWork", title: "Needs work", reasons: "changes requested by review-user" });
+  // A draft stays a draft.
+  assert.equal(verdictOf(detail({ pr: { isDraft: true }, reviewers: [{ name: "r", state: "changes_requested" }] })).group, "draft");
+});
+
+test("verdictOf: reasons use display names, draft and unknown merge state are named", () => {
+  const approved = detail({ pr: { reviewDecision: "approved" }, reviewers: [{ name: "octo-user", state: "approved" }], names: { "octo-user": "Octo User" } });
+  assert.equal(verdictOf(approved).reasons, "approved by Octo User");
+  const draft = detail({ pr: { isDraft: true }, checks: check("passed", 1) });
+  assert.equal(verdictOf(draft).reasons, "1 check passed · draft");
+  const unknown = detail({ pr: { mergeable: "unknown" }, merge: { state: "unknown", reason: null } });
+  assert.deepEqual(verdictOf(unknown), { group: "waiting", title: "Waiting on review", reasons: "merge state not known yet" });
+});
+
+test("verdictOf: a pull request outside Ready to merge never says nothing blocks the merge", () => {
+  // The pull request row and the merge read disagree, so no other reason applies.
+  const waiting = detail({ pr: { mergeable: "blocked" } });
+  assert.deepEqual(verdictOf(waiting), { group: "waiting", title: "Waiting on review", reasons: "No review yet" });
+  assert.equal(verdictOf(detail()).reasons, "Nothing blocks the merge");
+});
+
+test("verdictOf: singular and plural check counts", () => {
+  assert.equal(verdictOf(detail({ checks: check("passed", 1) })).reasons, "1 check passed");
+  assert.equal(verdictOf(detail({ pr: { checks: sum(0, 1, 0) }, checks: check("failed", 1) })).reasons, "1 check failed");
+  assert.equal(verdictOf(detail({ pr: { checks: sum(0, 0, 1) }, checks: check("running", 1) })).reasons, "1 check running");
+  assert.equal(verdictOf(detail({ pr: { checks: sum(1, 1, 0) }, checks: [...check("passed", 1), ...check("failed", 1)] })).reasons, "1 of 2 checks failed");
+});
+
+test("sectionSummaries: commented-only reviewers count, singular wording", () => {
+  const d = detail({ reviewers: [{ name: "a", state: "commented" }] });
+  assert.equal(sectionSummaries(d, [], true).reviews, "1 commented");
+  assert.equal(sectionSummaries(detail({ reviewers: [{ name: "a", state: "commented" }, { name: "b", state: "approved" }] }), [], true).reviews, "1 approved · 1 commented");
+  assert.equal(sectionSummaries(detail(), [{ path: "/w", branch: "b" }], true).agent, "1 worktree");
+  assert.equal(sectionSummaries(detail({ conversation: [entry("A", "1")] }), [], true).conversation, "1 comment");
+});
+
+test("sectionOpen: a stored choice holds only while the default is what it was", () => {
+  assert.equal(sectionOpen(undefined, true), true);
+  assert.equal(sectionOpen(undefined, false), false);
+  assert.equal(sectionOpen({ open: false, defaultWas: true }, true), false);
+  assert.equal(sectionOpen({ open: true, defaultWas: false }, false), true);
+  // Closed while it was green, then a check fails: the section opens again.
+  assert.equal(sectionOpen({ open: false, defaultWas: false }, true), true);
+  assert.equal(sectionOpen({ open: true, defaultWas: true }, false), false);
+  assert.equal(sectionOpen(true, false), false);
+});

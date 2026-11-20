@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { ghCheckList, parseGhDetail, parseGhList, parseGhSearch, parsePrUrl, prKey, summarize } from "../mods/argus-pull-requests/model.js";
+import { THREADS_LIMIT_NOTE, ghCheckList, mergeThreads, parseGhDetail, parseGhList, parseGhSearch, parseGhThreads, parsePrUrl, prKey, summarize } from "../mods/argus-pull-requests/model.js";
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 const repo = "example-org/example-repo";
@@ -57,7 +57,9 @@ test("ghCheckList maps every conclusion and status", () => {
   assert.equal(ghCheckList([{ context: "c", state: "SUCCESS" }])[0].state, "passed");
   assert.deepEqual(ghCheckList([{ foo: 1 }, null, "x"]), []);
   assert.deepEqual(ghCheckList(null), []);
-  assert.deepEqual(ghCheckList([{ context: "ci/example", state: "SUCCESS" }]), [{ name: "ci/example", state: "passed" }]);
+  assert.deepEqual(ghCheckList([{ context: "ci/example", state: "SUCCESS" }]), [{ name: "ci/example", state: "passed", url: null }]);
+  // Only web links are kept.
+  assert.equal(ghCheckList([{ context: "c", state: "SUCCESS", targetUrl: "javascript:alert(1)" }])[0].url, null);
 });
 
 test("summarize counts states", () => {
@@ -93,16 +95,23 @@ test("parseGhDetail builds reviewers, conversation and merge", () => {
   const d = parseGhDetail(fixture("pr-gh-view.json"), repo);
   assert.equal(d.pr.number, 102);
   assert.equal(d.body, "Example body.");
-  assert.deepEqual(d.checks, [{ name: "build", state: "failed" }, { name: "test", state: "running" }]);
+  assert.deepEqual(d.checks, [
+    { name: "build", state: "failed", url: "https://github.com/example-org/example-repo/actions/runs/1/job/2" },
+    { name: "test", state: "running", url: null },
+    { name: "ci/example", state: "passed", url: "https://ci.example.com/build/3" },
+  ]);
   assert.deepEqual(d.reviewers, [
     { name: "review-user", state: "changes_requested" },
     { name: "octo-reviewer", state: "requested" },
     { name: "example-team", state: "requested" },
   ]);
   assert.deepEqual(d.conversation, [
-    { author: "octo-user", body: "Example comment.", at: "2026-11-12T08:30:00Z", kind: "comment" },
-    { author: "review-user", body: "Please fix the build.", at: "2026-11-12T09:00:00Z", kind: "review" },
+    { author: "octo-user", body: "Example comment.", at: "2026-11-12T08:30:00Z", kind: "comment", state: null, id: null },
+    { author: "review-user", body: "Please fix the build.", at: "2026-11-12T09:00:00Z", kind: "review", state: "changes_requested", id: "PRR_example0" },
+    { author: "review-user", body: "", at: "2026-11-12T09:05:00Z", kind: "review", state: "commented", id: "PRR_example2" },
+    { author: "octo-reviewer", body: "", at: "2026-11-12T09:10:00Z", kind: "review", state: "approved", id: "PRR_example1" },
   ]);
+  assert.deepEqual([d.threads, d.threadsError, d.threadsNote, d.squashLocked], [[], null, null, false]);
   assert.deepEqual(d.merge, { state: "blocked", reason: "Blocked by branch protection: required reviews or checks." });
 });
 
@@ -129,4 +138,78 @@ test("parseGhDetail reads an empty headRefOid as null", () => {
   const raw = JSON.parse(fixture("pr-gh-view.json"));
   raw.headRefOid = "";
   assert.equal(parseGhDetail(JSON.stringify(raw), repo).headSha, null);
+});
+
+test("parseGhThreads: path, line, resolved, comments by time, and the review of the first comment", () => {
+  const read = parseGhThreads(fixture("pr-gh-threads.json"));
+  assert.equal(read.truncated, false);
+  assert.deepEqual(read.threads, [
+    { path: "src/old.js", line: 7, resolved: true, reviewId: "PRR_example0", comments: [{ author: "review-user", body: "Old remark.", at: "2026-11-12T09:01:00Z" }] },
+    {
+      path: "src/example.js",
+      line: 12,
+      resolved: false,
+      reviewId: "PRR_example1",
+      comments: [
+        { author: "octo-reviewer", body: "Rename this.", at: "2026-11-12T09:10:00Z" },
+        { author: "octo-user", body: "Fixed.", at: "2026-11-12T09:20:00Z" },
+      ],
+    },
+  ]);
+});
+
+test("parseGhThreads throws on bad output and GraphQL errors", () => {
+  assert.throws(() => parseGhThreads("not json"), /unexpected gh output/);
+  assert.throws(() => parseGhThreads('{"errors":[{"message":"x"}]}'));
+});
+
+test("parseGhThreads marks a list of 100 threads as cut", () => {
+  const one = JSON.parse(fixture("pr-gh-threads.json")).data.repository.pullRequest.reviewThreads.nodes[1];
+  const raw = { data: { repository: { pullRequest: { reviewThreads: { nodes: Array.from({ length: 100 }, () => one) } } } } };
+  assert.equal(parseGhThreads(JSON.stringify(raw)).truncated, true);
+});
+
+test("mergeThreads: threads, the limit note, or the read error", () => {
+  const d = parseGhDetail(fixture("pr-gh-view.json"), repo);
+  const failed = mergeThreads(d, null, "gh: rate limited");
+  assert.deepEqual([failed.threads, failed.threadsError, failed.threadsNote], [[], "gh: rate limited", null]);
+  assert.equal(failed.body, d.body);
+  const cut = mergeThreads(d, { threads: [], truncated: true }, null);
+  assert.deepEqual([cut.threadsNote, cut.threadsError], [THREADS_LIMIT_NOTE, null]);
+  const read = parseGhThreads(fixture("pr-gh-threads.json"));
+  assert.equal(mergeThreads(d, read, null).threads.length, 2);
+});
+
+test("parseGhThreads: display names of the participants, without empty ones", () => {
+  assert.deepEqual(parseGhThreads(fixture("pr-gh-threads.json")).names, { "octo-user": "Octo User", "waiting-user": "Waiting User" });
+  const d = parseGhDetail(fixture("pr-gh-view.json"), repo);
+  assert.deepEqual(d.names, {});
+  assert.deepEqual(mergeThreads(d, parseGhThreads(fixture("pr-gh-threads.json")), null).names, { "octo-user": "Octo User", "waiting-user": "Waiting User" });
+  assert.deepEqual(mergeThreads(d, null, "gh: x").names, {});
+});
+
+test("ghCheckList drops a link with whitespace", () => {
+  assert.equal(ghCheckList([{ context: "c", state: "SUCCESS", targetUrl: "https://example.com/a b" }])[0].url, null);
+  assert.equal(ghCheckList([{ context: "c", state: "SUCCESS", targetUrl: "https://example.com/a" }])[0].url, "https://example.com/a");
+});
+
+test("parseGhThreads keeps display names for logins that match Object properties", () => {
+  const raw = JSON.parse(fixture("pr-gh-threads.json"));
+  const pull = raw.data.repository.pullRequest;
+  pull.participants = { nodes: [{ login: "constructor", name: "C Name" }, { login: "__proto__", name: "P Name" }] };
+  const read = parseGhThreads(JSON.stringify(raw));
+  assert.equal(read.names.constructor, "C Name");
+  assert.equal(Object.getOwnPropertyDescriptor(read.names, "__proto__").value, "P Name");
+  const detail = mergeThreads(parseGhDetail(fixture("pr-gh-view.json"), "example-org/example-repo"), read, null);
+  assert.equal(detail.names.constructor, "C Name");
+  assert.equal(Object.getOwnPropertyDescriptor(detail.names, "__proto__").value, "P Name");
+});
+
+test("parseGhDetail ignores a review state or merge state that names an Object property", () => {
+  const raw = JSON.parse(fixture("pr-gh-view.json"));
+  raw.latestReviews = [{ author: { login: "octo-user" }, state: "constructor" }];
+  raw.mergeStateStatus = "toString";
+  const d = parseGhDetail(JSON.stringify(raw), "example-org/example-repo");
+  assert.deepEqual(d.reviewers.filter((r) => r.name === "octo-user"), []);
+  assert.equal(d.merge.reason, null);
 });

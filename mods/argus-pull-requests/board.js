@@ -432,3 +432,79 @@ export function prPaneTitle(pr) {
   if (pr === null) return "Pull requests";
   return pr.title ? `#${pr.number} · ${pr.title}` : `#${pr.number}`;
 }
+
+/**
+ * What Follow space shows for the focused folder: its project ("followed"), a wait while the
+ * board has not read that folder yet ("pending"), or that the folder is no GitHub or GitLab
+ * repo ("none"). A new space's folder is unknown until a read or the folder watch lists it.
+ * @param {Board} board
+ * @param {string|null} folder The focused space's folder (`followFolder`).
+ * @param {string|null} followed The project key of that folder (`followProjectKey`).
+ * @returns {"followed"|"pending"|"none"}
+ */
+export function followStatus(board, folder, followed) {
+  if (followed !== null) return "followed";
+  if (folder === null) return "none";
+  if (board.readAt === 0 || !board.folders.includes(folder)) return "pending";
+  return "none";
+}
+
+/**
+ * The board with `folders` added to the folders it lists, or the board itself when it lists them all.
+ * The folder watch uses it for folders that are no repo, so Follow space can say so without a read.
+ * @param {Board} board
+ * @param {string[]} folders
+ * @returns {Board}
+ */
+export function withFolders(board, folders) {
+  const missing = folders.filter((folder) => !board.folders.includes(folder));
+  return missing.length === 0 ? board : { ...board, folders: [...board.folders, ...missing] };
+}
+
+/**
+ * The provider and host of each repo that `scope` shows: every project for All repos, the
+ * followed or picked project otherwise. Empty when the scope has no known repo.
+ * @param {Board} board
+ * @param {Scope} scope
+ * @param {?string} followed Project key of the followed space.
+ * @returns {Array<{provider: string, host: string}>}
+ */
+export function scopeRepos(board, scope, followed) {
+  const where = whereKey(scope, followed);
+  if (where === undefined) return [];
+  const projects = where === null ? board.projects : board.projects.filter((project) => project.key === where);
+  const seen = new Set();
+  /** @type {Array<{provider: string, host: string}>} */
+  const repos = [];
+  for (const { provider, host } of projects) {
+    if (seen.has(`${provider} ${host}`)) continue;
+    seen.add(`${provider} ${host}`);
+    repos.push({ provider, host });
+  }
+  return repos;
+}
+
+/** True when a failure note comes from a read for `repo`: `gh` notes for GitHub, `glab (<host>)` notes for GitLab. */
+function noteIsFor(note, repo) {
+  if (repo.provider === "github") return note.startsWith("gh: ") || note.startsWith("gh not found");
+  if (note.startsWith("glab not found")) return true;
+  return note.startsWith(`glab (${repo.host}): `);
+}
+
+/**
+ * The text of an empty pull request list: loading before the first read, a pointer to the notes
+ * when a read for the scope failed (the list may be empty because of it), else that the scope has none.
+ * With no known repo in the scope, any failure counts. A note that a list was cut ("Showing the
+ * first …", `limitNote`) reports no failure.
+ * @param {Board} board
+ * @param {Array<{provider: string, host: string}>} [repos] The repos the scope shows (`scopeRepos`).
+ * @returns {string}
+ */
+export function emptyMessage(board, repos = []) {
+  if (board.readAt === 0) return "Loading…";
+  const failed = board.notes
+    .filter((note) => !note.startsWith("Showing the first "))
+    .some((note) => repos.length === 0 || repos.some((repo) => noteIsFor(note, repo)));
+  if (failed) return "No pull requests could be read. See the messages above.";
+  return "No pull requests here";
+}

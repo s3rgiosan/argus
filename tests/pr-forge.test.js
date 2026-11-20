@@ -14,6 +14,8 @@ import {
   ghLoginArgs,
   ghSearchArgs,
   ghViewArgs,
+  ghThreadsArgs,
+  GH_THREADS_QUERY,
   glabArgs,
 } from "../mods/argus-pull-requests/forge.js";
 
@@ -64,4 +66,32 @@ test("limitNote: a note only when a list reached the limit", () => {
 test("detail reads ask for the head sha", () => {
   assert.ok(GH_VIEW_FIELDS.split(",").includes("headRefOid"));
   assert.match(GL_DETAIL_QUERY, /diffHeadSha squashOnMerge/);
+});
+
+test("GL_DETAIL_QUERY reads discussions and the squash lock, not notes", () => {
+  assert.match(GL_DETAIL_QUERY, /discussions\(first: 100\)/);
+  assert.match(GL_DETAIL_QUERY, /squashReadOnly/);
+  assert.match(GL_DETAIL_QUERY, /position \{ filePath newLine oldLine \}/);
+  assert.doesNotMatch(GL_DETAIL_QUERY, /notes\(first: 100\) \{ nodes \{ author/);
+});
+
+test("ghThreadsArgs asks GraphQL for the review threads of one pull request", () => {
+  assert.deepEqual(ghThreadsArgs("example-org/example-repo", 12), [
+    "api", "graphql", "-f", `query=${GH_THREADS_QUERY}`, "-f", "owner=example-org", "-f", "name=example-repo", "-F", "number=12",
+  ]);
+  assert.match(GH_THREADS_QUERY, /reviewThreads\(first: 100\) \{ nodes \{ isResolved path line originalLine comments\(first: 50\)/);
+});
+
+test("the detail reads ask for display names", () => {
+  assert.match(GH_THREADS_QUERY, /participants\(first: 100\) \{ nodes \{ login name \} \}/);
+  assert.match(GL_DETAIL_QUERY, /author \{ username name \} body createdAt system position/);
+});
+
+test("the detail reads ask for reviewer names", () => {
+  assert.match(GH_THREADS_QUERY, /reviewRequests\(first: 50\) \{ nodes \{ requestedReviewer \{ ... on User \{ login name \} \} \} \}/);
+  assert.match(GL_DETAIL_QUERY, /reviewers \{ nodes \{ username name /);
+});
+
+test("the GitLab detail query reads job and pipeline paths for check links", () => {
+  assert.match(GL_DETAIL_QUERY, /headPipeline \{ status path jobs\(first: 100\) \{ nodes \{ name status webPath \} \} \}/);
 });

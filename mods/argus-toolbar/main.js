@@ -113,7 +113,7 @@ export default class Toolbar extends View {
         .text_size(12)
         .bg(on ? t.selected : t.chrome)
         .text_color(on ? t.foreground : t.muted)
-        .hover((s) => s.bg(t.hover))
+        .hover((s) => s.bg(t.hover).text_color(t.foreground))
         .on_mouse_down("left", stop)
         .on_click(() => {
           for (const [name, args] of clickCommands(layout(), ids, id)) run(name, args);

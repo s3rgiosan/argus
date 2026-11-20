@@ -17,7 +17,7 @@ import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, chip as tint, dropdownButton, fieldLabel, hint, errorLine, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -795,15 +795,15 @@ export default class Tasks extends View {
     this.retire(cx, this.form);
     if (card === "block") {
       this.form = {
-        why: this.input("why", { value: task.block?.why ?? "", placeholder: "Why", rows: 2 }, none, multi),
-        needs: this.input("needs", { value: task.block?.needs ?? "", placeholder: "Needs" }, none),
-        options: this.input("options", { value: (task.block?.options ?? []).join("\n"), placeholder: "Options, one per line", rows: 3 }, none, multi),
+        why: this.input("why", { value: task.block?.why ?? "", rows: 2 }, none, multi),
+        needs: this.input("needs", { value: task.block?.needs ?? "" }, none),
+        options: this.input("options", { value: (task.block?.options ?? []).join("\n"), rows: 3 }, none, multi),
       };
     } else {
       this.form = {
-        done: this.input("done", { value: task.review?.done ?? "", placeholder: "Done", rows: 2 }, none, multi),
-        checks: this.input("checks", { value: (task.review?.checks ?? []).map((c) => c.text).join("\n"), placeholder: "Checks, one per line", rows: 3 }, none, multi),
-        next: this.input("next", { value: task.review?.next ?? "", placeholder: "Next" }, none),
+        done: this.input("done", { value: task.review?.done ?? "", rows: 2 }, none, multi),
+        checks: this.input("checks", { value: (task.review?.checks ?? []).map((c) => c.text).join("\n"), rows: 3 }, none, multi),
+        next: this.input("next", { value: task.review?.next ?? "" }, none),
       };
     }
     this.card = card;
@@ -873,54 +873,27 @@ export default class Tasks extends View {
     // Only the copy in the layout's panel column can widen it.
     const panel = props()?.overlay ? null : panelOf(layout(), PANEL_ID, MOD);
 
-    const scopeButton = h_flex()
-      .id("scope")
-      .h(26)
-      .min_w(0)
-      .px(8)
-      .gap(4)
-      .items_center()
-      .rounded(6)
-      .cursor_pointer()
-      .text_size(12)
-      .text_color(t.muted)
-      .hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .on_click(() => openScopes())
-      .child(div().min_w(0).truncate().child(scopeTitle(scope, model, following)))
-      .child(svg(this.icon("chevron-down")).size(12).flex_none());
-
-    const head = h_flex()
-      .h(42)
-      .flex_none()
-      .px(14)
-      .gap(6)
-      .items_center()
-      .border_b(1)
-      .border_color(t.border)
-      .child(div().flex_none().font_semibold().child("Tasks"))
-      .child(scopeButton)
-      .when(!blocking && board.readAt > 0, (el) => el.child(badge(t, String(count))))
-      .child(div().flex_1())
-      .when(panel !== null, (el) =>
-        el.child(iconButton(t, "expand", ICON(panel && isExpanded(panel) ? "minimize-2" : "maximize-2"), (_e, cx) => this.toggleExpand(cx))),
-      )
-      .child(
-        iconButton(
-          t,
-          "refresh",
-          ICON("refresh-cw"),
-          (_e, cx) => {
-            // Looks for tsk again too, in case it was installed or updated.
-            this.located = null;
-            this.refresh(cx);
-          },
-          { busy: this.reading },
-        ),
-      )
-      .child(iconButton(t, "settings", this.icon("settings"), (_e, cx) => this.openSettings(cx)));
+    const scopeButton = dropdownButton(t, "scope", scopeTitle(scope, model, following), this.icon("chevron-down"), () => openScopes());
+    const actions = [scopeButton];
+    if (panel !== null) actions.push(iconButton(t, "expand", ICON(isExpanded(panel) ? "minimize-2" : "maximize-2"), (_e, cx) => this.toggleExpand(cx)));
+    actions.push(
+      iconButton(
+        t,
+        "refresh",
+        ICON("refresh-cw"),
+        (_e, cx) => {
+          // Looks for tsk again too, in case it was installed or updated.
+          this.located = null;
+          this.refresh(cx);
+        },
+        { busy: this.reading },
+      ),
+      iconButton(t, "settings", this.icon("settings"), (_e, cx) => this.openSettings(cx)),
+    );
+    const head = header(t, "Tasks", actions, { badge: !blocking && board.readAt > 0 ? badge(t, String(count)) : null });
 
     const parts = [];
-    if (board.error) parts.push(div().px(8).py(6).text_size(12).text_color(blocking ? t.muted : t.blocked).child(board.error.message));
+    if (board.error) parts.push(blocking ? div().px(8).py(6).text_size(12).text_color(t.muted).child(board.error.message) : errorLine(t, board.error.message));
     if (!blocking) {
       const selected = readSelected();
       const section = (id, title, rows, dot) => {
@@ -1120,27 +1093,19 @@ export default class Tasks extends View {
       .child(status);
 
     const parts = [];
-    if (detail.kind === "error") parts.push(message(t, detail.message));
+    if (detail.kind === "error") parts.push(errorLine(t, detail.message));
 
     parts.push(sectionTitle(t, "Notes"), pad(textBox(t, "notes", fields.notes, this.focused === "notes")));
 
     // Status: a dropdown of the states to pick, then the changes that need more input.
     const choices = statusChoices(task);
-    const statusMenu = h_flex()
-      .id("status-menu")
-      .h(26)
-      .flex_none()
-      .px(8)
-      .gap(4)
-      .items_center()
-      .rounded(6)
-      .cursor_pointer()
-      .text_size(12)
-      .text_color(t.muted)
-      .hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .on_click(() => openStatusMenu(this.owner, number, choices))
-      .child(div().child(choices.find((c) => c.current)?.label ?? STATUS_LABELS[task.status] ?? task.status))
-      .child(svg(this.icon("chevron-down")).size(12).flex_none());
+    const statusMenu = dropdownButton(
+      t,
+      "status-menu",
+      choices.find((c) => c.current)?.label ?? STATUS_LABELS[task.status] ?? task.status,
+      this.icon("chevron-down"),
+      () => openStatusMenu(this.owner, number, choices),
+    );
     const more = [];
     if (has("startQuiet")) more.push(chip(t, "start-quiet", "Start Without Agent", (_e, cx) => this.changeStatus(cx, number, changeFor("startQuiet"), "Start")));
     more.push(chip(t, "open-block", "Block…", (_e, cx) => this.openCard(cx, "block"), { selected: this.card === "block" }));
@@ -1161,7 +1126,7 @@ export default class Tasks extends View {
 
     if (this.card && this.form) parts.push(this.renderCard(t, number));
     if (task.status === "blocked" || task.status === "review") parts.push(this.renderThread(t, task, fields));
-    if (this.writeError) parts.push(message(t, this.writeError));
+    if (this.writeError) parts.push(errorLine(t, this.writeError));
 
     parts.push(sectionTitle(t, "Steps"));
     for (const step of task.steps) {
@@ -1250,14 +1215,7 @@ export default class Tasks extends View {
             .gap(8)
             .items_center()
             .child(
-              div()
-                .flex_none()
-                .px(6)
-                .rounded(9)
-                .bg(t.raised)
-                .text_size(11)
-                .text_color(check.state === "failed" ? t.blocked : check.state === "passed" ? t.done : t.muted)
-                .child(CHECK_LABELS[check.state] ?? check.state),
+              tint(t, `check-state-${i}`, CHECK_LABELS[check.state] ?? check.state, check.state === "failed" ? t.blocked : check.state === "passed" ? t.done : t.muted),
             )
             .child(div().flex_1().min_w(0).whitespace_normal().child(check.text)),
         ),
@@ -1272,7 +1230,7 @@ export default class Tasks extends View {
     actions.child(button(t, "send", review ? "Send Back" : "Answer", (_e, cx) => this.submitReply(cx, number), { primary: true, enabled: ready }));
     parts.push(actions);
     if (this.flowError) {
-      parts.push(text(this.flowError.message).text_color(t.blocked));
+      parts.push(text(this.flowError.message).text_size(11).text_color(t.blocked));
       if (this.flowError.replied) parts.push(h_flex().child(button(t, "retry", "Retry Status Change", (_e, cx) => this.retryFlow(cx), { enabled: !this.busy })));
     }
     return card(t, "thread", parts);
@@ -1281,7 +1239,7 @@ export default class Tasks extends View {
   /** The block or review form. */
   renderCard(t, number) {
     const f = this.form;
-    const labelled = (label, el) => v_flex().gap(4).child(div().text_size(11).text_color(t.muted).child(label)).child(el);
+    const labelled = (label, el) => v_flex().gap(4).child(fieldLabel(t, label)).child(el);
     const parts =
       this.card === "block"
         ? [
@@ -1348,14 +1306,13 @@ export default class Tasks extends View {
       this.view = "board";
       cx.notify();
     };
-    const hint = (text) => div().px(8).text_size(11).text_color(t.dim).child(text);
     const parts = [
       sectionTitle(t, "tsk command"),
       h_flex().px(8).py(4).child(field(t, "tsk", this.tskInput, this.focused === "tsk")),
-      hint("Leave empty to use tsk from PATH, else its usual install folders."),
+      hint(t, "Leave empty to use tsk from PATH, else its usual install folders.").px(8),
       sectionTitle(t, "Store folder"),
       h_flex().px(8).py(4).child(field(t, "store", this.storeInput, this.focused === "store")),
-      hint("Leave empty to use TSK_STATE_DIR, else ~/.tsk. Both fields save on Enter or when you leave them."),
+      hint(t, "Leave empty to use TSK_STATE_DIR, else ~/.tsk. Both fields save on Enter or when you leave them.").px(8),
     ];
     return frame(t, "argus-tsk-settings")
       .child(subHeader(t, back, "Settings", this.icon("chevron-left")))
@@ -1442,11 +1399,6 @@ function chip(t, id, label, onClick, { selected = false, enabled = true, icon = 
     .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick))
     .child(div().when(done, (el) => el.line_through()).child(label))
     .when(Boolean(icon), (el) => el.child(svg(icon ?? "").size(12)));
-}
-
-/** An error line in the pane. */
-function message(t, text) {
-  return div().px(8).py(6).text_size(12).text_color(t.blocked).whitespace_normal().child(text);
 }
 
 /** A bordered group, for the open block or review and for the forms. */

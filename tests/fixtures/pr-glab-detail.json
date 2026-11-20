@@ -24,17 +24,20 @@
             "nodes": [
               {
                 "name": "build",
-                "status": "SUCCESS"
+                "status": "SUCCESS",
+                "webPath": "/example-group/example-sub/example-project/-/jobs/8"
               },
               {
                 "name": "test",
                 "status": "FAILED"
               }
             ]
-          }
+          },
+          "path": "/example-group/example-sub/example-project/-/pipelines/7"
         },
         "targetProject": {
-          "fullPath": "example-group/example-sub/example-project"
+          "fullPath": "example-group/example-sub/example-project",
+          "squashReadOnly": true
         },
         "description": "Example description.",
         "reviewers": {
@@ -43,32 +46,81 @@
               "username": "review-user",
               "mergeRequestInteraction": {
                 "reviewState": "REQUESTED_CHANGES"
-              }
-            }
-          ]
-        },
-        "notes": {
-          "nodes": [
-            {
-              "author": {
-                "username": "review-user"
               },
-              "body": "Example note.",
-              "createdAt": "2026-11-12T09:00:00Z",
-              "system": false
-            },
-            {
-              "author": {
-                "username": "octo-user"
-              },
-              "body": "added 1 commit",
-              "createdAt": "2026-11-12T08:00:00Z",
-              "system": true
+              "name": "Review User"
             }
           ]
         },
         "diffHeadSha": "89abcdef0123456789abcdef0123456789abcdef",
-        "squashOnMerge": true
+        "squashOnMerge": true,
+        "discussions": {
+          "nodes": [
+            {
+              "resolved": false,
+              "resolvable": false,
+              "notes": {
+                "nodes": [
+                  {
+                    "author": {
+                      "username": "review-user",
+                      "name": "Review User"
+                    },
+                    "body": "Example note.",
+                    "createdAt": "2026-11-12T09:00:00Z",
+                    "system": false,
+                    "position": null
+                  },
+                  {
+                    "author": {
+                      "username": "octo-user",
+                      "name": "Octo User"
+                    },
+                    "body": "added 1 commit",
+                    "createdAt": "2026-11-12T08:00:00Z",
+                    "system": true,
+                    "position": null
+                  }
+                ]
+              }
+            },
+            {
+              "resolved": false,
+              "resolvable": true,
+              "notes": {
+                "nodes": [
+                  {
+                    "author": {
+                      "username": "review-user",
+                      "name": "Review User"
+                    },
+                    "body": "Rename this.",
+                    "createdAt": "2026-11-12T09:20:00Z",
+                    "system": false,
+                    "position": {
+                      "filePath": "src/Example.php",
+                      "newLine": 12,
+                      "oldLine": null
+                    }
+                  },
+                  {
+                    "author": {
+                      "username": "octo-user",
+                      "name": "Octo User"
+                    },
+                    "body": "Done.",
+                    "createdAt": "2026-11-12T09:30:00Z",
+                    "system": false,
+                    "position": {
+                      "filePath": "src/Example.php",
+                      "newLine": 12,
+                      "oldLine": null
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
       }
     }
   }

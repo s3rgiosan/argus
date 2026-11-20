@@ -121,6 +121,8 @@ export function actionCommand({ kind, detail, body, method = null, publishOnly =
     const repo = ["-R", `https://${pr.host}/${pr.repo}`];
     const publish = ["mr", "note", "draft", "publish", number, ...repo, "--reviewer-state=requested_changes", "--yes"];
     if (onlyPublish) return { name: "glab", args: publish };
+    // GitLab merges by the project's method, with or without squash only.
+    if (kind === "merge" && method === "rebase") return { error: NO_METHOD };
     switch (kind) {
       case "approve":
         return { name: "glab", args: ["mr", "approve", number, ...repo, "--sha", String(headSha)] };
@@ -136,7 +138,7 @@ export function actionCommand({ kind, detail, body, method = null, publishOnly =
       default:
         return {
           name: "glab",
-          args: ["mr", "merge", number, ...repo, "--yes", "--auto-merge=false", "--sha", String(headSha), ...(detail.squash ? ["--squash"] : [])],
+          args: ["mr", "merge", number, ...repo, "--yes", "--auto-merge=false", "--sha", String(headSha), ...glSquashArgs(method, detail.squash)],
         };
     }
   }
@@ -156,17 +158,32 @@ export function actionCommand({ kind, detail, body, method = null, publishOnly =
 }
 
 /**
+ * The squash flag of a GitLab merge: the picked method's, else the merge request's own setting.
+ * @param {MergeMethod|null} method
+ * @param {boolean} squash
+ * @returns {string[]}
+ */
+function glSquashArgs(method, squash) {
+  if (method === "squash") return ["--squash"];
+  // glab sends nothing for --squash=false, so Merge sends no flag.
+  if (method === "merge") return [];
+  return squash ? ["--squash"] : [];
+}
+
+/**
  * The merge confirm text: the pull request, its base branch and how it merges.
- * GitLab merges send no method flag, so the text names a method only when the merge request squashes.
+ * On GitLab the text says "with squash" when the picked method squashes, or, with no
+ * method picked, when the merge request squashes.
  * @param {Detail} detail
- * @param {MergeMethod|null} method GitHub's method; unused on GitLab.
+ * @param {MergeMethod|null} method The picked method, or null.
  * @returns {string}
  */
 export function mergePrompt(detail, method) {
   const { pr } = detail;
   let how = null;
   if (pr.provider === "gitlab") {
-    how = detail.squash ? "squash" : null;
+    // A picked method decides; without one, the merge request's own squash setting does.
+    how = (method === null ? detail.squash : method === "squash") ? "squash" : null;
   } else {
     switch (method) {
       case "merge":
@@ -209,15 +226,15 @@ export function actionFailure(error, drafted) {
 
 /**
  * The action state a pull request keeps when the pane moves to another one, or null when
- * nothing is worth keeping. The typed text, the open comment box, a kept draft and a
- * running action stay; the merge confirm and an error already shown go.
- * @param {{running: ActionKind|null, error: string|null, composing: string|null, confirm: object|null, text: string, draftText: string|null}} state
+ * nothing is worth keeping. The typed text, the open comment field, a kept draft and a running
+ * action stay; the merge confirm, an open menu with the merge methods it read, and an error already shown go.
+ * @param {{running: ActionKind|null, error: string|null, confirm: object|null, text: string, draftText: string|null, menu: string|null, methods: object|null, composing: string|null}} state
  * @param {string} text The comment box text at the time of the move.
  */
 export function leavePr(state, text) {
   const running = state.running !== null;
-  const next = { ...state, confirm: null, error: running ? state.error : null, text };
-  const empty = !running && next.composing === null && text === "" && next.draftText === null;
+  const next = { ...state, confirm: null, error: running ? state.error : null, text, menu: null, methods: null };
+  const empty = !running && text === "" && next.draftText === null && (next.composing ?? null) === null;
   return empty ? null : next;
 }
 

@@ -15,7 +15,7 @@ import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { accountTitle } from "./title.js";
 import { dueAlerts } from "./alerts.js";
-import { frame, header, subHeader, iconButton, row, scrollArea, field, button, footer, sectionTitle, note, meter, toggle, segmented } from "./ui.js";
+import { frame, header, subHeader, iconButton, fieldLabel, hint, row, scrollArea, field, button, footer, sectionTitle, note, meter, toggle, segmented } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 
 const SETTINGS_KEY = "argus-claude-usage.settings";
@@ -352,7 +352,7 @@ export default class ClaudeUsage extends View {
             .pl(8)
             .gap(8)
             .items_center()
-            .child(div().flex_none().text_size(11).text_color(t.dim).child("Display name"))
+            .child(fieldLabel(t, "Display name").flex_none())
             .child(field(t, `name-${index}`, input, this.focused === `name:${profile.folder}`)),
         );
       }
@@ -404,7 +404,7 @@ export default class ClaudeUsage extends View {
 
     parts.push(sectionTitle(t, "Claude command"));
     parts.push(h_flex().px(8).py(4).child(field(t, "claude", this.claudeInput, this.focused === "claude")));
-    parts.push(div().px(8).text_size(11).text_color(t.dim).child("Leave empty to use claude from PATH. Saved on Enter or when you leave the field."));
+    parts.push(hint(t, "Leave empty to use claude from PATH. Saved on Enter or when you leave the field.").px(8));
 
     return frame(t, "argus-claude-usage-settings")
       .child(subHeader(t, back, "Settings", icon("chevron-left")))

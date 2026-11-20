@@ -8,7 +8,6 @@ import {
   missingNotes,
   normalizeSettings,
   openArgs,
-  orderConversation,
 } from "../mods/argus-pull-requests/locate.js";
 
 test("normalizeSettings defaults", () => {
@@ -79,9 +78,3 @@ test("normalizeSettings keeps a known conversation order only", () => {
   assert.equal(normalizeSettings({ conversation: "sideways" }).conversation, "oldest");
 });
 
-test("orderConversation: oldest first as read, or newest first", () => {
-  const entries = [{ author: "a", at: "2026-01-01T00:00:00Z", body: "1" }, { author: "b", at: "2026-01-02T00:00:00Z", body: "2" }];
-  assert.deepEqual(orderConversation(entries, "oldest").map((e) => e.body), ["1", "2"]);
-  assert.deepEqual(orderConversation(entries, "newest").map((e) => e.body), ["2", "1"]);
-  assert.deepEqual(entries.map((e) => e.body), ["1", "2"]);
-});
