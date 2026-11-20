@@ -7,6 +7,7 @@ import {
   scopeProjects,
   mergedCounts,
   mergedInScope,
+  mergedText,
   openBranches,
   followStatus,
   withFolders,
@@ -426,4 +427,10 @@ test("mergedInScope sums the counts of the scope's projects", () => {
   assert.equal(mergedInScope(board, { show: "all", where: "all" }, null), 3);
   assert.equal(mergedInScope(board, { show: "all", where: "project", key: lab.key }, null), 1);
   assert.equal(mergedInScope(board, { show: "all", where: "follow" }, null), 0);
+});
+
+test("mergedText: nothing at 0, singular and plural", () => {
+  assert.equal(mergedText(0), null);
+  assert.equal(mergedText(1), "1 merged worktree can be removed");
+  assert.equal(mergedText(3), "3 merged worktrees can be removed");
 });

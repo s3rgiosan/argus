@@ -586,3 +586,13 @@ export function mergedInScope(board, scope, followed) {
   const merged = board.merged ?? {};
   return scopeProjects(board, scope, followed).reduce((sum, project) => sum + (Object.hasOwn(merged, project.key) ? merged[project.key] : 0), 0);
 }
+
+/**
+ * The board line for merged worktrees, or null when there are none.
+ * @param {number} count
+ * @returns {string|null}
+ */
+export function mergedText(count) {
+  if (count <= 0) return null;
+  return count === 1 ? "1 merged worktree can be removed" : `${count} merged worktrees can be removed`;
+}
