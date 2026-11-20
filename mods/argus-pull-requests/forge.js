@@ -16,7 +16,7 @@ export const GL_USER_QUERY = `query { currentUser { reviewRequestedMergeRequests
 
 export const GL_PROJECT_QUERY = `query($path: ID!) { project(fullPath: $path) { mergeRequests(state: opened, first: ${LIST_LIMIT}) { nodes { ${GL_MR_FIELDS} } } } }`;
 
-export const GL_DETAIL_QUERY = `query($path: ID!, $iid: String!) { project(fullPath: $path) { mergeRequest(iid: $iid) { ${GL_MR_FIELDS} description diffHeadSha squashOnMerge headPipeline { status jobs(first: 100) { nodes { name status } } } reviewers { nodes { username name mergeRequestInteraction { reviewState } } } discussions(first: 100) { nodes { resolved resolvable notes { nodes { author { username name } body createdAt system position { filePath newLine oldLine } } } } } targetProject { fullPath squashReadOnly } } } }`;
+export const GL_DETAIL_QUERY = `query($path: ID!, $iid: String!) { project(fullPath: $path) { mergeRequest(iid: $iid) { ${GL_MR_FIELDS} description diffHeadSha squashOnMerge headPipeline { status path jobs(first: 100) { nodes { name status webPath } } } reviewers { nodes { username name mergeRequestInteraction { reviewState } } } discussions(first: 100) { nodes { resolved resolvable notes { nodes { author { username name } body createdAt system position { filePath newLine oldLine } } } } } targetProject { fullPath squashReadOnly } } } }`;
 
 /** @returns {string[]} */
 export function ghLoginArgs() {

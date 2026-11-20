@@ -50,8 +50,8 @@ test("parseGlabDetail builds the detail view", () => {
   assert.equal(detail.pr.reviewDecision, "changes_requested");
   assert.equal(detail.body, "Example description.");
   assert.deepEqual(detail.checks, [
-    { name: "build", state: "passed" },
-    { name: "test", state: "failed" },
+    { name: "build", state: "passed", url: "https://gitlab.example.com/example-group/example-sub/example-project/-/jobs/8" },
+    { name: "test", state: "failed", url: null },
   ]);
   assert.deepEqual(detail.reviewers, [{ name: "review-user", state: "changes_requested" }]);
   assert.deepEqual(detail.conversation, [
@@ -86,7 +86,8 @@ test("parseGlabDetail falls back to one pipeline check, requested reviewers and 
     { username: "b-user", mergeRequestInteraction: null },
   ];
   const detail = parseGlabDetail(JSON.stringify(raw), host);
-  assert.deepEqual(detail.checks, [{ name: "pipeline", state: "running" }]);
+  // This pipeline has no path, so its check has no link.
+  assert.deepEqual(detail.checks, [{ name: "pipeline", state: "running", url: null }]);
   assert.deepEqual(detail.reviewers, [
     { name: "a-user", state: "requested" },
     { name: "b-user", state: "requested" },
@@ -176,4 +177,12 @@ test("parseGlabDetail: display names of the note authors", () => {
   const raw = JSON.parse(fixture("pr-glab-detail.json"));
   raw.data.project.mergeRequest.reviewers.nodes.push({ username: "quiet-user", name: "Quiet User", mergeRequestInteraction: { reviewState: "UNREVIEWED" } });
   assert.equal(parseGlabDetail(JSON.stringify(raw), "gitlab.example.com").names["quiet-user"], "Quiet User");
+});
+
+test("parseGlabDetail links the pipeline when it has no jobs", () => {
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  raw.data.project.mergeRequest.headPipeline.jobs.nodes = [];
+  assert.deepEqual(parseGlabDetail(JSON.stringify(raw), "gitlab.example.com").checks, [
+    { name: "pipeline", state: "failed", url: "https://gitlab.example.com/example-group/example-sub/example-project/-/pipelines/7" },
+  ]);
 });

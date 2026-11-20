@@ -24,14 +24,16 @@
             "nodes": [
               {
                 "name": "build",
-                "status": "SUCCESS"
+                "status": "SUCCESS",
+                "webPath": "/example-group/example-sub/example-project/-/jobs/8"
               },
               {
                 "name": "test",
                 "status": "FAILED"
               }
             ]
-          }
+          },
+          "path": "/example-group/example-sub/example-project/-/pipelines/7"
         },
         "targetProject": {
           "fullPath": "example-group/example-sub/example-project",

@@ -66,7 +66,7 @@ export function iconAction(t, id, path, onClick, { enabled = true, tooltip = nul
  *   `position` (`positionIn` or null), `hasCheckout`, `checkingOut`, `error`, `now`, `age(at, now)`,
  *   `icon(name)` (a path), `agentRows` (elements), `bottom` (an element: the area under the scroll).
  * @param {object} on Handlers, each given the click's `cx` last: `toggle(section, cx)`, `togglePassed(cx)`,
- *   `prev(cx)`, `next(cx)`, `openBrowser(cx)`, `checkOut(cx)`.
+ *   `prev(cx)`, `next(cx)`, `openBrowser(cx)`, `openCheck(url, cx)`, `checkOut(cx)`.
  */
 export function prPane(t, view, on) {
   const { detail, verdict, position } = view;
@@ -147,7 +147,7 @@ function sectionBody(t, id, view, on) {
     case "checks": {
       const { rows, passedLine } = view.checks;
       if (rows.length === 0 && passedLine === null) return [muted(t, "No checks")];
-      const out = rows.map((check, index) => checkRow(t, `check-${index}`, check));
+      const out = rows.map((check, index) => checkRow(t, view, on, `check-${index}`, check));
       if (passedLine !== null) {
         out.push(
           h_flex()
@@ -196,10 +196,19 @@ function sectionBody(t, id, view, on) {
   }
 }
 
-function checkRow(t, id, check) {
+/** One check; a check with a run or job page opens it in the browser on click. */
+function checkRow(t, view, on, id, check) {
   const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.muted;
   const mark = check.state === "failed" ? "✗" : check.state === "running" ? "●" : "✓";
-  return h_flex().id(id).gap(8).child(div().flex_none().text_color(color).child(mark)).child(div().flex_1().min_w(0).whitespace_normal().child(check.name));
+  let row = h_flex().id(id).gap(8).items_center().rounded(5).child(div().flex_none().text_color(color).child(mark)).child(div().flex_1().min_w(0).whitespace_normal().child(check.name));
+  if (!check.url) return row;
+  const url = check.url;
+  return row
+    .cursor_pointer()
+    .hover((s) => s.bg(t.hover))
+    .tooltip("Open in browser")
+    .on_click((_e, cx) => on.openCheck(url, cx))
+    .child(svg(view.icon("external-link")).size(12).flex_none().text_color(t.dim));
 }
 
 /**

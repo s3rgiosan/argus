@@ -15,13 +15,20 @@
       "__typename": "CheckRun",
       "name": "build",
       "status": "COMPLETED",
-      "conclusion": "FAILURE"
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/example-org/example-repo/actions/runs/1/job/2"
     },
     {
       "__typename": "CheckRun",
       "name": "test",
       "status": "IN_PROGRESS",
       "conclusion": ""
+    },
+    {
+      "__typename": "StatusContext",
+      "context": "ci/example",
+      "state": "SUCCESS",
+      "targetUrl": "https://ci.example.com/build/3"
     }
   ],
   "mergeable": "MERGEABLE",

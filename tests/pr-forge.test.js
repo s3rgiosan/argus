@@ -91,3 +91,7 @@ test("the detail reads ask for reviewer names", () => {
   assert.match(GH_THREADS_QUERY, /reviewRequests\(first: 50\) \{ nodes \{ requestedReviewer \{ ... on User \{ login name \} \} \} \}/);
   assert.match(GL_DETAIL_QUERY, /reviewers \{ nodes \{ username name /);
 });
+
+test("the GitLab detail query reads job and pipeline paths for check links", () => {
+  assert.match(GL_DETAIL_QUERY, /headPipeline \{ status path jobs\(first: 100\) \{ nodes \{ name status webPath \} \} \}/);
+});

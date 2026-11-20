@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comments, file comments and the description render as Markdown, and people show by their display name.
 - `pullRequests.review.promptFile` in `argus.json` replaces the built-in review prompt with your own file, with placeholders for the pull request.
 - The review dialog shows a help line under each field.
+- A check in the pull request pane opens its run or job page in the browser.
 
 ### Changed
 

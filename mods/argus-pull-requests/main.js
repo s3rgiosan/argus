@@ -868,7 +868,8 @@ export default class PullRequests extends View {
         el.child(h_flex().flex_none().gap(8).px(10).py(8).rounded(8).bg(t.raised).child(div().flex_none().text_color(t.muted).child(`#${pr.number}`)).child(div().flex_1().min_w(0).truncate().child(pr.title))),
       )
       // The fields scroll, so Cancel and Start stay in view with many agents.
-      .child(scrollArea("argus-pull-requests-review-body", body, { padding: 0, gap: 18 }))
+      // The body keeps clear of the scrollbar on its right.
+      .child(scrollArea("argus-pull-requests-review-body", [v_flex().pr(14).gap(18).children(body)], { padding: 0 }))
       // The error stays in view below the fields.
       .when(Boolean(this.review?.error), (el) => el.child(div().flex_none().text_size(11).text_color(t.blocked).whitespace_normal().child(this.review?.error ?? "")))
       .child(
@@ -1071,10 +1072,10 @@ export default class PullRequests extends View {
     }
   }
 
-  openInBrowser(cx, pr) {
+  openInBrowser(cx, pr, url = pr.url) {
     const key = prKey(pr);
     this.actionError = null;
-    const open = openArgs(window().platform, pr.url);
+    const open = openArgs(window().platform, url);
     if (open === null) return;
     cx.spawn(async (cx) => {
       await cx.sleep(0);
@@ -1410,6 +1411,8 @@ export default class PullRequests extends View {
       prev: () => go(position?.prev ?? null),
       next: () => go(position?.next ?? null),
       openBrowser: (cx) => this.openInBrowser(cx, pr),
+      // A check's run or job page; an error shows under the header like Open in browser's.
+      openCheck: (url, cx) => this.openInBrowser(cx, pr, url),
       checkOut: (cx) => this.checkOut(cx, pr, localPath ?? ""),
     };
     return prPane(t, view, on);

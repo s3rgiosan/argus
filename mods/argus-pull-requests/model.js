@@ -3,7 +3,8 @@
 /** @typedef {import("./remote.js").Provider} Provider */
 /** @typedef {{passed: number, failed: number, running: number, total: number}} Checks */
 /** @typedef {{provider: Provider, host: string, repo: string, number: number, title: string, url: string, author: string, headRef: string, baseRef: string, isDraft: boolean, state: "open"|"closed"|"merged", reviewDecision: "approved"|"changes_requested"|"review_required"|null, checks: Checks, mergeable: "mergeable"|"conflicting"|"blocked"|"unknown", updatedAt: string, localPath: string|null}} Pr */
-/** @typedef {{name: string, state: "passed"|"failed"|"running"}} Check */
+/** @typedef {{name: string, state: "passed"|"failed"|"running", url: string|null}} Check */
+/** `url` is the page of the check run or job, when the forge gives one. */
 /** @typedef {{name: string, state: "approved"|"changes_requested"|"commented"|"dismissed"|"pending"|"requested"}} Reviewer */
 /**
  * @typedef {{author: string, body: string, at: string, kind: "comment"|"review", state: "approved"|"changes_requested"|"commented"|"dismissed"|null, id: string|null}} Entry
@@ -106,18 +107,39 @@ export function ghCheckList(rollup) {
   for (const entry of rollup) {
     if (!isObject(entry)) continue;
     const name = String(entry.name ?? entry.context ?? "");
+    // A check run links its run page; a status context links its target.
+    const url = webUrl(entry.detailsUrl) ?? webUrl(entry.targetUrl);
     if (typeof entry.status === "string" || typeof entry.conclusion === "string") {
-      if (entry.status !== "COMPLETED") checks.push({ name, state: "running" });
-      else if (GH_PASSED.has(entry.conclusion)) checks.push({ name, state: "passed" });
-      else if (GH_FAILED.has(entry.conclusion)) checks.push({ name, state: "failed" });
-      else checks.push({ name, state: "running" });
+      if (entry.status !== "COMPLETED") checks.push({ name, state: "running", url });
+      else if (GH_PASSED.has(entry.conclusion)) checks.push({ name, state: "passed", url });
+      else if (GH_FAILED.has(entry.conclusion)) checks.push({ name, state: "failed", url });
+      else checks.push({ name, state: "running", url });
     } else if (typeof entry.state === "string") {
-      if (entry.state === "SUCCESS") checks.push({ name, state: "passed" });
-      else if (GH_CONTEXT_FAILED.has(entry.state)) checks.push({ name, state: "failed" });
-      else checks.push({ name, state: "running" });
+      if (entry.state === "SUCCESS") checks.push({ name, state: "passed", url });
+      else if (GH_CONTEXT_FAILED.has(entry.state)) checks.push({ name, state: "failed", url });
+      else checks.push({ name, state: "running", url });
     }
   }
   return checks;
+}
+
+/**
+ * An http or https URL, or null for anything else.
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+function webUrl(value) {
+  return typeof value === "string" && /^https?:\/\//.test(value) ? value : null;
+}
+
+/**
+ * The page of a GitLab path on `host`, or null when the path is not one.
+ * @param {string} host
+ * @param {unknown} path A path such as `/group/project/-/jobs/8`.
+ * @returns {string|null}
+ */
+function glPageUrl(host, path) {
+  return typeof path === "string" && path.startsWith("/") && !path.startsWith("//") ? `https://${host}${path}` : null;
 }
 
 /**
@@ -400,8 +422,8 @@ function glPipelineState(status) {
   return "running";
 }
 
-function glChecks(node) {
-  return isObject(node.headPipeline) ? [{ name: "pipeline", state: glPipelineState(node.headPipeline.status) }] : [];
+function glChecks(node, host) {
+  return isObject(node.headPipeline) ? [{ name: "pipeline", state: glPipelineState(node.headPipeline.status), url: glPageUrl(host, node.headPipeline.path) }] : [];
 }
 
 function glDecision(node) {
@@ -467,7 +489,7 @@ export function parseGlabMr(node, host) {
     isDraft: node.draft === true,
     state: glState(node.state),
     reviewDecision: glDecision(node),
-    checks: summarize(glChecks(node)),
+    checks: summarize(glChecks(node, host)),
     mergeable: glMergeable(node),
     updatedAt: String(node.updatedAt ?? ""),
     localPath: null,
@@ -502,11 +524,11 @@ export function parseGlabProject(text, host) {
   return glMergeRequests(data.project.mergeRequests, host);
 }
 
-function glJobChecks(node) {
+function glJobChecks(node, host) {
   if (!isObject(node.headPipeline)) return [];
   const jobs = node.headPipeline.jobs?.nodes;
-  if (!Array.isArray(jobs) || jobs.length === 0) return glChecks(node);
-  return jobs.filter(isObject).map((job) => ({ name: String(job.name ?? ""), state: glPipelineState(job.status) }));
+  if (!Array.isArray(jobs) || jobs.length === 0) return glChecks(node, host);
+  return jobs.filter(isObject).map((job) => ({ name: String(job.name ?? ""), state: glPipelineState(job.status), url: glPageUrl(host, job.webPath) }));
 }
 
 function glReviewers(node) {
@@ -607,7 +629,7 @@ export function parseGlabDetail(text, host) {
     body: String(node.description ?? ""),
     headSha: shaOf(node.diffHeadSha),
     squash: node.squashOnMerge === true,
-    checks: glJobChecks(node),
+    checks: glJobChecks(node, host),
     reviewers: glReviewers(node),
     merge: { state: pr.mergeable, reason: glReason(node.detailedMergeStatus) },
     ...withReviewerNames(glDiscussions(node), node),

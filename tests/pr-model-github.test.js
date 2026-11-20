@@ -57,7 +57,9 @@ test("ghCheckList maps every conclusion and status", () => {
   assert.equal(ghCheckList([{ context: "c", state: "SUCCESS" }])[0].state, "passed");
   assert.deepEqual(ghCheckList([{ foo: 1 }, null, "x"]), []);
   assert.deepEqual(ghCheckList(null), []);
-  assert.deepEqual(ghCheckList([{ context: "ci/example", state: "SUCCESS" }]), [{ name: "ci/example", state: "passed" }]);
+  assert.deepEqual(ghCheckList([{ context: "ci/example", state: "SUCCESS" }]), [{ name: "ci/example", state: "passed", url: null }]);
+  // Only web links are kept.
+  assert.equal(ghCheckList([{ context: "c", state: "SUCCESS", targetUrl: "javascript:alert(1)" }])[0].url, null);
 });
 
 test("summarize counts states", () => {
@@ -93,7 +95,11 @@ test("parseGhDetail builds reviewers, conversation and merge", () => {
   const d = parseGhDetail(fixture("pr-gh-view.json"), repo);
   assert.equal(d.pr.number, 102);
   assert.equal(d.body, "Example body.");
-  assert.deepEqual(d.checks, [{ name: "build", state: "failed" }, { name: "test", state: "running" }]);
+  assert.deepEqual(d.checks, [
+    { name: "build", state: "failed", url: "https://github.com/example-org/example-repo/actions/runs/1/job/2" },
+    { name: "test", state: "running", url: null },
+    { name: "ci/example", state: "passed", url: "https://ci.example.com/build/3" },
+  ]);
   assert.deepEqual(d.reviewers, [
     { name: "review-user", state: "changes_requested" },
     { name: "octo-reviewer", state: "requested" },
