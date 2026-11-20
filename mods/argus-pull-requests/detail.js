@@ -100,8 +100,9 @@ export function conversationItems(detail, order) {
       entry,
       threads: entry.kind === "review" && entry.id !== null ? detail.threads.filter((thread) => thread.reviewId === entry.id).sort(byPlace) : [],
     }))
-    // A review that only holds replies to other threads has no text and no thread of its own; its replies show in those threads.
-    .filter((item) => !(item.kind === "review" && item.entry.state === "commented" && item.entry.body.trim() === "" && item.threads.length === 0));
+    // A review that only holds replies to other threads has no text and no thread of its own; its replies
+    // show in those threads. When the thread list was cut, its threads may be among the missing ones, so it stays.
+    .filter((item) => detail.threadsNote !== null || !(item.kind === "review" && item.entry.state === "commented" && item.entry.body.trim() === "" && item.threads.length === 0));
   for (const thread of detail.threads) {
     if (thread.reviewId !== null && reviewIds.has(thread.reviewId)) continue;
     items.push({ kind: "thread", at: thread.comments[0]?.at ?? "", entry: null, threads: [thread] });
@@ -171,4 +172,28 @@ export function glMergeMethods(detail) {
   // glab can turn squash on but not off, so a merge request set to squash offers only squash.
   if (detail.squashLocked || detail.squash) return { methods: [detail.squash ? squash : merge] };
   return { methods: /** @type {Method[]} */ ([merge, { ...squash, isDefault: false }]) };
+}
+
+/**
+ * Whether a picked merge method is still one the pane offers. On GitLab the offer follows the
+ * merge request, which a re-read can change while a confirm is open; GitHub's offer comes from
+ * the repo read the confirm used.
+ * @param {Detail} detail
+ * @param {string} method
+ * @returns {boolean}
+ */
+export function mergeAllowed(detail, method) {
+  if (detail.pr.provider !== "gitlab") return true;
+  return glMergeMethods(detail).methods.some((entry) => entry.method === method);
+}
+
+/**
+ * The note under the merge menu that says why Merge is missing on a GitLab merge request set
+ * to squash, or null.
+ * @param {Detail} detail
+ * @returns {string|null}
+ */
+export function mergeMenuNote(detail) {
+  if (detail.pr.provider !== "gitlab" || !detail.squash || detail.squashLocked) return null;
+  return "This merge request is set to squash. To merge without squash, turn that off on GitLab.";
 }

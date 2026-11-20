@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The pane has a status card with checks, review, merge state and review agent, a summary of requested changes, open threads and comments, and tabs for Conversation, Checks, Description, Agent and Details.
-- Every review shows in the conversation with its state, also a review without text.
+- Every review shows in the conversation with its state, also an approval without text. A comment review with no text and no file comments of its own is left out, because its replies show in their threads.
 - A comment bar stays at the bottom of the pane. Comment posts its text, and its menu holds Approve and Request changes.
 - GitLab merge requests read their discussions in place of their notes.
 

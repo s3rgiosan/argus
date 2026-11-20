@@ -20,7 +20,7 @@ import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, readFirst } from "./accounts.js";
-import { conversationItems, ghMergeMethods, glMergeMethods, positionIn, shownOrder, statusRows, summaryOf } from "./detail.js";
+import { conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, positionIn, shownOrder, statusRows, summaryOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
@@ -1209,6 +1209,12 @@ export default class PullRequests extends View {
    */
   runAction(cx, key, kind, detail, body, method) {
     if (this.runningOn(key) !== null) return;
+    // A confirm opened before a re-read may name a method the merge request no longer allows.
+    if (kind === "merge" && method !== null && !mergeAllowed(detail, method)) {
+      this.setAction(key, { confirm: null, error: "The merge options changed. Pick a merge method again." });
+      cx.notify();
+      return;
+    }
     const command = actionCommand({ kind, detail, body, method });
     if ("error" in command) {
       this.setAction(key, { error: command.error });
@@ -1376,7 +1382,8 @@ export default class PullRequests extends View {
           .child(button(t, "merge", "Merge ▾", (_e, cx) => this.toggleMenu(cx, key, detail, "merge"), { enabled })),
       );
     if (act.menu === "merge") {
-      const methods = act.methods;
+      // GitLab's methods follow the merge request as read now; GitHub's come from the repo read.
+      const methods = detail.pr.provider === "gitlab" ? glMergeMethods(detail) : act.methods;
       let rows;
       if (!methods || methods.loading) rows = [note(t, "Loading…")];
       else if ("error" in methods) rows = [div().px(8).py(4).text_size(12).text_color(t.blocked).whitespace_normal().child(methods.error)];
@@ -1386,11 +1393,14 @@ export default class PullRequests extends View {
             label: entry.label,
             count: entry.isDefault ? "default" : null,
             current: entry.isDefault,
+            enabled,
             tick,
             onClick: (_e, cx) => this.pickMethod(cx, key, detail, entry.method),
           }),
         );
       }
+      const menuNote = mergeMenuNote(detail);
+      if (menuNote !== null) rows.push(div().px(8).py(4).text_size(11.5).text_color(t.muted).whitespace_normal().child(menuNote));
       box = box.child(v_flex().id("merge-menu").p(MENU_PAD).rounded(8).border_1().border_color(t.border).bg(t.popover).children(rows));
     }
     return box;
@@ -1430,9 +1440,11 @@ export default class PullRequests extends View {
     if (own) bar = bar.child(line(OWN_PR, t.muted));
     bar = bar.child(
       h_flex()
+        .flex_wrap()
         .gap(8)
         .items_end()
-        .child(div().flex_1().min_w(0).child(textBox(t, "body", this.bodyInput, this.focused === "body")))
+        // In a narrow pane the buttons wrap below the field.
+        .child(div().flex_1().min_w(160).child(textBox(t, "body", this.bodyInput, this.focused === "body")))
         .child(button(t, "comment", "Comment", (_e, cx) => this.submitComment(cx, "comment"), { enabled }))
         .child(button(t, "comment-more", "▾", (_e, cx) => this.toggleMenu(cx, key, detail, "comment"), { enabled })),
     );

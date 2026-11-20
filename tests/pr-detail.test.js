@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { conversationItems, ghMergeMethods, glMergeMethods, positionIn, shownOrder, statusRows, summaryOf } from "../mods/argus-pull-requests/detail.js";
+import { conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, positionIn, shownOrder, statusRows, summaryOf } from "../mods/argus-pull-requests/detail.js";
 import { NO_METHOD } from "../mods/argus-pull-requests/actions.js";
 import { assembleBoard } from "../mods/argus-pull-requests/board.js";
 
@@ -134,4 +134,32 @@ test("conversationItems: an empty commented review with no threads is left out",
   const withThread = entry("D", "2026-01-04", { kind: "review", state: "commented", id: "PRR_t", body: "" });
   const d = detail({ conversation: [reply, approval, withThread], threads: [thread("a.js", 1, "2026-01-04", { reviewId: "PRR_t" })] });
   assert.deepEqual(conversationItems(d, "oldest").map((i) => i.entry?.id), ["PRR_ok", "PRR_t"]);
+});
+
+test("statusRows: the forge's decision wins over the reviewers, and dismissed or commented reviews give no state", () => {
+  assert.equal(statusRows(detail({ pr: { reviewDecision: "review_required" }, reviewers: [{ name: "a", state: "approved" }] }), [], true).review.title, "Review required");
+  assert.equal(statusRows(detail({ reviewers: [{ name: "a", state: "dismissed" }, { name: "b", state: "commented" }, { name: "c", state: "pending" }] }), [], true).review.title, "No review yet");
+});
+
+test("conversationItems keeps empty commented reviews when the thread list was cut", () => {
+  const reply = entry("B", "2026-01-02", { kind: "review", state: "commented", id: "PRR_reply", body: "" });
+  assert.equal(conversationItems(detail({ conversation: [reply], threadsNote: "Showing the first 100 file comment threads." }), "oldest").length, 1);
+});
+
+test("mergeAllowed: a GitLab confirm is good only while its method is still offered", () => {
+  const gl = (over) => detail({ pr: { provider: "gitlab", host: "gitlab.example.com" }, ...over });
+  assert.equal(mergeAllowed(gl({ squash: false }), "merge"), true);
+  assert.equal(mergeAllowed(gl({ squash: true }), "merge"), false);
+  assert.equal(mergeAllowed(gl({ squash: true }), "squash"), true);
+  assert.equal(mergeAllowed(gl({ squashLocked: true, squash: false }), "squash"), false);
+  // GitHub methods come from the repo read, which the confirm already used.
+  assert.equal(mergeAllowed(detail(), "rebase"), true);
+});
+
+test("mergeMenuNote explains a missing Merge on a GitLab merge request set to squash", () => {
+  const gl = (over) => detail({ pr: { provider: "gitlab", host: "gitlab.example.com" }, ...over });
+  assert.match(mergeMenuNote(gl({ squash: true, squashLocked: false })), /set to squash/);
+  assert.equal(mergeMenuNote(gl({ squash: true, squashLocked: true })), null);
+  assert.equal(mergeMenuNote(gl({ squash: false })), null);
+  assert.equal(mergeMenuNote(detail({ squash: true })), null);
 });

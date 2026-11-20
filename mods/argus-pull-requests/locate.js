@@ -29,17 +29,6 @@ export function normalizeSettings(value) {
 export const CONVERSATION_ORDERS = ["oldest", "newest"];
 
 /**
- * A pull request's conversation in the chosen order. The model gives it oldest first.
- * @template T
- * @param {T[]} entries
- * @param {string} order "oldest" or "newest".
- * @returns {T[]}
- */
-export function orderConversation(entries, order) {
-  return order === "newest" ? [...entries].reverse() : [...entries];
-}
-
-/**
  * Expands a leading `~` to `home`.
  * @param {string} path
  * @param {string} home
