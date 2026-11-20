@@ -18,7 +18,7 @@ import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
-import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns } from "./review.js";
+import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal } from "./review.js";
 import { discover, readFirst } from "./accounts.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
@@ -689,6 +689,8 @@ export default class PullRequests extends View {
     if (configured.error !== null) return configured.error;
     // The prompt names the head commit, so the pull request is read again now.
     const detail = await this.readDetail(pr);
+    const refusal = startRefusal(detail);
+    if (refusal !== null) return refusal;
     const plan = reviewPlan({ localPath: pr.localPath, root: resolved.root, branch });
     const checked = await exec("git", plan.check, { cwd: plan.cwd, timeout: GIT_TIMEOUT });
     if (checked.code !== 0) return gitError(checked);
@@ -735,6 +737,21 @@ export default class PullRequests extends View {
         .child(div().w_full().text_size(11.5).text_center().whitespace_normal().child(entry.label));
     });
     const canStart = pr !== null && !review.starting && choice !== null;
+    const starting = Boolean(review?.starting);
+    // A field grows along its row, so each one sits in its own row.
+    const row = (child) => h_flex().w_full().child(child);
+    const body = [
+      label("Agent"),
+      choices === null
+        ? note(t, "Looking for agents…")
+        : choices.length === 0
+          ? note(t, "No agent is installed.")
+          : h_flex().flex_wrap().gap(8).children(tiles),
+    ];
+    if (choice?.model) body.push(label("Model"), row(field(t, "model", this.modelInput, this.focused === "model")));
+    body.push(label("Branch"), row(field(t, "branch", this.branchInput, this.focused === "branch")));
+    body.push(label("Extra instructions"), textBox(t, "extra", this.extraInput, this.focused === "extra"));
+    if (review?.error) body.push(div().text_size(11).text_color(t.blocked).whitespace_normal().child(review.error));
     return v_flex()
       .id("argus-pull-requests-review")
       .track_focus(this.handle)
@@ -745,34 +762,24 @@ export default class PullRequests extends View {
       .text_color(t.foreground)
       .text_size(12.8)
       .on_key_down((e, cx) => {
-        if (e.key !== "escape") return;
+        // A running Start keeps the dialog: closing it would stop the run between git and the new space.
+        if (e.key !== "escape" || starting) return;
         cx.stop_propagation();
         close();
       })
-      .child(div().text_size(14).font_semibold().child("Review with agent"))
+      .child(div().flex_none().text_size(14).font_semibold().child("Review with agent"))
       .when(pr !== null, (el) =>
-        el.child(h_flex().gap(8).px(10).py(8).rounded(8).bg(t.raised).child(div().flex_none().text_color(t.muted).child(`#${pr.number}`)).child(div().flex_1().min_w(0).truncate().child(pr.title))),
+        el.child(h_flex().flex_none().gap(8).px(10).py(8).rounded(8).bg(t.raised).child(div().flex_none().text_color(t.muted).child(`#${pr.number}`)).child(div().flex_1().min_w(0).truncate().child(pr.title))),
       )
-      .child(label("Agent"))
-      .child(
-        choices === null
-          ? note(t, "Looking for agents…")
-          : choices.length === 0
-            ? note(t, "No agent is installed.")
-            : h_flex().flex_wrap().gap(8).children(tiles),
-      )
-      .when(Boolean(choice?.model), (el) => el.child(label("Model")).child(field(t, "model", this.modelInput, this.focused === "model")))
-      .child(label("Branch"))
-      .child(field(t, "branch", this.branchInput, this.focused === "branch"))
-      .child(label("Extra instructions"))
-      .child(textBox(t, "extra", this.extraInput, this.focused === "extra"))
-      .when(Boolean(review?.error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(review.error ?? "")))
+      // The fields scroll, so Cancel and Start stay in view with many agents.
+      .child(scrollArea("argus-pull-requests-review-body", body, { padding: 0, gap: 10 }))
       .child(
         h_flex()
+          .flex_none()
           .gap(8)
           .justify_end()
-          .child(button(t, "review-cancel", "Cancel", close))
-          .child(button(t, "review-start", review?.starting ? "Starting…" : "Start", (_e, cx) => this.startReview(cx), { primary: true, enabled: canStart })),
+          .child(button(t, "review-cancel", "Cancel", close, { enabled: !starting }))
+          .child(button(t, "review-start", starting ? "Starting…" : "Start", (_e, cx) => this.startReview(cx), { primary: true, enabled: canStart })),
       );
   }
 
@@ -1402,7 +1409,8 @@ function prRow(t, id, pr, selected, now, reviewed) {
 /** Opens the Review with agent dialog for a pull request; the dialog gets what it needs in its props. */
 function openReview(pr, localPath) {
   const target = { key: prKey(pr), provider: pr.provider, host: pr.host, repo: pr.repo, number: pr.number, title: pr.title, localPath };
-  openOverlay({ mod: MOD, props: { view: "review", pr: target }, kind: "dialog", width: REVIEW_WIDTH, height: REVIEW_HEIGHT });
+  // A click beside the dialog does not close it, so a running Start is not cut off by a stray click.
+  openOverlay({ mod: MOD, props: { view: "review", pr: target }, kind: "dialog", modal: true, width: REVIEW_WIDTH, height: REVIEW_HEIGHT });
 }
 
 /** Shows a review run's space: the one that holds its worktree, else a new one there. */
