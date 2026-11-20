@@ -4,6 +4,7 @@
 import { compareNames } from "./follow.js";
 import { prKey } from "./model.js";
 import { localPathFor, projectKey } from "./remote.js";
+import { KEEP_RUNS_MS } from "./review.js";
 
 export { compareNames };
 
@@ -13,7 +14,7 @@ export { compareNames };
  * @typedef {import("./remote.js").Project} Project
  * @typedef {"needsReview" | "mine" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
- * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>, merged?: Record<string, number>}} Board
+ * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>}} Board
  * `reviews` holds the review runs of each pull request, keyed by `prKey`.
  * @typedef {{path: string, branch: string}} Run
  * @typedef {"ready"|"needsWork"|"waiting"|"draft"} GroupId
@@ -70,7 +71,7 @@ export function assembleBoard(input) {
   for (const project of projects) {
     scopes.projects[project.key] = keysOf(projectPrs[project.key] ?? []);
   }
-  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {} };
+  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {}, mergedSeen: input.mergedSeen ?? {} };
 }
 
 function isObject(value) {
@@ -113,7 +114,9 @@ export function normalizeBoard(value) {
   const reviews = isObject(value.reviews) && Object.values(value.reviews).every((runs) => Array.isArray(runs) && runs.every(isRun)) ? value.reviews : {};
   // A board saved before merged counts existed, or with bad counts, has none.
   const merged = isObject(value.merged) && Object.values(value.merged).every((count) => Number.isInteger(count) && count >= 0) ? value.merged : {};
-  return /** @type {Board} */ ({ ...value, reviews, merged });
+  // The time of each project's last successful count; bad times mean none.
+  const mergedSeen = isObject(value.mergedSeen) && Object.values(value.mergedSeen).every((time) => Number.isFinite(time) && time >= 0) ? value.mergedSeen : {};
+  return /** @type {Board} */ ({ ...value, reviews, merged, mergedSeen });
 }
 
 /**
@@ -559,20 +562,30 @@ export function emptyMessage(board, repos = []) {
 }
 
 /**
- * The merged worktree count per project after a read. A failed read (`count` null) keeps the
- * project's last count; a project the read did not cover is left out.
+ * The merged worktree count per project after a read, and the time of each last successful count.
+ * A failed read (`count` null) keeps the project's last count for KEEP_RUNS_MS after that time,
+ * then drops it. A project the read did not cover is left out.
  * @param {Record<string, number>} previous
+ * @param {Record<string, number>} previousSeen
  * @param {Array<{key: string, count: number|null}>} read
- * @returns {Record<string, number>}
+ * @param {number} now
+ * @returns {{merged: Record<string, number>, mergedSeen: Record<string, number>}}
  */
-export function mergedCounts(previous, read) {
+export function mergedCounts(previous, previousSeen, read, now) {
   /** @type {Record<string, number>} */
-  const counts = {};
+  const merged = {};
+  /** @type {Record<string, number>} */
+  const mergedSeen = {};
   for (const { key, count } of read) {
-    if (count !== null) counts[key] = count;
-    else if (Object.hasOwn(previous, key)) counts[key] = previous[key];
+    if (count !== null) {
+      merged[key] = count;
+      mergedSeen[key] = now;
+    } else if (Object.hasOwn(previous, key) && Object.hasOwn(previousSeen, key) && now - previousSeen[key] < KEEP_RUNS_MS) {
+      merged[key] = previous[key];
+      mergedSeen[key] = previousSeen[key];
+    }
   }
-  return counts;
+  return { merged, mergedSeen };
 }
 
 /**

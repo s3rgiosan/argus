@@ -333,9 +333,10 @@ export default class PullRequests extends View {
     const { reviews, listings, failed } = await this.readReviews(projects);
     this.renewLock();
     const counted = await this.readMergedCounts(listings, gh, glab);
-    const merged = mergedCounts(readBoard().merged ?? {}, mergedListRead(counted, failed.map((project) => project.key)));
+    const previous = readBoard();
+    const { merged, mergedSeen } = mergedCounts(previous.merged ?? {}, previous.mergedSeen ?? {}, mergedListRead(counted, failed.map((project) => project.key)), Date.now());
     this.renewLock();
-    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged });
+    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged, mergedSeen });
   }
 
   /**

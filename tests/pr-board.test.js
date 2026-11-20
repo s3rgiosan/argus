@@ -419,7 +419,29 @@ test("merged counts: kept on the board, checked when loaded", () => {
 });
 
 test("mergedCounts: a failed read keeps the old count, an unread project goes", () => {
-  assert.deepEqual(mergedCounts({ a: 2, b: 1, gone: 4 }, [{ key: "a", count: null }, { key: "b", count: 0 }, { key: "c", count: 3 }, { key: "d", count: null }]), { a: 2, b: 0, c: 3 });
+  const read = [{ key: "a", count: null }, { key: "b", count: 0 }, { key: "c", count: 3 }, { key: "d", count: null }];
+  const result = mergedCounts({ a: 2, b: 1, gone: 4 }, { a: 1000, b: 1000, gone: 1000 }, read, 2000);
+  assert.deepEqual(result, { merged: { a: 2, b: 0, c: 3 }, mergedSeen: { a: 1000, b: 2000, c: 2000 } });
+});
+
+test("mergedCounts: a failed read keeps the old count only for 15 minutes", () => {
+  const read = [{ key: "a", count: null }];
+  const edge = 15 * 60 * 1000;
+  assert.deepEqual(mergedCounts({ a: 2 }, { a: 0 }, read, edge - 1), { merged: { a: 2 }, mergedSeen: { a: 0 } });
+  assert.deepEqual(mergedCounts({ a: 2 }, { a: 0 }, read, edge), { merged: {}, mergedSeen: {} });
+});
+
+test("mergedCounts: a count with no seen time is dropped on a failed read", () => {
+  assert.deepEqual(mergedCounts({ a: 2 }, {}, [{ key: "a", count: null }], 5), { merged: {}, mergedSeen: {} });
+});
+
+test("normalizeBoard: mergedSeen holds non-negative finite numbers, else none", () => {
+  const board = assembleBoard(input());
+  assert.deepEqual(normalizeBoard({ ...board, mergedSeen: { k: 5 } }).mergedSeen, { k: 5 });
+  assert.deepEqual(normalizeBoard({ ...board, mergedSeen: { k: -1 } }).mergedSeen, {});
+  assert.deepEqual(normalizeBoard({ ...board, mergedSeen: { k: Infinity } }).mergedSeen, {});
+  assert.deepEqual(normalizeBoard({ ...board, mergedSeen: "x" }).mergedSeen, {});
+  assert.deepEqual(normalizeBoard({ ...board, mergedSeen: undefined }).mergedSeen, {});
 });
 
 test("mergedInScope sums the counts of the scope's projects", () => {
@@ -438,5 +460,5 @@ test("mergedText: nothing at 0, singular and plural", () => {
 
 test("mergedListRead: a project whose worktree list failed keeps its count", () => {
   assert.deepEqual(mergedListRead([{ key: "a", count: 2 }], ["b"]), [{ key: "a", count: 2 }, { key: "b", count: null }]);
-  assert.deepEqual(mergedCounts({ b: 4 }, mergedListRead([{ key: "a", count: 2 }], ["b"])), { a: 2, b: 4 });
+  assert.deepEqual(mergedCounts({ b: 4 }, { b: 10 }, mergedListRead([{ key: "a", count: 2 }], ["b"]), 20).merged, { a: 2, b: 4 });
 });
