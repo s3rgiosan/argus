@@ -5,6 +5,10 @@ import {
   emptyMessage,
   scopeRepos,
   scopeProjects,
+  mergedCounts,
+  mergedInScope,
+  mergedText,
+  mergedListRead,
   openBranches,
   followStatus,
   withFolders,
@@ -401,4 +405,60 @@ test("openBranches: the head branches of a repo's open pull requests", () => {
   const pr = (number, headRef, state, repo = project.repo) => ({ ...board.prs[0], provider: project.provider, host: project.host, repo, number, headRef, state });
   const withPrs = { ...board, prs: [pr(1, "feat/a", "open"), pr(2, "feat/b", "merged"), pr(3, "feat/c", "open", "example-org/other-repo")] };
   assert.deepEqual([...openBranches(withPrs, project)], ["feat/a"]);
+});
+
+test("merged counts: kept on the board, checked when loaded", () => {
+  const board = assembleBoard(input({}));
+  assert.deepEqual(board.merged, {});
+  assert.deepEqual(assembleBoard({ ...input({}), merged: { k: 2 } }).merged, { k: 2 });
+  assert.deepEqual(normalizeBoard({ ...board, merged: undefined }).merged, {});
+  assert.deepEqual(normalizeBoard({ ...board, merged: { k: -1 } }).merged, {});
+  assert.deepEqual(normalizeBoard({ ...board, merged: { k: 1.5 } }).merged, {});
+  assert.deepEqual(normalizeBoard({ ...board, merged: "x" }).merged, {});
+  assert.deepEqual(normalizeBoard({ ...board, merged: { k: 3 } }).merged, { k: 3 });
+});
+
+test("mergedCounts: a failed read keeps the old count, an unread project goes", () => {
+  const read = [{ key: "a", count: null }, { key: "b", count: 0 }, { key: "c", count: 3 }, { key: "d", count: null }];
+  const result = mergedCounts({ a: 2, b: 1, gone: 4 }, { a: 1000, b: 1000, gone: 1000 }, read, 2000);
+  assert.deepEqual(result, { merged: { a: 2, b: 0, c: 3 }, mergedSeen: { a: 1000, b: 2000, c: 2000 } });
+});
+
+test("mergedCounts: a failed read keeps the old count only for 15 minutes", () => {
+  const read = [{ key: "a", count: null }];
+  const edge = 15 * 60 * 1000;
+  assert.deepEqual(mergedCounts({ a: 2 }, { a: 0 }, read, edge - 1), { merged: { a: 2 }, mergedSeen: { a: 0 } });
+  assert.deepEqual(mergedCounts({ a: 2 }, { a: 0 }, read, edge), { merged: {}, mergedSeen: {} });
+});
+
+test("mergedCounts: a count with no seen time is dropped on a failed read", () => {
+  assert.deepEqual(mergedCounts({ a: 2 }, {}, [{ key: "a", count: null }], 5), { merged: {}, mergedSeen: {} });
+});
+
+test("normalizeBoard: mergedSeen holds non-negative finite numbers, else none", () => {
+  const board = assembleBoard(input());
+  assert.deepEqual(normalizeBoard({ ...board, mergedSeen: { k: 5 } }).mergedSeen, { k: 5 });
+  assert.deepEqual(normalizeBoard({ ...board, mergedSeen: { k: -1 } }).mergedSeen, {});
+  assert.deepEqual(normalizeBoard({ ...board, mergedSeen: { k: Infinity } }).mergedSeen, {});
+  assert.deepEqual(normalizeBoard({ ...board, mergedSeen: "x" }).mergedSeen, {});
+  assert.deepEqual(normalizeBoard({ ...board, mergedSeen: undefined }).mergedSeen, {});
+});
+
+test("mergedInScope sums the counts of the scope's projects", () => {
+  const lab = { ...project, key: "gitlab.example.com/example-group/example-project", provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project" };
+  const board = { ...assembleBoard(input({ projects: [project, lab] })), merged: { [project.key]: 2, [lab.key]: 1 } };
+  assert.equal(mergedInScope(board, { show: "all", where: "all" }, null), 3);
+  assert.equal(mergedInScope(board, { show: "all", where: "project", key: lab.key }, null), 1);
+  assert.equal(mergedInScope(board, { show: "all", where: "follow" }, null), 0);
+});
+
+test("mergedText: nothing at 0, singular and plural", () => {
+  assert.equal(mergedText(0), null);
+  assert.equal(mergedText(1), "1 merged worktree can be removed");
+  assert.equal(mergedText(3), "3 merged worktrees can be removed");
+});
+
+test("mergedListRead: a project whose worktree list failed keeps its count", () => {
+  assert.deepEqual(mergedListRead([{ key: "a", count: 2 }], ["b"]), [{ key: "a", count: 2 }, { key: "b", count: null }]);
+  assert.deepEqual(mergedCounts({ b: 4 }, { b: 10 }, mergedListRead([{ key: "a", count: 2 }], ["b"]), 20).merged, { a: 2, b: 4 });
 });

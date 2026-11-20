@@ -4,6 +4,7 @@
 import { compareNames } from "./follow.js";
 import { prKey } from "./model.js";
 import { localPathFor, projectKey } from "./remote.js";
+import { KEEP_RUNS_MS } from "./review.js";
 
 export { compareNames };
 
@@ -13,7 +14,7 @@ export { compareNames };
  * @typedef {import("./remote.js").Project} Project
  * @typedef {"needsReview" | "mine" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
- * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>}} Board
+ * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>}} Board
  * `reviews` holds the review runs of each pull request, keyed by `prKey`.
  * @typedef {{path: string, branch: string}} Run
  * @typedef {"ready"|"needsWork"|"waiting"|"draft"} GroupId
@@ -70,7 +71,7 @@ export function assembleBoard(input) {
   for (const project of projects) {
     scopes.projects[project.key] = keysOf(projectPrs[project.key] ?? []);
   }
-  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {} };
+  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {}, mergedSeen: input.mergedSeen ?? {} };
 }
 
 function isObject(value) {
@@ -111,7 +112,11 @@ export function normalizeBoard(value) {
   if (!valid) return emptyBoard();
   // A board from an older version has no review runs.
   const reviews = isObject(value.reviews) && Object.values(value.reviews).every((runs) => Array.isArray(runs) && runs.every(isRun)) ? value.reviews : {};
-  return /** @type {Board} */ ({ ...value, reviews });
+  // A board saved before merged counts existed, or with bad counts, has none.
+  const merged = isObject(value.merged) && Object.values(value.merged).every((count) => Number.isInteger(count) && count >= 0) ? value.merged : {};
+  // The time of each project's last successful count; bad times mean none.
+  const mergedSeen = isObject(value.mergedSeen) && Object.values(value.mergedSeen).every((time) => Number.isFinite(time) && time >= 0) ? value.mergedSeen : {};
+  return /** @type {Board} */ ({ ...value, reviews, merged, mergedSeen });
 }
 
 /**
@@ -554,4 +559,64 @@ export function emptyMessage(board, repos = []) {
     .some((note) => repos.length === 0 || repos.some((repo) => noteIsFor(note, repo)));
   if (failed) return "No pull requests could be read. See the messages above.";
   return "No pull requests here";
+}
+
+/**
+ * The merged worktree count per project after a read, and the time of each last successful count.
+ * A failed read (`count` null) keeps the project's last count for KEEP_RUNS_MS after that time,
+ * then drops it. A project the read did not cover is left out.
+ * @param {Record<string, number>} previous
+ * @param {Record<string, number>} previousSeen
+ * @param {Array<{key: string, count: number|null}>} read
+ * @param {number} now
+ * @returns {{merged: Record<string, number>, mergedSeen: Record<string, number>}}
+ */
+export function mergedCounts(previous, previousSeen, read, now) {
+  /** @type {Record<string, number>} */
+  const merged = {};
+  /** @type {Record<string, number>} */
+  const mergedSeen = {};
+  for (const { key, count } of read) {
+    if (count !== null) {
+      merged[key] = count;
+      mergedSeen[key] = now;
+    } else if (Object.hasOwn(previous, key) && Object.hasOwn(previousSeen, key) && now - previousSeen[key] < KEEP_RUNS_MS) {
+      merged[key] = previous[key];
+      mergedSeen[key] = previousSeen[key];
+    }
+  }
+  return { merged, mergedSeen };
+}
+
+/**
+ * The merged worktrees of the projects a scope shows.
+ * @param {Board} board
+ * @param {Scope} scope
+ * @param {?string} followed
+ * @returns {number}
+ */
+export function mergedInScope(board, scope, followed) {
+  const merged = board.merged ?? {};
+  return scopeProjects(board, scope, followed).reduce((sum, project) => sum + (Object.hasOwn(merged, project.key) ? merged[project.key] : 0), 0);
+}
+
+/**
+ * The board line for merged worktrees, or null when there are none.
+ * @param {number} count
+ * @returns {string|null}
+ */
+export function mergedText(count) {
+  if (count <= 0) return null;
+  return count === 1 ? "1 merged worktree can be removed" : `${count} merged worktrees can be removed`;
+}
+
+/**
+ * The merged count read of a board read: the counts of the projects whose worktree list was read,
+ * and null for the projects whose list failed, so `mergedCounts` keeps their last count.
+ * @param {Array<{key: string, count: number|null}>} counts
+ * @param {string[]} failedKeys
+ * @returns {Array<{key: string, count: number|null}>}
+ */
+export function mergedListRead(counts, failedKeys) {
+  return [...counts, ...failedKeys.map((key) => ({ key, count: null }))];
 }
