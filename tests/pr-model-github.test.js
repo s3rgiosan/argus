@@ -187,3 +187,20 @@ test("parseGhThreads: display names of the participants, without empty ones", ()
   assert.deepEqual(mergeThreads(d, parseGhThreads(fixture("pr-gh-threads.json")), null).names, { "octo-user": "Octo User", "waiting-user": "Waiting User" });
   assert.deepEqual(mergeThreads(d, null, "gh: x").names, {});
 });
+
+test("ghCheckList drops a link with whitespace", () => {
+  assert.equal(ghCheckList([{ context: "c", state: "SUCCESS", targetUrl: "https://example.com/a b" }])[0].url, null);
+  assert.equal(ghCheckList([{ context: "c", state: "SUCCESS", targetUrl: "https://example.com/a" }])[0].url, "https://example.com/a");
+});
+
+test("parseGhThreads keeps display names for logins that match Object properties", () => {
+  const raw = JSON.parse(fixture("pr-gh-threads.json"));
+  const pull = raw.data.repository.pullRequest;
+  pull.participants = { nodes: [{ login: "constructor", name: "C Name" }, { login: "__proto__", name: "P Name" }] };
+  const read = parseGhThreads(JSON.stringify(raw));
+  assert.equal(read.names.constructor, "C Name");
+  assert.equal(Object.getOwnPropertyDescriptor(read.names, "__proto__").value, "P Name");
+  const detail = mergeThreads(parseGhDetail(fixture("pr-gh-view.json"), "example-org/example-repo"), read, null);
+  assert.equal(detail.names.constructor, "C Name");
+  assert.equal(Object.getOwnPropertyDescriptor(detail.names, "__proto__").value, "P Name");
+});

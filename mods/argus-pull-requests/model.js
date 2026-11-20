@@ -129,17 +129,31 @@ export function ghCheckList(rollup) {
  * @returns {string|null}
  */
 function webUrl(value) {
-  return typeof value === "string" && /^https?:\/\//.test(value) ? value : null;
+  return typeof value === "string" && /^https?:\/\//.test(value) && !/\s/.test(value) ? value : null;
 }
 
 /**
- * The page of a GitLab path on `host`, or null when the path is not one.
+ * Sets an own key on a names map. A plain assignment of "__proto__" would change the prototype.
+ * @param {Record<string, string>} names
+ * @param {string} login
+ * @param {string} name
+ */
+function setName(names, login, name) {
+  Object.defineProperty(names, login, { value: name, enumerable: true, writable: true, configurable: true });
+}
+
+/**
+ * The page of a GitLab path, or null when the path is not one. The origin is the one of the
+ * merge request's own web URL when that is an http(s) URL, else `https://<host>`.
  * @param {string} host
  * @param {unknown} path A path such as `/group/project/-/jobs/8`.
+ * @param {unknown} [mrUrl] The merge request's web URL.
  * @returns {string|null}
  */
-function glPageUrl(host, path) {
-  return typeof path === "string" && path.startsWith("/") && !path.startsWith("//") ? `https://${host}${path}` : null;
+function glPageUrl(host, path, mrUrl) {
+  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//") || /\s/.test(path)) return null;
+  const origin = typeof mrUrl === "string" ? /^(https?:\/\/[^/\s]+)/.exec(mrUrl)?.[1] : undefined;
+  return `${origin ?? `https://${host}`}${path}`;
 }
 
 /**
@@ -292,7 +306,7 @@ export function parseGhThreads(text) {
   const people = [...(Array.isArray(pull?.participants?.nodes) ? pull.participants.nodes : []), ...requested];
   for (const person of people) {
     const name = typeof person?.name === "string" ? person.name.trim() : "";
-    if (typeof person?.login === "string" && name !== "") names[person.login] = name;
+    if (typeof person?.login === "string" && name !== "") setName(names, person.login, name);
   }
   return { threads, truncated: nodes.length >= THREAD_LIMIT, names };
 }
@@ -423,7 +437,7 @@ function glPipelineState(status) {
 }
 
 function glChecks(node, host) {
-  return isObject(node.headPipeline) ? [{ name: "pipeline", state: glPipelineState(node.headPipeline.status), url: glPageUrl(host, node.headPipeline.path) }] : [];
+  return isObject(node.headPipeline) ? [{ name: "pipeline", state: glPipelineState(node.headPipeline.status), url: glPageUrl(host, node.headPipeline.path, node.webUrl) }] : [];
 }
 
 function glDecision(node) {
@@ -528,7 +542,7 @@ function glJobChecks(node, host) {
   if (!isObject(node.headPipeline)) return [];
   const jobs = node.headPipeline.jobs?.nodes;
   if (!Array.isArray(jobs) || jobs.length === 0) return glChecks(node, host);
-  return jobs.filter(isObject).map((job) => ({ name: String(job.name ?? ""), state: glPipelineState(job.status), url: glPageUrl(host, job.webPath) }));
+  return jobs.filter(isObject).map((job) => ({ name: String(job.name ?? ""), state: glPipelineState(job.status), url: glPageUrl(host, job.webPath, node.webUrl) }));
 }
 
 function glReviewers(node) {
@@ -579,7 +593,7 @@ function glDiscussions(node) {
     if (!isObject(discussion)) continue;
     const notes = glNotes(discussion);
     if (notes.length === 0) continue;
-    for (const note of notes) if (note.author !== "" && note.name !== "") names[note.author] = note.name;
+    for (const note of notes) if (note.author !== "" && note.name !== "") setName(names, note.author, note.name);
     const position = notes[0].position;
     if (isObject(position) && typeof position.filePath === "string") {
       const line = Number.isInteger(position.newLine) ? position.newLine : Number.isInteger(position.oldLine) ? position.oldLine : null;
@@ -607,7 +621,7 @@ function withReviewerNames(discussions, node) {
   const names = { ...discussions.names };
   for (const reviewer of Array.isArray(node.reviewers?.nodes) ? node.reviewers.nodes : []) {
     const name = typeof reviewer?.name === "string" ? reviewer.name.trim() : "";
-    if (typeof reviewer?.username === "string" && name !== "") names[reviewer.username] ??= name;
+    if (typeof reviewer?.username === "string" && name !== "") if (!Object.hasOwn(names, reviewer.username)) setName(names, reviewer.username, name);
   }
   return { ...discussions, names };
 }

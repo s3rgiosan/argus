@@ -186,3 +186,27 @@ test("parseGlabDetail links the pipeline when it has no jobs", () => {
     { name: "pipeline", state: "failed", url: "https://gitlab.example.com/example-group/example-sub/example-project/-/pipelines/7" },
   ]);
 });
+
+test("parseGlabDetail keeps names for logins that match Object properties", () => {
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  const mr = raw.data.project.mergeRequest;
+  mr.discussions.nodes[0].notes.nodes[0].author = { username: "constructor", name: "C Name" };
+  mr.reviewers.nodes.push({ username: "__proto__", name: "P Name", mergeRequestInteraction: { reviewState: "UNREVIEWED" } });
+  const names = parseGlabDetail(JSON.stringify(raw), host).names;
+  assert.equal(Object.hasOwn(names, "constructor"), true);
+  assert.equal(names.constructor, "C Name");
+  assert.equal(Object.hasOwn(names, "__proto__"), true);
+  assert.equal(Object.getOwnPropertyDescriptor(names, "__proto__").value, "P Name");
+});
+
+test("parseGlabDetail: a check link with whitespace is dropped, and the origin of an http-only merge request is kept", () => {
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  const mr = raw.data.project.mergeRequest;
+  mr.headPipeline.jobs.nodes[0].webPath = "/example-group/a b/-/jobs/8";
+  assert.equal(parseGlabDetail(JSON.stringify(raw), host).checks[0].url, null);
+  mr.headPipeline.jobs.nodes[0].webPath = "/example-group/example-project/-/jobs/8";
+  mr.webUrl = "http://gitlab.example.com:8080/example-group/example-project/-/merge_requests/14";
+  assert.equal(parseGlabDetail(JSON.stringify(raw), host).checks[0].url, "http://gitlab.example.com:8080/example-group/example-project/-/jobs/8");
+  mr.webUrl = "not a url";
+  assert.equal(parseGlabDetail(JSON.stringify(raw), host).checks[0].url, `https://${host}/example-group/example-project/-/jobs/8`);
+});
