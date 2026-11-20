@@ -287,6 +287,27 @@ export function scopeTitle(scope, board, followed) {
   }
 }
 
+/**
+ * The In part of the scope: All repos, the followed or picked repo, or Follow space.
+ * @param {Scope} scope
+ * @param {Board} board
+ * @param {?string} followed
+ * @returns {string}
+ */
+export function scopeWhereTitle(scope, board, followed) {
+  const repoOf = (key) => board.projects.find((p) => p.key === key)?.repo ?? null;
+  switch (scope.where) {
+    case "follow": {
+      const repo = followed === null ? null : repoOf(followed);
+      return repo ?? "Follow space";
+    }
+    case "project":
+      return repoOf(scope.key) ?? scope.key.split("/").slice(1).join("/");
+    default:
+      return "All repos";
+  }
+}
+
 // Groups
 
 /**

@@ -665,26 +665,35 @@ function shaOf(value) {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
-/** @typedef {{number: number, headSha: string, mergedAt: string}} Merged */
+/** @typedef {{number: number, headSha: string, mergedAt: string|null, base: string|null}} Merged */
 
 /**
- * A merged entry, or null when the number, the head commit or the merge time is not valid.
+ * A merged entry, or null when the number or the head commit is not valid. GitLab gives no merge
+ * time for old merge requests, so `mergedAt` may be null. `base` is null when it is unknown.
  * @param {unknown} number
  * @param {unknown} headSha
  * @param {unknown} mergedAt
+ * @param {unknown} base
  * @returns {Merged|null}
  */
-function mergedEntry(number, headSha, mergedAt) {
+function mergedEntry(number, headSha, mergedAt, base) {
   const value = typeof number === "string" ? Number(number) : number;
   if (!Number.isInteger(value) || value <= 0) return null;
   if (typeof headSha !== "string" || !/^[0-9a-f]{40}$/.test(headSha)) return null;
-  if (typeof mergedAt !== "string" || mergedAt === "") return null;
-  return { number: value, headSha, mergedAt };
+  return {
+    number: value,
+    headSha,
+    mergedAt: typeof mergedAt === "string" && mergedAt !== "" ? mergedAt : null,
+    base: typeof base === "string" && base !== "" ? base : null,
+  };
 }
 
-/** Newest merge first. */
+/** Newest merge first; an entry with no merge time goes last. */
 function byMergedAt(a, b) {
-  return a.mergedAt < b.mergedAt ? 1 : a.mergedAt > b.mergedAt ? -1 : 0;
+  if (a.mergedAt === b.mergedAt) return 0;
+  if (a.mergedAt === null) return 1;
+  if (b.mergedAt === null) return -1;
+  return a.mergedAt < b.mergedAt ? 1 : -1;
 }
 
 /**
@@ -696,8 +705,8 @@ export function parseGhMerged(text) {
   const raw = JSON.parse(text);
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter(isObject)
-    .map((entry) => mergedEntry(entry.number, entry.headRefOid, entry.mergedAt))
+    .filter((entry) => isObject(entry) && entry.isCrossRepository !== true)
+    .map((entry) => mergedEntry(entry.number, entry.headRefOid, entry.mergedAt, entry.baseRefName))
     .filter((entry) => entry !== null)
     .sort(byMergedAt);
 }
@@ -710,11 +719,16 @@ export function parseGhMerged(text) {
 export function parseGhPrState(text) {
   const raw = JSON.parse(text);
   if (!isObject(raw) || raw.state !== "MERGED") return null;
-  return mergedEntry(raw.number, raw.headRefOid, raw.mergedAt);
+  return mergedEntry(raw.number, raw.headRefOid, raw.mergedAt, raw.baseRefName);
+}
+
+/** False for a merge request from another project (a fork). */
+function sameProject(node) {
+  return !(Number.isInteger(node.sourceProjectId) && Number.isInteger(node.targetProjectId) && node.sourceProjectId !== node.targetProjectId);
 }
 
 /**
- * `GL_MERGED_QUERY` output.
+ * `GL_MERGED_QUERY` output, without merge requests from other projects.
  * @param {string} text
  * @returns {Merged[]}
  */
@@ -722,8 +736,8 @@ export function parseGlMerged(text) {
   const nodes = JSON.parse(text)?.data?.project?.mergeRequests?.nodes;
   if (!Array.isArray(nodes)) return [];
   return nodes
-    .filter(isObject)
-    .map((node) => mergedEntry(node.iid, node.diffHeadSha, node.mergedAt))
+    .filter((node) => isObject(node) && sameProject(node))
+    .map((node) => mergedEntry(node.iid, node.diffHeadSha, node.mergedAt, node.targetBranch))
     .filter((entry) => entry !== null)
     .sort(byMergedAt);
 }
@@ -736,5 +750,25 @@ export function parseGlMerged(text) {
 export function parseGlMrState(text) {
   const node = JSON.parse(text)?.data?.project?.mergeRequest;
   if (!isObject(node) || node.state !== "merged") return null;
-  return mergedEntry(node.iid, node.diffHeadSha, node.mergedAt);
+  return mergedEntry(node.iid, node.diffHeadSha, node.mergedAt, node.targetBranch);
+}
+
+/**
+ * `ghDefaultBranchArgs` output: the branch name.
+ * @param {string} stdout
+ * @returns {string|null}
+ */
+export function parseGhDefaultBranch(stdout) {
+  const name = String(stdout ?? "").trim();
+  return name === "" ? null : name;
+}
+
+/**
+ * `GL_DEFAULT_BRANCH_QUERY` output: the project's root ref.
+ * @param {string} text
+ * @returns {string|null}
+ */
+export function parseGlDefaultBranch(text) {
+  const name = JSON.parse(text)?.data?.project?.repository?.rootRef;
+  return typeof name === "string" && name !== "" ? name : null;
 }

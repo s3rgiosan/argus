@@ -25,6 +25,7 @@ import {
   reviewLabel,
   scopeItems,
   scopeTitle,
+  scopeWhereTitle,
   shortRepo,
 } from "../mods/argus-pull-requests/board.js";
 
@@ -215,6 +216,14 @@ test("scopeTitle names Show, and In when it is not all repos", () => {
   assert.equal(scopeTitle({ show: "all", where: "follow" }, board, null), "All open · Follow space");
   assert.equal(scopeTitle({ show: "all", where: "project", key: "gitlab.example.com/example-group/example-project" }, board, null), "All open · example-group/example-project");
   assert.equal(scopeTitle({ show: "mine", where: "project", key: project.key }, board, null), "Mine · example-org/example-repo");
+});
+
+test("scopeWhereTitle names only the In part", () => {
+  const board = assembleBoard(input());
+  assert.equal(scopeWhereTitle({ show: "mine", where: "all" }, board, null), "All repos");
+  assert.equal(scopeWhereTitle({ show: "mine", where: "follow" }, board, project.key), "example-org/example-repo");
+  assert.equal(scopeWhereTitle({ show: "all", where: "follow" }, board, null), "Follow space");
+  assert.equal(scopeWhereTitle({ show: "mine", where: "project", key: "gitlab.example.com/example-group/example-project" }, board, null), "example-group/example-project");
 });
 
 test("matchesFilter", () => {
