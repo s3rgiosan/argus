@@ -118,9 +118,9 @@ export default class PullRequests extends View {
     this.methodCache = new Map();
     if (this.review) {
       const pr = this.review.pr;
-      this.modelInput = this.input("model", { placeholder: "Agent default" }, (cx) => this.startReview(cx));
+      this.modelInput = this.input("model", { placeholder: "Empty: your default model. Or sonnet, opus, or a model ID" }, (cx) => this.startReview(cx));
       this.branchInput = this.input("branch", { value: pr ? reviewBranch(pr, randomUUID().replaceAll("-", "").slice(0, 8)) : "" }, (cx) => this.startReview(cx));
-      this.extraInput = this.input("extra", { placeholder: "Extra instructions (optional)", rows: 4 }, (cx) => this.startReview(cx), { multiline: true });
+      this.extraInput = this.input("extra", { placeholder: "Optional. Added to the end of the review prompt, for example: Use the <name> skill.", rows: 4 }, (cx) => this.startReview(cx), { multiline: true });
     }
 
     if (checking()) return;
