@@ -120,6 +120,11 @@ The `+` button right of the filter field ("New worktree") starts a git worktree,
 
 Settings > Worktrees > "Remove merged worktrees…" opens this view. It lists worktrees whose pull request is merged, so you can remove them in one step.
 
+- The board notices them too: when the scope has merged worktrees, the top of the list says "N merged worktrees can be removed" with a Review link that opens this view. Nothing is removed from the board.
+  - Each board read lists the worktrees of each repo with a local checkout. Only for a repo with worktrees, it reads its last 100 merged pull requests (one `gh pr list --state merged` or one GitLab query) and counts a worktree when a merged pull request has its branch, its head commit and the default branch as base; a review worktree counts by its number. Pull requests from forks never count.
+  - The count skips the checks the view runs (changes, ignored files, open spaces), so the view may grey some of the worktrees the board counted.
+  - A failed read keeps the last count. The line goes away after the next read once none is left.
+
 - It reads the repos of the board's scope that have a local checkout. With two clones of one repo, it reads the worktrees of the first only. A repo with no local checkout is not listed ("No repo with a local checkout in this scope.").
 - It lists linked worktrees on a branch, whoever made them (New worktree, Check out, Review with agent, tsk). Detached worktrees, the main checkout and the default branch are not listed.
 - The default branch comes from `origin/HEAD`, else from GitHub or GitLab.
