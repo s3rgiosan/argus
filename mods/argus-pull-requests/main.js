@@ -9,7 +9,7 @@ import { exec, home, appHome, readTextFile, window, checking, theme, shared, set
 import { readdir, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
-import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs, orderConversation } from "./locate.js";
+import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
 import { NO_METHOD, OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
@@ -20,6 +20,8 @@ import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, readFirst } from "./accounts.js";
+import { conversationItems, positionIn, shownOrder, statusRows, summaryOf } from "./detail.js";
+import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
@@ -88,6 +90,8 @@ export default class PullRequests extends View {
     this.actions = new Map();
     // The PR key whose comment the comment box holds now.
     this.boxKey = null;
+    // The pane's chosen tab; it stays when the pane shows another pull request.
+    this.tab = "conversation";
     // Worktree path -> {confirm: null|"plain"|"dirty", running, error} for Remove worktree in the Agent section.
     this.removals = new Map();
     // The Review with agent dialog: the pull request it was opened for, the agents (null while they load), the picked one.
@@ -1302,109 +1306,61 @@ export default class PullRequests extends View {
 
     const detail = shown.detail;
     const pr = detail.pr;
-    const localPath = localPathFor(readBoard().projects, pr.host, pr.repo);
-    const now = Date.now();
+    const board = readBoard();
+    const localPath = localPathFor(board.projects, pr.host, pr.repo);
     const checkout = this.checkouts.get(shown.key) ?? { running: false, error: null };
     const act = this.actionState(shown.key);
     const busy = this.runningOn(shown.key) !== null;
     const error = (this.actionError?.key === shown.key ? this.actionError.text : null) ?? checkout.error;
-    const small = (text) => div().text_size(12).text_color(t.muted).child(text);
-
-    const head = v_flex()
-      .flex_none()
-      .p(10)
-      .gap(6)
-      .child(
-        h_flex()
-          .gap(6)
-          .items_center()
-          .child(svg(ICON(pr.provider === "gitlab" ? "gitlab" : "github")).size(14).flex_none().text_color(t.muted))
-          .child(div().min_w(0).truncate().text_size(12).text_color(t.muted).child(pr.repo))
-          .child(small(`#${pr.number}`).flex_none())
-          .child(div().flex_none().text_size(12).text_color(t.muted).child(prState(pr))),
-      )
-      .child(div().text_size(11).text_color(t.dim).whitespace_normal().child(`${pr.headRef} → ${pr.baseRef}`))
-      .child(div().font_semibold().whitespace_normal().child(pr.title))
-      .when(localPath === null, (el) => el.child(note(t, "No local checkout")))
-      .child(
-        h_flex()
-          .flex_wrap()
+    const runs = board.reviews[shown.key] ?? [];
+    const position = positionIn(shownOrder(board, readScope(), followedOf(board)), shown.key);
+    const canReview = localPath !== null && canAct(pr);
+    const agentRows = localPath === null ? [] : runs.map((reviewRun, index) => this.reviewRunRow(t, index, reviewRun, localPath)).filter((row) => row !== null);
+    const cardActions = canAct(pr)
+      ? v_flex()
           .gap(8)
-          .child(button(t, "open-browser", "Open in browser", (_e, cx) => this.openInBrowser(cx, pr)))
-          .child(
-            button(t, "check-out", "Check out in a worktree", (_e, cx) => this.checkOut(cx, pr, localPath ?? ""), {
-              enabled: localPath !== null && !checkout.running,
-            }),
-          )
-          .child(button(t, "review-agent", "Review with agent", () => openReview(pr, localPath ?? "", this.owner), { enabled: localPath !== null && canAct(pr) })),
-      )
-      .when(checkout.running, (el) => el.child(div().text_size(11).text_color(t.muted).child("Checking out…")))
-      .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")))
-      .when(canAct(pr), (el) => el.child(this.reviewActions(t, shown.key, detail, act)))
-      .when(busy, (el) => el.child(div().text_size(11).text_color(t.muted).child("Working…")))
-      .when(act.error !== null, (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(act.error ?? "")));
-
-    const text = (value) => div().px(8).py(2).whitespace_normal().child(value);
-    const parts = [sectionTitle(t, "Checks")];
-    if (detail.checks.length === 0) parts.push(note(t, "No checks"));
-    for (const [index, check] of detail.checks.entries()) {
-      const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.muted;
-      const mark = check.state === "failed" ? "✗" : check.state === "running" ? "●" : "✓";
-      parts.push(
-        h_flex()
-          .id(`check-${index}`)
-          .px(8)
-          .py(2)
-          .gap(6)
-          .child(div().flex_none().text_color(color).child(mark))
-          .child(div().flex_1().min_w(0).whitespace_normal().child(check.name)),
-      );
-    }
-    parts.push(sectionTitle(t, "Reviews"));
-    if (detail.reviewers.length === 0) parts.push(note(t, "No reviews yet"));
-    for (const [index, reviewer] of detail.reviewers.entries()) {
-      parts.push(
-        h_flex()
-          .id(`reviewer-${index}`)
-          .px(8)
-          .py(2)
-          .gap(8)
-          .child(div().flex_1().min_w(0).truncate().child(reviewer.name))
-          .child(div().flex_none().text_color(reviewer.state === "changes_requested" ? t.blocked : t.muted).child(REVIEW_WORDS[reviewer.state] ?? reviewer.state)),
-      );
-    }
-    parts.push(sectionTitle(t, "Merge state"), text(MERGE_WORDS[detail.merge.state] ?? "Not checked yet"));
-    if (detail.merge.reason) parts.push(div().px(8).py(2).text_size(12).text_color(t.muted).whitespace_normal().child(detail.merge.reason));
-    const runs = readBoard().reviews[shown.key] ?? [];
-    if (runs.length > 0 && localPath !== null) {
-      parts.push(sectionTitle(t, "Agent"));
-      runs.forEach((reviewRun, index) => {
-        const row = this.reviewRunRow(t, index, reviewRun, localPath);
-        if (row !== null) parts.push(row);
-      });
-    }
-    parts.push(sectionTitle(t, "Description"));
-    const body = detail.body.trim();
-    parts.push(body === "" ? note(t, "No description") : text(detail.body));
-    parts.push(sectionTitle(t, "Conversation"));
-    if (detail.conversation.length === 0) parts.push(note(t, "No comments"));
-    for (const [index, entry] of orderConversation(detail.conversation, readSettings().conversation).entries()) {
-      parts.push(
-        v_flex()
-          .id(`entry-${index}`)
-          .px(8)
-          .py(4)
-          .gap(2)
-          .child(div().text_size(11).text_color(t.dim).child(`${entry.author} · ${ageText(entry.at, now)}`))
-          .child(div().whitespace_normal().child(entry.body)),
-      );
-    }
-
-    return frame(t, "argus-pull-requests-pr")
-      .rounded_none()
-      .border_0()
-      .child(head)
-      .child(scrollArea("argus-pull-requests-pr-detail", parts, { padding: 6 }));
+          .w_full()
+          .child(h_flex().flex_wrap().gap(8).child(button(t, "review-agent", "Review with agent", () => openReview(pr, localPath ?? "", this.owner), { primary: true, enabled: canReview })))
+          .child(this.reviewActions(t, shown.key, detail, act))
+          .when(busy, (el) => el.child(div().text_size(11).text_color(t.muted).child("Working…")))
+          .when(act.error !== null, (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(act.error ?? "")))
+      : null;
+    // Moves to a neighbour in the board's order, as a row click does.
+    const go = (key) => {
+      const target = key === null ? null : board.prs.find((candidate) => prKey(candidate) === key);
+      if (target) selectPr(target);
+    };
+    const view = {
+      detail,
+      status: statusRows(detail, runs, localPath !== null),
+      summary: summaryOf(detail),
+      items: conversationItems(detail, readSettings().conversation),
+      position,
+      tab: this.tab,
+      hasCheckout: localPath !== null,
+      checkingOut: checkout.running,
+      error,
+      now: Date.now(),
+      age: ageText,
+      icon: ICON,
+      stateLabel: prState(pr),
+      cardActions,
+      bottom: null,
+      agentRows,
+      canReview,
+    };
+    const on = {
+      tab: (name, cx) => {
+        this.tab = name;
+        cx.notify();
+      },
+      prev: () => go(position?.prev ?? null),
+      next: () => go(position?.next ?? null),
+      openBrowser: (cx) => this.openInBrowser(cx, pr),
+      checkOut: (cx) => this.checkOut(cx, pr, localPath ?? ""),
+      reviewWithAgent: () => openReview(pr, localPath ?? "", this.owner),
+    };
+    return prPane(t, view, on);
   }
 
   /** Approve, Request changes, Comment and Merge, with the open composer or merge confirm under them. */
@@ -1462,17 +1418,6 @@ export default class PullRequests extends View {
     return box;
   }
 }
-
-const REVIEW_WORDS = {
-  approved: "Approved",
-  changes_requested: "Changes requested",
-  commented: "Commented",
-  dismissed: "Dismissed",
-  pending: "Pending",
-  requested: "Review requested",
-};
-
-const MERGE_WORDS = { mergeable: "Mergeable", conflicting: "Has conflicts", blocked: "Blocked", unknown: "Not checked yet" };
 
 function prState(pr) {
   if (pr.state === "merged") return "Merged";
@@ -1577,8 +1522,13 @@ function pickScope(scope) {
  * Selects a pull request and shows it: focuses this mod's pane in the shown tab,
  * or splits the tab's focused pane to the right to open one.
  */
-export function openPr(pr) {
+/** Makes `pr` the selected pull request, which every pull request pane shows. */
+function selectPr(pr) {
   setShared(SELECTED_KEY, { key: prKey(pr), provider: pr.provider, host: pr.host, repo: pr.repo, number: pr.number });
+}
+
+export function openPr(pr) {
+  selectPr(pr);
   const tab = spaces()
     .find((space) => space.active)
     ?.tabs.find((candidate) => candidate.active);
