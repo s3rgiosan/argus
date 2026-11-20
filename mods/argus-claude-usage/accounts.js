@@ -1,3 +1,4 @@
+// Copied from lib/accounts.js by scripts/sync-lib.mjs: edit lib/accounts.js, then run it.
 // Finds the Claude Code profiles on this computer. File access comes in
 // through `io`, so Node can test discovery without Herdr.
 

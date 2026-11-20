@@ -13,7 +13,9 @@ export { compareNames };
  * @typedef {import("./remote.js").Project} Project
  * @typedef {"needsReview" | "mine" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
- * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number}} Board
+ * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>}} Board
+ * `reviews` holds the review runs of each pull request, keyed by `prKey`.
+ * @typedef {{path: string, branch: string}} Run
  * @typedef {"ready"|"needsWork"|"waiting"|"draft"} GroupId
  * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} Item
  */
@@ -40,13 +42,14 @@ function emptyBoard() {
     folders: [],
     readAt: 0,
     notes: [],
+    reviews: {},
   };
 }
 
 /**
  * Builds the shared board from one read. Pull requests are deduplicated by key and carry the
  * local checkout path of their repository.
- * @param {{projects: Project[], folders: string[], needsReview: Pr[], mine: Pr[], projectPrs: Record<string, Pr[]>, notes: string[], readAt: number}} input
+ * @param {{projects: Project[], folders: string[], needsReview: Pr[], mine: Pr[], projectPrs: Record<string, Pr[]>, notes: string[], readAt: number, reviews?: Record<string, Run[]>}} input
  * @returns {Board}
  */
 export function assembleBoard(input) {
@@ -67,7 +70,7 @@ export function assembleBoard(input) {
   for (const project of projects) {
     scopes.projects[project.key] = keysOf(projectPrs[project.key] ?? []);
   }
-  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes };
+  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {} };
 }
 
 function isObject(value) {
@@ -78,8 +81,14 @@ function isStringArray(value) {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+/** True when `value` is a review run: a path and a branch. */
+function isRun(value) {
+  return isObject(value) && typeof value.path === "string" && typeof value.branch === "string";
+}
+
 /**
- * A well-formed board as is; the empty board for anything else.
+ * A well-formed board, with no review runs when its runs are missing or malformed;
+ * the empty board for anything else.
  * @param {unknown} value
  * @returns {Board}
  */
@@ -99,7 +108,10 @@ export function normalizeBoard(value) {
     isStringArray(scopes.mine) &&
     isObject(projectScopes) &&
     Object.values(projectScopes).every(isStringArray);
-  return valid ? /** @type {Board} */ (value) : emptyBoard();
+  if (!valid) return emptyBoard();
+  // A board from an older version has no review runs.
+  const reviews = isObject(value.reviews) && Object.values(value.reviews).every((runs) => Array.isArray(runs) && runs.every(isRun)) ? value.reviews : {};
+  return /** @type {Board} */ ({ ...value, reviews });
 }
 
 /**

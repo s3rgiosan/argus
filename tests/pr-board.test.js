@@ -296,3 +296,19 @@ test("prPaneTitle: the number and title of the shown pull request, else the pane
 test("prPaneTitle: an empty title shows the number alone", () => {
   assert.equal(prPaneTitle({ number: 12, title: "" }), "#12");
 });
+
+test("assembleBoard and normalizeBoard keep the review runs", () => {
+  const reviews = { "github.com/example-org/example-repo#1": [{ path: "/w", branch: "argus/review-1-a" }] };
+  const board = assembleBoard(input({ reviews }));
+  assert.deepEqual(board.reviews, reviews);
+  assert.deepEqual(normalizeBoard(board).reviews, reviews);
+  const { reviews: _drop, ...old } = board;
+  assert.deepEqual(normalizeBoard(old).reviews, {});
+  assert.deepEqual(normalizeBoard({ ...board, reviews: 5 }).reviews, {});
+  assert.deepEqual(assembleBoard(input()).reviews, {});
+});
+
+test("normalizeBoard drops review runs with a malformed run", () => {
+  const board = assembleBoard(input({ reviews: { "x#1": [{ path: 1, branch: "argus/review-1-a" }] } }));
+  assert.deepEqual(normalizeBoard(board).reviews, {});
+});

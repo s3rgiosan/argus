@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { discover, visibleProfiles, expandHome, tildePath } from "../mods/argus-claude-usage/accounts.js";
+import { discover, visibleProfiles, expandHome, tildePath } from "../lib/accounts.js";
 
 const home = "/home/u";
 const files = {
@@ -47,7 +47,7 @@ test("expandHome and tildePath", () => {
 });
 
 test("readFirst falls back when a reader rejects or returns null", async () => {
-  const { readFirst } = await import("../mods/argus-claude-usage/accounts.js");
+  const { readFirst } = await import("../lib/accounts.js");
   const fails = async () => { throw new Error("too big"); };
   const none = async () => null;
   const ok = async (p) => `text of ${p}`;
