@@ -5,6 +5,21 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-11-20
+
+### Added
+
+- The `argus-pull-requests` pane shows file comments under their review, with the file, the line and whether the thread is open or resolved, for GitHub and GitLab.
+- The pane header shows the pull request's place in the board's list, with arrows to move to the previous or next one.
+- Merge ▾ lists the merge methods the repo allows, with your default marked.
+
+### Changed
+
+- The pane has a status card with checks, review, merge state and review agent, a summary of requested changes, open threads and comments, and tabs for Conversation, Checks, Description, Agent and Details.
+- Every review shows in the conversation with its state, also a review without text.
+- A comment bar stays at the bottom of the pane. Comment posts its text, and its menu holds Approve and Request changes.
+- GitLab merge requests read their discussions in place of their notes.
+
 ## [1.7.0] - 2026-11-20
 
 ### Added
@@ -146,7 +161,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.7.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.8.0...HEAD
+[1.8.0]: https://github.com/s3rgiosan/argus/compare/1.7.0...1.8.0
 [1.7.0]: https://github.com/s3rgiosan/argus/compare/1.6.0...1.7.0
 [1.6.0]: https://github.com/s3rgiosan/argus/compare/1.5.0...1.6.0
 [1.5.0]: https://github.com/s3rgiosan/argus/compare/1.4.1...1.5.0
