@@ -152,6 +152,9 @@ function sectionBody(t, id, view, on) {
         out.push(
           h_flex()
             .id("checks-passed")
+            .mx(-8)
+            .px(8)
+            .py(4)
             .gap(8)
             .items_center()
             .child(div().flex_none().text_color(t.done).child("✓"))
@@ -169,7 +172,8 @@ function sectionBody(t, id, view, on) {
             ),
         );
       }
-      return out;
+      // The rows' own padding spaces them, so they sit in a stack without the section's gap.
+      return [v_flex().id("checks-list").children(out)];
     }
     case "reviews":
       if (detail.reviewers.length === 0) return [muted(t, "No reviewers")];
@@ -200,7 +204,8 @@ function sectionBody(t, id, view, on) {
 function checkRow(t, view, on, id, check) {
   const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.muted;
   const mark = check.state === "failed" ? "✗" : check.state === "running" ? "●" : "✓";
-  let row = h_flex().id(id).gap(8).items_center().rounded(5).child(div().flex_none().text_color(color).child(mark)).child(div().flex_1().min_w(0).whitespace_normal().child(check.name));
+  // The row's padding gives its hover room; the negative margin keeps its text in line with the section.
+  let row = h_flex().id(id).mx(-8).px(8).py(4).gap(8).items_center().rounded(6).child(div().flex_none().text_color(color).child(mark)).child(div().flex_1().min_w(0).whitespace_normal().child(check.name));
   if (!check.url) return row;
   const url = check.url;
   return row
