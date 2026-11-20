@@ -664,3 +664,77 @@ export function parseGlabDetail(text, host) {
 function shaOf(value) {
   return typeof value === "string" && value !== "" ? value : null;
 }
+
+/** @typedef {{number: number, headSha: string, mergedAt: string}} Merged */
+
+/**
+ * A merged entry, or null when the number, the head commit or the merge time is not valid.
+ * @param {unknown} number
+ * @param {unknown} headSha
+ * @param {unknown} mergedAt
+ * @returns {Merged|null}
+ */
+function mergedEntry(number, headSha, mergedAt) {
+  const value = typeof number === "string" ? Number(number) : number;
+  if (!Number.isInteger(value) || value <= 0) return null;
+  if (typeof headSha !== "string" || !/^[0-9a-f]{40}$/.test(headSha)) return null;
+  if (typeof mergedAt !== "string" || mergedAt === "") return null;
+  return { number: value, headSha, mergedAt };
+}
+
+/** Newest merge first. */
+function byMergedAt(a, b) {
+  return a.mergedAt < b.mergedAt ? 1 : a.mergedAt > b.mergedAt ? -1 : 0;
+}
+
+/**
+ * `gh pr list --state merged --json number,headRefOid,mergedAt` output.
+ * @param {string} text
+ * @returns {Merged[]}
+ */
+export function parseGhMerged(text) {
+  const raw = JSON.parse(text);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(isObject)
+    .map((entry) => mergedEntry(entry.number, entry.headRefOid, entry.mergedAt))
+    .filter((entry) => entry !== null)
+    .sort(byMergedAt);
+}
+
+/**
+ * `gh pr view --json number,state,headRefOid,mergedAt` output: the pull request when it is merged.
+ * @param {string} text
+ * @returns {Merged|null}
+ */
+export function parseGhPrState(text) {
+  const raw = JSON.parse(text);
+  if (!isObject(raw) || raw.state !== "MERGED") return null;
+  return mergedEntry(raw.number, raw.headRefOid, raw.mergedAt);
+}
+
+/**
+ * `GL_MERGED_QUERY` output.
+ * @param {string} text
+ * @returns {Merged[]}
+ */
+export function parseGlMerged(text) {
+  const nodes = JSON.parse(text)?.data?.project?.mergeRequests?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  return nodes
+    .filter(isObject)
+    .map((node) => mergedEntry(node.iid, node.diffHeadSha, node.mergedAt))
+    .filter((entry) => entry !== null)
+    .sort(byMergedAt);
+}
+
+/**
+ * `GL_MR_STATE_QUERY` output: the merge request when it is merged.
+ * @param {string} text
+ * @returns {Merged|null}
+ */
+export function parseGlMrState(text) {
+  const node = JSON.parse(text)?.data?.project?.mergeRequest;
+  if (!isObject(node) || node.state !== "merged") return null;
+  return mergedEntry(node.iid, node.diffHeadSha, node.mergedAt);
+}
