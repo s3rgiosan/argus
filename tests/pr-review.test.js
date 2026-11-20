@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, titleSlug } from "../mods/argus-pull-requests/review.js";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, titleSlug, removePlan, branchDelete, dirtyRefusal } from "../mods/argus-pull-requests/review.js";
 
 const known = [
   { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true, agent: true, installed: true, run: ["claude"] },
@@ -132,4 +132,16 @@ test("reviewRuns: worktrees on argus/review-<n>- branches, by pull request", () 
     ],
   });
   assert.deepEqual(reviewRuns([]), {});
+});
+
+test("removePlan and branchDelete", () => {
+  assert.deepEqual(removePlan({ path: "/w/r12", branch: "argus/review-12-a" }, false), ["worktree", "remove", "/w/r12"]);
+  assert.deepEqual(removePlan({ path: "/w/r12", branch: "argus/review-12-a" }, true), ["worktree", "remove", "/w/r12", "--force"]);
+  assert.deepEqual(branchDelete("argus/review-12-a"), ["branch", "-d", "argus/review-12-a"]);
+});
+
+test("dirtyRefusal spots git's refusal for a worktree with changes", () => {
+  assert.equal(dirtyRefusal("fatal: '/w/r12' contains modified or untracked files, use --force to delete it"), true);
+  assert.equal(dirtyRefusal("fatal: '/w/r12' is not a working tree"), false);
+  assert.equal(dirtyRefusal(""), false);
 });

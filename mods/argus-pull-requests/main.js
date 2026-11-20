@@ -1,10 +1,12 @@
 // The pull request board in Herdr. One mod with views picked by `props().view`:
-// the board (the layout's panel, with a settings page), the scope list (a popup)
-// and a pull request (a pane beside the terminals). Reads go through `git`, `gh` and `glab`.
+// the board (the layout's panel, with a settings page), the scope list (a popup),
+// a pull request (a pane beside the terminals) and Review with agent (a dialog).
+// Reads go through `git`, `gh` and `glab`.
 
-import { div, svg, View } from "gpui-kit";
+import { div, svg, image, View } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
-import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused } from "herdr";
+import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents } from "herdr";
+import { readdir, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
@@ -16,7 +18,8 @@ import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
-import { reviewRuns } from "./review.js";
+import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns } from "./review.js";
+import { discover, readFirst } from "./accounts.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
@@ -30,6 +33,10 @@ const LOCK_KEY = "argus-pull-requests.lock";
 // PR key -> {kind, at} for the review and merge actions running in any copy.
 const RUNNING_KEY = "argus-pull-requests.running";
 const TITLE_KEY = "argus-pull-requests.paneTitle";
+// The argus-claude-usage settings: account names and hidden accounts, read only.
+const USAGE_SETTINGS_KEY = "argus-claude-usage.settings";
+const REVIEW_WIDTH = 460;
+const REVIEW_HEIGHT = 600;
 const MOD = "argus-pull-requests";
 const CLI_TIMEOUT = 30_000;
 const GIT_TIMEOUT = 15_000;
@@ -74,6 +81,10 @@ export default class PullRequests extends View {
     this.actions = new Map();
     // The PR key whose comment the comment box holds now.
     this.boxKey = null;
+    // Worktree path -> {confirm: null|"plain"|"dirty", running, error} for Remove worktree in the Agent section.
+    this.removals = new Map();
+    // The Review with agent dialog: the pull request it was opened for, the agents (null while they load), the picked one.
+    this.review = this.view === "review" ? { pr: props()?.pr ?? null, choices: null, picked: 0, error: null, starting: false } : null;
 
     const settings = readSettings();
     // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
@@ -89,9 +100,16 @@ export default class PullRequests extends View {
     this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     // The body of a review comment, for Request changes and Comment.
     this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Write a comment", rows: 4 }, (cx) => this.submitBody(cx), { multiline: true }) : null;
+    if (this.review) {
+      const pr = this.review.pr;
+      this.modelInput = this.input("model", { placeholder: "Agent default" }, (cx) => this.startReview(cx));
+      this.branchInput = this.input("branch", { value: pr ? reviewBranch(pr, randomUUID().replaceAll("-", "").slice(0, 8)) : "" }, (cx) => this.startReview(cx));
+      this.extraInput = this.input("extra", { placeholder: "Extra instructions (optional)", rows: 4 }, (cx) => this.startReview(cx), { multiline: true });
+    }
 
     if (checking()) return;
-    if (this.view === "scopes") this.handle.focus();
+    if (this.view === "scopes" || this.view === "review") this.handle.focus();
+    if (this.review) this.loadAgents(cx);
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       this.found = await probeIcons(readTextFile, appHome());
@@ -486,6 +504,8 @@ export default class PullRequests extends View {
         return this.renderScopes(t);
       case "pr":
         return this.renderPr(t, cx);
+      case "review":
+        return this.renderReview(t);
       case "settings":
         return this.renderSettings(t);
       default:
@@ -603,6 +623,217 @@ export default class PullRequests extends View {
         cx.notify();
       })
       .child(scrollArea("argus-pull-requests-scope-list", parts, { padding: MENU_PAD }));
+  }
+
+  /** Lists the agents for the dialog: Herdr's installed agents, with Claude Code once per account. */
+  loadAgents(cx) {
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let known = [];
+      let error = null;
+      try {
+        known = await knownAgents();
+      } catch (caught) {
+        error = `Could not list the agents: ${caught?.message ?? String(caught)}`;
+      }
+      const usage = usageSettings();
+      let profiles = [];
+      try {
+        profiles = await discover(discoveryIO(), { extra: usage.extra });
+      } catch {
+        // Without the profiles, Claude Code shows once with its plain command.
+      }
+      this.review = { ...this.review, choices: agentChoices(known, profiles, usage, home()), error };
+      cx.notify();
+    });
+  }
+
+  /** Checks the dialog's fields, then makes the worktree and starts the agent in a new space. */
+  startReview(cx) {
+    const review = this.review;
+    if (!review?.pr || review.starting || !review.choices || review.choices.length === 0) return;
+    const choice = review.choices[review.picked] ?? review.choices[0];
+    const branch = this.branchInput.value().trim();
+    const refusal = branchRefusal(branch, review.pr.number);
+    if (refusal !== null) {
+      this.review = { ...review, error: refusal };
+      cx.notify();
+      return;
+    }
+    const model = choice.model ? this.modelInput.value() : "";
+    const extra = this.extraInput.value();
+    this.review = { ...review, starting: true, error: null };
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let error;
+      try {
+        error = await this.runReview(review.pr, choice, branch, model, extra);
+      } catch (caught) {
+        error = caught?.message ?? String(caught);
+      }
+      if (error === null) {
+        closeOverlay(props()?.overlay);
+        return;
+      }
+      this.review = { ...this.review, starting: false, error };
+      cx.notify();
+    });
+  }
+
+  /** Runs a review: reads the settings and the pull request, adds the worktree, opens the space. Gives an error text, or null. */
+  async runReview(pr, choice, branch, model, extra) {
+    const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
+    if ("error" in resolved) return resolved.error;
+    const configured = reviewInstructions(await readTextFile(`${appHome()}/argus.json`));
+    if (configured.error !== null) return configured.error;
+    // The prompt names the head commit, so the pull request is read again now.
+    const detail = await this.readDetail(pr);
+    const plan = reviewPlan({ localPath: pr.localPath, root: resolved.root, branch });
+    const checked = await exec("git", plan.check, { cwd: plan.cwd, timeout: GIT_TIMEOUT });
+    if (checked.code !== 0) return gitError(checked);
+    const added = await exec("git", plan.add, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
+    if (added.code !== 0) return gitError(added);
+    run("space.new", {
+      name: `PR #${pr.number} · ${pr.title}`,
+      folder: plan.path,
+      argv: agentArgv(choice, model),
+      task: reviewPrompt({ detail, configured: configured.instructions, extra }),
+    });
+    setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
+    return null;
+  }
+
+  /** The Review with agent dialog: the pull request, the agents, Model, Branch and Extra instructions. */
+  renderReview(t) {
+    const review = this.review;
+    const pr = review?.pr ?? null;
+    const close = () => closeOverlay(props()?.overlay);
+    const label = (text) => div().text_size(11.5).font_medium().text_color(t.dim).child(text);
+    const choices = review?.choices ?? null;
+    const choice = choices?.[review.picked] ?? null;
+    const tiles = (choices ?? []).map((entry, index) => {
+      const picked = index === review.picked;
+      const pic = entry.icon ? (entry.tint ? svg(entry.icon).size(18).text_color(t.foreground) : image(entry.icon).w(18).h(18)) : null;
+      return v_flex()
+        .id(`agent-${index}`)
+        .w(128)
+        .p(8)
+        .gap(6)
+        .items_center()
+        .rounded(8)
+        .border_1()
+        .border_color(picked ? t.accent : t.border)
+        .when(picked, (el) => el.bg(t.selected))
+        .cursor_pointer()
+        .hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => {
+          this.review = { ...this.review, picked: index };
+          cx.notify();
+        })
+        .when(pic !== null, (el) => el.child(pic))
+        .child(div().w_full().text_size(11.5).text_center().whitespace_normal().child(entry.label));
+    });
+    const canStart = pr !== null && !review.starting && choice !== null;
+    return v_flex()
+      .id("argus-pull-requests-review")
+      .track_focus(this.handle)
+      .size_full()
+      .p(14)
+      .gap(10)
+      .bg(t.popover)
+      .text_color(t.foreground)
+      .text_size(12.8)
+      .on_key_down((e, cx) => {
+        if (e.key !== "escape") return;
+        cx.stop_propagation();
+        close();
+      })
+      .child(div().text_size(14).font_semibold().child("Review with agent"))
+      .when(pr !== null, (el) =>
+        el.child(h_flex().gap(8).px(10).py(8).rounded(8).bg(t.raised).child(div().flex_none().text_color(t.muted).child(`#${pr.number}`)).child(div().flex_1().min_w(0).truncate().child(pr.title))),
+      )
+      .child(label("Agent"))
+      .child(
+        choices === null
+          ? note(t, "Looking for agents…")
+          : choices.length === 0
+            ? note(t, "No agent is installed.")
+            : h_flex().flex_wrap().gap(8).children(tiles),
+      )
+      .when(Boolean(choice?.model), (el) => el.child(label("Model")).child(field(t, "model", this.modelInput, this.focused === "model")))
+      .child(label("Branch"))
+      .child(field(t, "branch", this.branchInput, this.focused === "branch"))
+      .child(label("Extra instructions"))
+      .child(textBox(t, "extra", this.extraInput, this.focused === "extra"))
+      .when(Boolean(review?.error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(review.error ?? "")))
+      .child(
+        h_flex()
+          .gap(8)
+          .justify_end()
+          .child(button(t, "review-cancel", "Cancel", close))
+          .child(button(t, "review-start", review?.starting ? "Starting…" : "Start", (_e, cx) => this.startReview(cx), { primary: true, enabled: canStart })),
+      );
+  }
+
+  /** One review run in the Agent section: its branch, Open space and Remove worktree, with the remove confirm. */
+  reviewRunRow(t, index, reviewRun, localPath) {
+    const state = this.removals.get(reviewRun.path) ?? { confirm: null, running: false, error: null };
+    const set = (patch, cx) => {
+      this.removals.set(reviewRun.path, { ...state, ...patch });
+      cx.notify();
+    };
+    let row = v_flex()
+      .id(`run-${index}`)
+      .px(8)
+      .py(4)
+      .gap(6)
+      .child(div().text_size(12).truncate().child(reviewRun.branch))
+      .child(
+        h_flex()
+          .gap(8)
+          .child(button(t, `run-open-${index}`, "Open space", () => openRun(reviewRun)))
+          .child(button(t, `run-remove-${index}`, "Remove worktree", (_e, cx) => set({ confirm: "plain", error: null }, cx), { enabled: !state.running && state.confirm === null })),
+      );
+    if (state.confirm !== null) {
+      const dirty = state.confirm === "dirty";
+      row = row.child(div().text_size(12).whitespace_normal().child(dirty ? "The worktree has changes. Remove it and lose them?" : `Remove ${reviewRun.branch}?`)).child(
+        h_flex()
+          .gap(8)
+          .child(button(t, `run-confirm-${index}`, "Remove", (_e, cx) => this.removeRun(cx, reviewRun, localPath, dirty), { primary: true, enabled: !state.running }))
+          .child(button(t, `run-cancel-${index}`, "Cancel", (_e, cx) => set({ confirm: null }, cx), { enabled: !state.running })),
+      );
+    }
+    if (state.error) row = row.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(state.error));
+    return row;
+  }
+
+  /**
+   * Removes a review worktree, then its branch (`-d` keeps a branch with commits). A worktree with
+   * changes turns the confirm into a second one that removes it with `--force`.
+   */
+  removeRun(cx, reviewRun, localPath, force) {
+    const key = reviewRun.path;
+    this.removals.set(key, { ...(this.removals.get(key) ?? { confirm: null, error: null }), running: true, error: null });
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let next = null;
+      try {
+        const removed = await exec("git", removePlan(reviewRun, force), { cwd: localPath, timeout: GIT_TIMEOUT });
+        if (removed.code !== 0) {
+          next = !force && dirtyRefusal(removed.stderr) ? { confirm: "dirty", running: false, error: null } : { confirm: null, running: false, error: gitError(removed) };
+        } else {
+          await exec("git", branchDelete(reviewRun.branch), { cwd: localPath, timeout: GIT_TIMEOUT });
+          setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
+        }
+      } catch (caught) {
+        next = { confirm: null, running: false, error: caught?.message ?? String(caught) };
+      }
+      if (next === null) this.removals.delete(key);
+      else this.removals.set(key, next);
+      cx.notify();
+    });
   }
 
   renderSettings(t) {
@@ -985,7 +1216,8 @@ export default class PullRequests extends View {
             button(t, "check-out", "Check out in a worktree", (_e, cx) => this.checkOut(cx, pr, localPath ?? ""), {
               enabled: localPath !== null && !checkout.running,
             }),
-          ),
+          )
+          .child(button(t, "review-agent", "Review with agent", () => openReview(pr, localPath ?? ""), { enabled: localPath !== null && canAct(pr) })),
       )
       .when(checkout.running, (el) => el.child(div().text_size(11).text_color(t.muted).child("Checking out…")))
       .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")))
@@ -1024,6 +1256,11 @@ export default class PullRequests extends View {
     }
     parts.push(sectionTitle(t, "Merge state"), text(MERGE_WORDS[detail.merge.state] ?? "Not checked yet"));
     if (detail.merge.reason) parts.push(div().px(8).py(2).text_size(12).text_color(t.muted).whitespace_normal().child(detail.merge.reason));
+    const runs = readBoard().reviews[shown.key] ?? [];
+    if (runs.length > 0 && localPath !== null) {
+      parts.push(sectionTitle(t, "Agent"));
+      runs.forEach((reviewRun, index) => parts.push(this.reviewRunRow(t, index, reviewRun, localPath)));
+    }
     parts.push(sectionTitle(t, "Description"));
     const body = detail.body.trim();
     parts.push(body === "" ? note(t, "No description") : text(detail.body));
@@ -1160,6 +1397,46 @@ function prRow(t, id, pr, selected, now, reviewed) {
         .when(review !== null, (el) => el.child(div().flex_none().text_color(pr.reviewDecision === "changes_requested" ? t.blocked : t.dim).child(review ?? "")))
         .when(reviewed, (el) => el.child(div().id(`${id}-agent`).size(6).flex_none().rounded_full().bg(t.accent).tooltip("Review agent worktree"))),
     );
+}
+
+/** Opens the Review with agent dialog for a pull request; the dialog gets what it needs in its props. */
+function openReview(pr, localPath) {
+  const target = { key: prKey(pr), provider: pr.provider, host: pr.host, repo: pr.repo, number: pr.number, title: pr.title, localPath };
+  openOverlay({ mod: MOD, props: { view: "review", pr: target }, kind: "dialog", width: REVIEW_WIDTH, height: REVIEW_HEIGHT });
+}
+
+/** Shows a review run's space: the one that holds its worktree, else a new one there. */
+function openRun(reviewRun) {
+  const id = spaceFor(spaces(), panes(), reviewRun.path);
+  if (id !== null) run("space.select", { id });
+  else run("space.new", { folder: reviewRun.path });
+}
+
+/** The argus-claude-usage settings this mod reads: account names, hidden and extra profile folders. */
+function usageSettings() {
+  const value = shared(USAGE_SETTINGS_KEY);
+  const v = value && typeof value === "object" ? value : {};
+  const strings = (list) => (Array.isArray(list) ? list.filter((item) => typeof item === "string") : []);
+  const names = v.names && typeof v.names === "object" && !Array.isArray(v.names) ? Object.fromEntries(Object.entries(v.names).filter(([, name]) => typeof name === "string" && name.trim() !== "")) : {};
+  return { names, hidden: strings(v.hidden), extra: strings(v.extra) };
+}
+
+/** File access for the Claude Code profile search, as argus-claude-usage does it. */
+function discoveryIO() {
+  const dir = home();
+  return {
+    home: dir,
+    async listHome() {
+      try {
+        const entries = await readdir(dir, { withFileTypes: true });
+        return entries.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory() }));
+      } catch {
+        return [];
+      }
+    },
+    // readTextFile reads up to 1 MiB; .claude.json can grow past that.
+    readText: (path) => readFirst([readTextFile, (p) => readFile(p, "utf8")], path),
+  };
 }
 
 function openScopes() {

@@ -209,3 +209,31 @@ export function reviewRuns(listings) {
   for (const list of Object.values(runs)) list.sort((a, b) => (a.branch < b.branch ? -1 : a.branch > b.branch ? 1 : 0));
   return runs;
 }
+
+/**
+ * The `git worktree remove` arguments for a run. `force` removes a worktree with changes.
+ * @param {Run} run
+ * @param {boolean} force
+ * @returns {string[]}
+ */
+export function removePlan(run, force) {
+  return force ? ["worktree", "remove", run.path, "--force"] : ["worktree", "remove", run.path];
+}
+
+/**
+ * The arguments that delete a review branch after its worktree is gone. `-d` refuses a branch with commits.
+ * @param {string} branch
+ * @returns {string[]}
+ */
+export function branchDelete(branch) {
+  return ["branch", "-d", branch];
+}
+
+/**
+ * True when git refused to remove a worktree because it has changes.
+ * @param {string} stderr
+ * @returns {boolean}
+ */
+export function dirtyRefusal(stderr) {
+  return String(stderr ?? "").includes("contains modified or untracked files");
+}
