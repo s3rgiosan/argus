@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidates, defaultBranchOf, defaultBranchArgs, insideFolder, rowsFor, branchStep, tipArgs, statusArgs } from "../mods/argus-pull-requests/cleanup.js";
+import { candidates, defaultBranchOf, defaultBranchArgs, insideFolder, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen } from "../mods/argus-pull-requests/cleanup.js";
 import { branchDelete, linkedWorktrees, reviewNumber } from "../mods/argus-pull-requests/review.js";
 
 const SHA_A = "a".repeat(40);
@@ -92,7 +92,7 @@ test("insideFolder matches the folder and its subfolders, not a folder that only
 
 test("rowsFor: a merged branch whose tip is the merged head is eligible", () => {
   const rows = rowsFor(input([wt("feat/a")], { merged: { "feat/a": [merged(8)] } }));
-  assert.deepEqual(rows, [{ path: "/w/feat-a", branch: "feat/a", number: 8, mergedAt: "2026-11-10T00:00:00Z", headSha: SHA_A, review: false, reason: null }]);
+  assert.deepEqual(rows, [{ path: "/w/feat-a", branch: "feat/a", number: 8, mergedAt: "2026-11-10T00:00:00Z", headSha: SHA_A, review: false, reason: null, ignored: [] }]);
 });
 
 test("rowsFor: each reason greys a row", () => {
@@ -151,4 +151,20 @@ test("branchStep deletes a branch only when its tip is still the merged head", (
   const review = rowsFor(input([wt("argus/review-12-x")], { reviewMerged: { 12: merged(12) } }))[0];
   assert.deepEqual(branchStep(review, SHA_C), { args: branchDelete("argus/review-12-x"), kept: null });
   assert.deepEqual(branchStep(review, null), { args: null, kept: null });
+});
+
+test("ignored files: read with ls-files, kept on the row, and the row starts unticked", () => {
+  assert.deepEqual(ignoredArgs(), ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"]);
+  assert.deepEqual(ignoredOf("docs/\nnode_modules/\n\n"), ["docs/", "node_modules/"]);
+  assert.deepEqual(ignoredOf(""), []);
+  const rows = rowsFor(input([wt("feat/a"), wt("feat/b")], { merged: { "feat/a": [merged(1)], "feat/b": [merged(2)] }, ignored: { "/w/feat-a": ["docs/"] } }));
+  assert.deepEqual(rows[0].ignored, ["docs/"]);
+  assert.equal(rows[0].reason, null);
+  assert.deepEqual([...tickedByDefault(rows)], ["/w/feat-b"]);
+});
+
+test("readsOnOpen: the view reads when it has no list yet, and keeps finished results until Done", () => {
+  assert.equal(readsOnOpen(null), true);
+  assert.equal(readsOnOpen({ phase: "done" }), false);
+  assert.equal(readsOnOpen({ phase: "list" }), false);
 });

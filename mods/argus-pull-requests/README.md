@@ -106,7 +106,8 @@ The trash icon in the header opens Merged worktrees. It lists the worktrees whos
   - "locked": `git worktree lock` holds it.
   - "has an open pull request": the branch has a new open pull request.
   - "has newer commits": the branch has commits the merged pull request did not have.
-- Remove removes the ticked worktrees with `git worktree remove` (never `--force`), then deletes each local branch only when its last commit is still the one the pull request merged. A review branch is deleted with `git branch -d`. Each row then shows its result. Nothing is removed until you press Remove, and no remote branch is touched.
+- A worktree with ignored files (for example `docs/` or `node_modules/`, never committed) shows "has ignored files" and starts unticked: Remove deletes them too. Its tooltip names them; tick it to remove it anyway.
+- Remove removes the ticked worktrees with `git worktree remove` (never `--force`), then deletes each local branch only when its last commit is still the one the pull request merged. A review branch is deleted with `git branch -d`. Each row then shows its result, which stays until you press Done, also when you go back to the board while it runs. Nothing is removed until you press Remove, and no remote branch is touched.
 - A repo whose worktrees or pull requests cannot be read is left out, with a note.
 
 ## Settings

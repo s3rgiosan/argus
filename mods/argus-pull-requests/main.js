@@ -13,7 +13,7 @@ import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidat
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghPrStateArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MR_STATE_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhPrState, parseGlMerged, parseGlMrState, prKey } from "./model.js";
-import { candidates, defaultBranchArgs, defaultBranchOf, insideFolder, rowsFor, branchStep, tipArgs, statusArgs } from "./cleanup.js";
+import { candidates, defaultBranchArgs, defaultBranchOf, insideFolder, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen } from "./cleanup.js";
 import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
@@ -959,10 +959,10 @@ export default class PullRequests extends View {
     });
   }
 
-  /** Opens the Merged worktrees view and reads it when it has not been read or a removal has finished. */
+  /** Opens the Merged worktrees view. It reads only before the first list; finished results stay until Done. */
   openCleanup(cx) {
     this.view = "cleanup";
-    if (this.cleanup === null || this.cleanup.phase === "done") this.readCleanup(cx);
+    if (readsOnOpen(this.cleanup)) this.readCleanup(cx);
     cx.notify();
   }
 
@@ -987,7 +987,7 @@ export default class PullRequests extends View {
       const read = await mapPool(projects, CLI_CONCURRENCY, (project) => this.cleanupGroup(project, board, cwds, project.provider === "github" ? gh : glab));
       const notes = read.flatMap((entry) => entry.notes);
       const groups = read.map((entry) => entry.group).filter((group) => group !== null && group.rows.length > 0);
-      const ticked = new Set(groups.flatMap((group) => group.rows.filter((row) => row.reason === null).map((row) => row.path)));
+      const ticked = tickedByDefault(groups.flatMap((group) => group.rows));
       this.cleanup = { ...this.cleanup, phase: "list", notes, groups, ticked };
       cx.notify();
     });
@@ -1015,11 +1015,15 @@ export default class PullRequests extends View {
 
     // A worktree whose status cannot be read counts as one with changes.
     const dirty = new Set();
+    const ignored = {};
     for (const worktree of worktrees) {
       if (worktree.prunable) continue;
       try {
         const status = await git(statusArgs(), worktree.path);
         if (status.code !== 0 || status.stdout.trim() !== "") dirty.add(worktree.path);
+        const listed = await git(ignoredArgs(), worktree.path);
+        if (listed.code === 0) ignored[worktree.path] = ignoredOf(listed.stdout);
+        else dirty.add(worktree.path);
       } catch {
         dirty.add(worktree.path);
       }
@@ -1040,7 +1044,7 @@ export default class PullRequests extends View {
     }
     // A failed read could hide a merged pull request or mark one wrongly, so the project is left out.
     if (notes.length > 0) return { group: null, notes };
-    return { group: { project, rows: rowsFor({ worktrees, merged, reviewMerged, dirty, inSpace, openBranches: openBranches(board, project) }) }, notes };
+    return { group: { project, rows: rowsFor({ worktrees, merged, reviewMerged, dirty, inSpace, openBranches: openBranches(board, project), ignored }) }, notes };
   }
 
   /** Removes the ticked worktrees one by one, then prunes each project's worktree list. */
@@ -1123,9 +1127,15 @@ export default class PullRequests extends View {
     }
 
     const count = state === null ? 0 : state.groups.flatMap((group) => group.rows).filter((row) => row.reason === null && state.ticked.has(row.path)).length;
+    // Done clears the results, so the next open reads again; Back keeps them.
+    const done = (_e, cx) => {
+      this.cleanup = null;
+      this.view = "board";
+      cx.notify();
+    };
     let actions;
     if (phase === "done") {
-      actions = [button(t, "cleanup-done", "Done", back, { primary: true })];
+      actions = [button(t, "cleanup-done", "Done", done, { primary: true })];
     } else if (phase === "removing") {
       actions = [div().text_size(12).text_color(t.muted).child("Removing…")];
     } else {
@@ -1154,8 +1164,8 @@ export default class PullRequests extends View {
       .items_center()
       .justify_center();
     const tick = ticked ? box.child(svg(icon("check")).size(10).text_color(t.background)) : box;
-    const status = result ?? row.reason ?? `merged ${ageText(row.mergedAt, now)}`;
-    const statusColor = result !== null ? (result.startsWith("removed") ? t.done : t.blocked) : row.reason !== null ? t.dim : t.muted;
+    const status = result ?? row.reason ?? (row.ignored.length > 0 ? "has ignored files" : `merged ${ageText(row.mergedAt, now)}`);
+    const statusColor = result !== null ? (result.startsWith("removed") ? t.done : t.blocked) : row.reason !== null ? t.dim : row.ignored.length > 0 ? t.working : t.muted;
     let line = h_flex()
       .id(`cleanup-${row.path}`)
       .h(28)
@@ -1179,6 +1189,12 @@ export default class PullRequests extends View {
         });
     }
     if (result !== null && result !== "removed") line = line.tooltip(result);
+    // Remove deletes ignored files too, so the tooltip names them; such a row starts unticked.
+    else if (result === null && row.reason === null && row.ignored.length > 0) {
+      const shown = row.ignored.slice(0, 5).join(", ");
+      const more = row.ignored.length > 5 ? ` and ${row.ignored.length - 5} more` : "";
+      line = line.tooltip(`Remove deletes these ignored files: ${shown}${more}`);
+    }
     return line;
   }
 

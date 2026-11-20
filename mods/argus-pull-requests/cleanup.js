@@ -6,7 +6,7 @@ import { branchDelete, linkedWorktrees, reviewNumber } from "./review.js";
 /** @typedef {{number: number, headSha: string, mergedAt: string}} Merged */
 /** @typedef {{path: string, branch: string, head: string|null, locked: boolean, prunable: boolean, review: number|null}} Worktree */
 /** @typedef {null|"has changes"|"open in a space"|"locked"|"has an open pull request"|"has newer commits"} Reason */
-/** @typedef {{path: string, branch: string, number: number, mergedAt: string, headSha: string, review: boolean, reason: Reason}} Row */
+/** @typedef {{path: string, branch: string, number: number, mergedAt: string, headSha: string, review: boolean, reason: Reason, ignored: string[]}} Row */
 
 /** The arguments that print the remote's default branch, for example `origin/main`. */
 export function defaultBranchArgs() {
@@ -32,6 +32,45 @@ export function tipArgs(branch) {
 /** The arguments that list a worktree's changes; empty output means it has none. */
 export function statusArgs() {
   return ["status", "--porcelain"];
+}
+
+/**
+ * The arguments that list a worktree's ignored files and folders. `git worktree remove` deletes
+ * them, and `git status` does not show them.
+ */
+export function ignoredArgs() {
+  return ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"];
+}
+
+/**
+ * The entries in `ignoredArgs` output.
+ * @param {string} stdout
+ * @returns {string[]}
+ */
+export function ignoredOf(stdout) {
+  return String(stdout ?? "")
+    .split(/\r?\n/)
+    .filter((line) => line !== "");
+}
+
+/**
+ * The paths ticked when the list opens: rows that may go and hold no ignored files.
+ * A row with ignored files may still be ticked by hand.
+ * @param {Row[]} rows
+ * @returns {Set<string>}
+ */
+export function tickedByDefault(rows) {
+  return new Set(rows.filter((row) => row.reason === null && row.ignored.length === 0).map((row) => row.path));
+}
+
+/**
+ * True when opening the view starts a read: only before the first list, and after Done
+ * clears the finished results.
+ * @param {object|null} state
+ * @returns {boolean}
+ */
+export function readsOnOpen(state) {
+  return state === null;
 }
 
 /**
@@ -69,11 +108,11 @@ export function insideFolder(cwd, path) {
  * The rows of the Merged worktrees view. A worktree without a merged pull request is left out.
  * A row has a reason when it must stay; the first reason that applies wins.
  * @param {{worktrees: Worktree[], merged: Record<string, Merged[]>, reviewMerged: Record<number, Merged|null>,
- *   dirty: Set<string>, inSpace: Set<string>, openBranches: Set<string>}} input
- *   `merged` is keyed by branch, newest first; `reviewMerged` by pull request number.
+ *   dirty: Set<string>, inSpace: Set<string>, openBranches: Set<string>, ignored?: Record<string, string[]>}} input
+ *   `merged` is keyed by branch, newest first; `reviewMerged` by pull request number; `ignored` by path.
  * @returns {Row[]}
  */
-export function rowsFor({ worktrees, merged, reviewMerged, dirty, inSpace, openBranches }) {
+export function rowsFor({ worktrees, merged, reviewMerged, dirty, inSpace, openBranches, ignored = {} }) {
   const rows = [];
   for (const worktree of worktrees) {
     const review = worktree.review !== null;
@@ -97,7 +136,8 @@ export function rowsFor({ worktrees, merged, reviewMerged, dirty, inSpace, openB
     else if (inSpace.has(worktree.path)) reason = "open in a space";
     else if (openBranches.has(worktree.branch)) reason = "has an open pull request";
     else if (newer) reason = "has newer commits";
-    rows.push({ path: worktree.path, branch: worktree.branch, number: pull.number, mergedAt: pull.mergedAt, headSha: pull.headSha, review, reason });
+    const files = Object.hasOwn(ignored, worktree.path) ? ignored[worktree.path] : [];
+    rows.push({ path: worktree.path, branch: worktree.branch, number: pull.number, mergedAt: pull.mergedAt, headSha: pull.headSha, review, reason, ignored: files });
   }
   return rows.sort((a, b) => (a.branch < b.branch ? -1 : a.branch > b.branch ? 1 : 0));
 }

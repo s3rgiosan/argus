@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The `argus-pull-requests` panel has Merged worktrees, from a trash icon in its header. It lists the worktrees of the repos in scope whose pull request is merged, ticks those that may go, and greys the rest with a reason: changes, open in a space, locked, an open pull request, or newer commits. Remove removes the ticked worktrees without force and deletes each local branch only when its last commit is the one the pull request merged.
+- The `argus-pull-requests` panel has Merged worktrees, from a trash icon in its header. It lists the worktrees of the repos in scope whose pull request is merged, ticks those that may go, and greys the rest with a reason: changes, open in a space, locked, an open pull request, or newer commits. A worktree with ignored files starts unticked, with the files in its tooltip. Remove removes the ticked worktrees without force and deletes each local branch only when its last commit is the one the pull request merged. The results stay until Done.
 
 ## [1.8.0] - 2026-11-20
 
