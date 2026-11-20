@@ -235,3 +235,28 @@ export function branchStep(row, tipNow) {
   if (tipNow !== row.headSha) return { args: null, kept: "not at the merged commit" };
   return { args: ["branch", "-D", row.branch], kept: null };
 }
+
+/**
+ * How many worktrees have a merged pull request, for the board's count. A review worktree counts
+ * by its number. Any other counts when a merged head has its branch and its head commit, and the
+ * default branch as base (any base when either is unknown). No status checks run here.
+ * @param {Worktree[]} worktrees
+ * @param {import("./model.js").MergedHead[]} heads
+ * @param {string|null} defaultBranch
+ * @returns {number}
+ */
+export function countMerged(worktrees, heads, defaultBranch) {
+  const numbers = new Set(heads.map((entry) => entry.number));
+  let count = 0;
+  for (const worktree of worktrees) {
+    if (worktree.review !== null) {
+      if (numbers.has(worktree.review)) count += 1;
+      continue;
+    }
+    const match = heads.some(
+      (entry) => entry.branch === worktree.branch && entry.headSha === worktree.head && (defaultBranch === null || entry.base === null || entry.base === defaultBranch),
+    );
+    if (match) count += 1;
+  }
+  return count;
+}

@@ -825,3 +825,45 @@ export function parseGlUsername(text) {
   if (typeof name !== "string" || name === "") throw glUnexpected();
   return name;
 }
+
+/** @typedef {{number: number, branch: string, headSha: string, base: string|null}} MergedHead */
+
+/**
+ * A merged head, or null when the number, the branch or the head commit is not valid.
+ * @returns {MergedHead|null}
+ */
+function mergedHead(number, branch, headSha, base) {
+  const value = typeof number === "string" ? Number(number) : number;
+  if (!Number.isInteger(value) || value <= 0) return null;
+  if (typeof branch !== "string" || branch === "") return null;
+  if (typeof headSha !== "string" || !/^[0-9a-f]{40}$/.test(headSha)) return null;
+  return { number: value, branch, headSha, base: typeof base === "string" && base !== "" ? base : null };
+}
+
+/**
+ * `ghMergedListArgs` output, without pull requests from forks.
+ * @param {string} text
+ * @returns {MergedHead[]}
+ */
+export function parseGhMergedList(text) {
+  const raw = JSON.parse(text);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => isObject(entry) && entry.isCrossRepository !== true)
+    .map((entry) => mergedHead(entry.number, entry.headRefName, entry.headRefOid, entry.baseRefName))
+    .filter((entry) => entry !== null);
+}
+
+/**
+ * `GL_MERGED_LIST_QUERY` output, without merge requests from another project.
+ * @param {string} text
+ * @returns {MergedHead[]}
+ */
+export function parseGlMergedList(text) {
+  const nodes = JSON.parse(text)?.data?.project?.mergeRequests?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  return nodes
+    .filter((node) => isObject(node) && node.sourceProjectId === node.targetProjectId)
+    .map((node) => mergedHead(node.iid, node.sourceBranch, node.diffHeadSha, node.targetBranch))
+    .filter((entry) => entry !== null);
+}

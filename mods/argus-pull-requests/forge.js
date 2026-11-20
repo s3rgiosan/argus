@@ -159,3 +159,15 @@ export const GL_USERNAME_QUERY = "query { currentUser { username } }";
 
 /** The open issues of a GitLab project that one user has. Variables: `path`, `user`. */
 export const GL_ISSUES_QUERY = `query($path: ID!, $user: String!) { project(fullPath: $path) { issues(state: opened, assigneeUsernames: [$user], first: ${ISSUE_LIMIT}) { nodes { iid title updatedAt } } } }`;
+
+/**
+ * The repo's last 100 merged pull requests, for the board's merged worktree count.
+ * @param {string} repo
+ * @returns {string[]}
+ */
+export function ghMergedListArgs(repo) {
+  return ["pr", "list", "--repo", repo, "--state", "merged", "--limit", "100", "--json", "number,headRefName,headRefOid,mergedAt,baseRefName,isCrossRepository"];
+}
+
+/** The project's last 100 merge requests, newest merge first. Variable: `path`. */
+export const GL_MERGED_LIST_QUERY = `query($path: ID!) { project(fullPath: $path) { mergeRequests(state: merged, first: 100, sort: MERGED_AT_DESC) { nodes { iid sourceBranch diffHeadSha mergedAt targetBranch sourceProjectId targetProjectId } } } }`;
