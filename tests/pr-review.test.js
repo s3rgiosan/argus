@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, titleSlug } from "../mods/argus-pull-requests/review.js";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, titleSlug } from "../mods/argus-pull-requests/review.js";
 
 const known = [
   { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true, agent: true, installed: true, run: ["claude"] },
@@ -117,4 +117,19 @@ test("reviewInstructions reads pullRequests.review.instructions", () => {
   assert.deepEqual(reviewInstructions('{"toolbar":{}}'), { instructions: null, error: null });
   assert.equal(reviewInstructions('{"pullRequests":{"review":{"instructions":3}}}').error, "pullRequests.review.instructions is not text");
   assert.match(reviewInstructions("{bad").error, /JSON/);
+});
+
+test("reviewRuns: worktrees on argus/review-<n>- branches, by pull request", () => {
+  const project = { key: "github.com/example-org/example-repo", provider: "github", host: "github.com", repo: "example-org/example-repo", localPath: "/c/repo", folders: [] };
+  const porcelain =
+    "worktree /c/repo\nHEAD 1\nbranch refs/heads/main\n\nworktree /w/r12b\nHEAD 2\nbranch refs/heads/argus/review-12-b-2\n\n" +
+    "worktree /w/r12a\nHEAD 3\nbranch refs/heads/argus/review-12-a-1\n\nworktree /w/other\nHEAD 4\nbranch refs/heads/argus/reviewer\n\n" +
+    "worktree /w/detached\nHEAD 5\ndetached\n";
+  assert.deepEqual(reviewRuns([{ project, porcelain }]), {
+    "github.com/example-org/example-repo#12": [
+      { path: "/w/r12a", branch: "argus/review-12-a-1" },
+      { path: "/w/r12b", branch: "argus/review-12-b-2" },
+    ],
+  });
+  assert.deepEqual(reviewRuns([]), {});
 });

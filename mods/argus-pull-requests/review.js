@@ -2,11 +2,13 @@
 // worktree, the read-only prompt, the review runs on the board, and their removal.
 
 import { tildePath, visibleProfiles } from "./accounts.js";
-import { branchSlug } from "./worktree.js";
+import { branchSlug, parseWorktrees } from "./worktree.js";
 import { fetchRef } from "./forge.js";
 
 /** @typedef {import("./accounts.js").Profile} Profile */
 /** @typedef {import("./model.js").Detail} Detail */
+/** @typedef {import("./remote.js").Project} Project */
+/** @typedef {{path: string, branch: string}} Run */
 /**
  * @typedef {{key: string, name: string, icon: string|null, tint: boolean, agent: boolean, installed: boolean, run: string[]}} KnownAgent
  * @typedef {{id: string, label: string, argv: string[], model: boolean, icon: string|null, tint: boolean}} Choice
@@ -182,4 +184,28 @@ export function reviewPrompt({ detail, configured, extra }) {
   const more = [configured, extra].map((text) => String(text ?? "").trim()).filter((text) => text !== "");
   const tail = more.length > 0 ? `\n\nExtra instructions. The read-only rules above still apply.\n\n${more.join("\n\n")}` : "";
   return lines.join("\n") + tail;
+}
+
+/** A review branch: the pull request number, then a name. */
+const REVIEW_BRANCH = /^argus\/review-(\d+)-./;
+
+/**
+ * The review runs of each pull request, keyed like `prKey`: the worktrees of each
+ * project whose branch starts `argus/review-<number>-`, sorted by branch.
+ * @param {{project: Project, porcelain: string}[]} listings `git worktree list --porcelain` per project.
+ * @returns {Record<string, Run[]>}
+ */
+export function reviewRuns(listings) {
+  /** @type {Record<string, Run[]>} */
+  const runs = {};
+  for (const { project, porcelain } of listings) {
+    for (const worktree of parseWorktrees(porcelain)) {
+      const match = worktree.branch === null ? null : REVIEW_BRANCH.exec(worktree.branch);
+      if (!match) continue;
+      const key = `${project.host}/${project.repo}#${Number(match[1])}`.toLowerCase();
+      (runs[key] ??= []).push({ path: worktree.path, branch: worktree.branch });
+    }
+  }
+  for (const list of Object.values(runs)) list.sort((a, b) => (a.branch < b.branch ? -1 : a.branch > b.branch ? 1 : 0));
+  return runs;
 }

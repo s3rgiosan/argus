@@ -16,6 +16,7 @@ import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
+import { reviewRuns } from "./review.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
@@ -272,7 +273,21 @@ export default class PullRequests extends View {
       this.renewLock();
     }
 
-    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt });
+    const reviews = await this.readReviews(projects);
+    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews });
+  }
+
+  /** The review agent worktrees of the projects with a local checkout. A failed git call gives no runs for that project. */
+  async readReviews(projects) {
+    const listings = await mapPool(projects.filter((project) => project.localPath), CLI_CONCURRENCY, async (project) => {
+      try {
+        const reply = await exec("git", ["worktree", "list", "--porcelain"], { cwd: project.localPath, timeout: GIT_TIMEOUT });
+        return reply.code === 0 ? { project, porcelain: reply.stdout } : null;
+      } catch {
+        return null;
+      }
+    });
+    return reviewRuns(listings.filter((listing) => listing !== null));
   }
 
   /** Caches what `folder` is: a repository entry, or null. A rejected probe caches nothing. */
@@ -529,7 +544,7 @@ export default class PullRequests extends View {
     } else {
       for (const group of buildGroups(shown)) {
         parts.push(sectionTitle(t, `${group.title} · ${group.prs.length}`));
-        for (const pr of group.prs) parts.push(prRow(t, `pr-${prKey(pr)}`, pr, prKey(pr) === selected, now));
+        for (const pr of group.prs) parts.push(prRow(t, `pr-${prKey(pr)}`, pr, prKey(pr) === selected, now, (board.reviews[prKey(pr)] ?? []).length > 0));
       }
     }
 
@@ -1107,7 +1122,8 @@ function prState(pr) {
 }
 
 /** A 44 px board row, two lines. Click opens the pull request pane. */
-function prRow(t, id, pr, selected, now) {
+/** One board row. `reviewed` adds a dot when a review agent worktree exists for the pull request. */
+function prRow(t, id, pr, selected, now, reviewed) {
   const checks = checksText(pr.checks);
   let checksColor = t.muted;
   if (checks.startsWith("✗")) checksColor = t.blocked;
@@ -1141,7 +1157,8 @@ function prRow(t, id, pr, selected, now) {
         .text_size(11)
         .text_color(t.dim)
         .child(div().flex_1().min_w(0).truncate().child(`${shortRepo(pr.repo)} · ${pr.headRef}`))
-        .when(review !== null, (el) => el.child(div().flex_none().text_color(pr.reviewDecision === "changes_requested" ? t.blocked : t.dim).child(review ?? ""))),
+        .when(review !== null, (el) => el.child(div().flex_none().text_color(pr.reviewDecision === "changes_requested" ? t.blocked : t.dim).child(review ?? "")))
+        .when(reviewed, (el) => el.child(div().id(`${id}-agent`).size(6).flex_none().rounded_full().bg(t.accent).tooltip("Review agent worktree"))),
     );
 }
 
