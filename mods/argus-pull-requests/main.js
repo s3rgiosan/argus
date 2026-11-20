@@ -13,8 +13,8 @@ import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidat
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghDefaultBranchArgs, ghIssuesArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY, GL_ISSUES_QUERY, GL_USERNAME_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, parseGhIssues, parseGlIssues, parseGlUsername, prKey } from "./model.js";
-import { candidates, countMerged, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
-import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, mergedCounts, mergedInScope, mergedText, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
+import { candidates, countMerged, freshForReview, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
+import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { remoteHeadsArgs, parseRemoteHeads, branchRead, issueRead, remoteBranchPlan, issueBranch, issuePlan, filterItems, aheadBehind, localBranchStep, branchNote, fastForwardArgs, remoteBranchArgs, remoteHasBranch, refspecMissing, branchNameError, noticeFor, folderExistsMessage, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
 import { worktreeRoot, checkoutBranch, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
@@ -330,9 +330,10 @@ export default class PullRequests extends View {
       this.renewLock();
     }
 
-    const { reviews, listings } = await this.readReviews(projects);
+    const { reviews, listings, failed } = await this.readReviews(projects);
     this.renewLock();
-    const merged = mergedCounts(readBoard().merged ?? {}, await this.readMergedCounts(listings, gh, glab));
+    const counted = await this.readMergedCounts(listings, gh, glab);
+    const merged = mergedCounts(readBoard().merged ?? {}, mergedListRead(counted, failed.map((project) => project.key)));
     this.renewLock();
     return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged });
   }
@@ -357,7 +358,7 @@ export default class PullRequests extends View {
     const failed = local.filter((_project, index) => listings[index] === null);
     const now = Date.now();
     const read = listings.filter((listing) => listing !== null);
-    return { reviews: keepRuns(reviewRuns(read, now), readBoard().reviews, failed, now), listings: read };
+    return { reviews: keepRuns(reviewRuns(read, now), readBoard().reviews, failed, now), listings: read, failed };
   }
 
   /**
@@ -673,7 +674,11 @@ export default class PullRequests extends View {
           .text_color(t.accent)
           .cursor_pointer()
           .hover((s) => s.text_color(t.foreground))
-          .on_click((_e, cx) => this.openCleanup(cx))
+          .on_click((_e, cx) => {
+            // An old list may say none; the board counted some, so the view reads again.
+            this.cleanup = freshForReview(this.cleanup);
+            this.openCleanup(cx);
+          })
           .child("Review"),
       );
   }

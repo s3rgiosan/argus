@@ -161,7 +161,7 @@ export const GL_USERNAME_QUERY = "query { currentUser { username } }";
 export const GL_ISSUES_QUERY = `query($path: ID!, $user: String!) { project(fullPath: $path) { issues(state: opened, assigneeUsernames: [$user], first: ${ISSUE_LIMIT}) { nodes { iid title updatedAt } } } }`;
 
 /**
- * The repo's last 100 merged pull requests, for the board's merged worktree count.
+ * The repo's 100 newest merged pull requests by creation date (gh's order), for the board's merged worktree count.
  * @param {string} repo
  * @returns {string[]}
  */

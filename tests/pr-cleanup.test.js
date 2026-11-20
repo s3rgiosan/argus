@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidates, defaultBranchOf, defaultBranchArgs, insideFolder, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "../mods/argus-pull-requests/cleanup.js";
+import { candidates, defaultBranchOf, defaultBranchArgs, insideFolder, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces, freshForReview } from "../mods/argus-pull-requests/cleanup.js";
 import { branchDelete, linkedWorktrees, reviewNumber } from "../mods/argus-pull-requests/review.js";
 
 const SHA_A = "a".repeat(40);
@@ -251,4 +251,15 @@ test("worktreesInSpaces: local spaces only, their folders and their terminals", 
   ];
   const list = ["feat-a", "feat-b", "feat-c", "feat-d", "feat-e", "feat-ab"].map((name) => wt(name));
   assert.deepEqual([...worktreesInSpaces(list, spaces, panes)].sort(), ["/w/feat-a", "/w/feat-b"]);
+});
+
+test("freshForReview: the board's Review link drops a list with no removal results, so the view reads again", () => {
+  assert.equal(freshForReview(null), null);
+  assert.equal(freshForReview({ phase: "list", results: {} }), null);
+  const removing = { phase: "removing", results: {} };
+  assert.equal(freshForReview(removing), removing);
+  const done = { phase: "done", results: { "/w/a": "removed" } };
+  assert.equal(freshForReview(done), done);
+  const loading = { phase: "loading", results: {} };
+  assert.equal(freshForReview(loading), loading);
 });

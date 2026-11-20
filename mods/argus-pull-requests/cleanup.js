@@ -260,3 +260,15 @@ export function countMerged(worktrees, heads, defaultBranch) {
   }
   return count;
 }
+
+/**
+ * The view state the board's Review link keeps: a list that has no removal results goes, so the
+ * view reads again and shows the merged worktrees the board counted. Running work and results stay.
+ * @param {object|null} state
+ * @returns {object|null}
+ */
+export function freshForReview(state) {
+  if (state === null) return null;
+  const results = Object.keys(state.results ?? {}).length;
+  return state.phase === "list" && results === 0 ? null : state;
+}

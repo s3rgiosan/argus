@@ -596,3 +596,14 @@ export function mergedText(count) {
   if (count <= 0) return null;
   return count === 1 ? "1 merged worktree can be removed" : `${count} merged worktrees can be removed`;
 }
+
+/**
+ * The merged count read of a board read: the counts of the projects whose worktree list was read,
+ * and null for the projects whose list failed, so `mergedCounts` keeps their last count.
+ * @param {Array<{key: string, count: number|null}>} counts
+ * @param {string[]} failedKeys
+ * @returns {Array<{key: string, count: number|null}>}
+ */
+export function mergedListRead(counts, failedKeys) {
+  return [...counts, ...failedKeys.map((key) => ({ key, count: null }))];
+}

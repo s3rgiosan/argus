@@ -8,6 +8,7 @@ import {
   mergedCounts,
   mergedInScope,
   mergedText,
+  mergedListRead,
   openBranches,
   followStatus,
   withFolders,
@@ -433,4 +434,9 @@ test("mergedText: nothing at 0, singular and plural", () => {
   assert.equal(mergedText(0), null);
   assert.equal(mergedText(1), "1 merged worktree can be removed");
   assert.equal(mergedText(3), "3 merged worktrees can be removed");
+});
+
+test("mergedListRead: a project whose worktree list failed keeps its count", () => {
+  assert.deepEqual(mergedListRead([{ key: "a", count: 2 }], ["b"]), [{ key: "a", count: 2 }, { key: "b", count: null }]);
+  assert.deepEqual(mergedCounts({ b: 4 }, mergedListRead([{ key: "a", count: 2 }], ["b"])), { a: 2, b: 4 });
 });
