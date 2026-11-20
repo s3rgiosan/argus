@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkGroups, checkLayout, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
+import { checkGroups, checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
 import { NO_METHOD } from "../mods/argus-pull-requests/actions.js";
 import { assembleBoard } from "../mods/argus-pull-requests/board.js";
 
@@ -199,4 +199,14 @@ test("checkLayout: problems listed, passed ones in one line unless few and nothi
   assert.deepEqual(checkLayout(check("passed", 3), false), { rows: check("passed", 3), passedLine: null });
   assert.deepEqual(checkLayout(check("passed", 6), false), { rows: [], passedLine: { count: 6, open: false } });
   assert.deepEqual(checkLayout([], false), { rows: [], passedLine: null });
+});
+
+test("displayName: the forge's name, else a known bot's name, else the login", () => {
+  assert.equal(displayName("octo-user", { "octo-user": "Octo User" }), "Octo User");
+  assert.equal(displayName("copilot-pull-request-reviewer", {}), "Copilot");
+  assert.equal(displayName("app/dependabot", {}), "Dependabot");
+  // Another app shows without the app/ prefix that gh adds.
+  assert.equal(displayName("app/example-bot", {}), "example-bot");
+  assert.equal(displayName("cli-triage", {}), "cli-triage");
+  assert.equal(displayName("octo-user", undefined), "octo-user");
 });

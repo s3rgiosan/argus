@@ -20,7 +20,7 @@ import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, readFirst } from "./accounts.js";
-import { checkLayout, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
+import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
@@ -1348,8 +1348,8 @@ export default class PullRequests extends View {
       summaries: sectionSummaries(detail, runs, localPath !== null),
       open,
       checks: checkLayout(detail.checks, this.passedOpen.has(key)),
-      // The display name the forge gives a login, else the login.
-      nameOf: (login) => detail.names?.[login] ?? login,
+      // The display name the forge gives a login, a known bot's name, else the login.
+      nameOf: (login) => displayName(login, detail.names),
       items: conversationItems(detail, readSettings().conversation),
       position,
       hasCheckout: localPath !== null,

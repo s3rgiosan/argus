@@ -275,3 +275,23 @@ export function mergeMenuNote(detail) {
   if (detail.pr.provider !== "gitlab" || !detail.squash || detail.squashLocked) return null;
   return "This merge request is set to squash. To merge without squash, turn that off on GitLab.";
 }
+
+/** Names for bot accounts, which GitHub gives no display name. Keyed by login without the `app/` prefix. */
+const KNOWN_BOTS = {
+  "copilot-pull-request-reviewer": "Copilot",
+  dependabot: "Dependabot",
+};
+
+/**
+ * The name to show for a login: the forge's display name, else a known bot's name, else the
+ * login without the `app/` prefix that `gh` adds to apps.
+ * @param {string} login
+ * @param {Record<string, string>|undefined} names
+ * @returns {string}
+ */
+export function displayName(login, names) {
+  const known = names?.[login];
+  if (known) return known;
+  const bare = login.startsWith("app/") ? login.slice("app/".length) : login;
+  return KNOWN_BOTS[bare] ?? bare;
+}
