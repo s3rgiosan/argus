@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, titleSlug, removePlan, branchDelete, dirtyRefusal, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
+import { readFileSync } from "node:fs";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, titleSlug, removePlan, branchDelete, dirtyRefusal, startRefusal, promptFileRefusal, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
 
 const known = [
   { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true, agent: true, installed: true, run: ["claude"] },
@@ -264,7 +265,8 @@ test("startState: waiting, lost, running, stuck, done", () => {
   assert.equal(startState({ state: "done", error: null }, 0, REVIEW_RUN_MS * 2), "done");
   assert.match(startMessage("lost"), /pane is not open/);
   assert.match(startMessage("stuck"), /did not finish/);
-  assert.match(startMessage("stuck"), /Agent tab/);
+  assert.match(startMessage("stuck"), /Review agent section/);
+  assert.doesNotMatch(startMessage("stuck"), /Agent tab/);
   assert.equal(startMessage("running"), null);
 });
 
@@ -274,12 +276,67 @@ test("agentChoices: every Claude account hidden leaves Claude Code out", () => {
   assert.deepEqual(choices.map((c) => c.label), ["Codex"]);
 });
 
-test("reviewPrompt: the agent may write its own report files, never change the repository or the forge", () => {
+test("reviewPrompt: rule 1 lets the agent create report files outside dot folders, and forbids the rest", () => {
   const text = reviewPrompt({ detail: gh, configured: null, extra: "" });
-  assert.match(text, /You may create new files in this worktree for your report/);
-  assert.match(text, /Do not edit or delete the repository's files/);
-  assert.match(text, /Do not commit, push, comment, approve, request changes or merge/);
-  assert.doesNotMatch(text, /Do not edit, create or delete files/);
+  assert.ok(
+    text.includes(
+      "1. Do not edit or delete the repository's files. You may create new files for your report, but not in folders whose names start with a dot, and do not run the files you create. Do not commit, push, comment, approve, request changes or merge. Write your findings in this conversation, and in a report file when the extra instructions ask for one.",
+    ),
+  );
+  assert.doesNotMatch(text, /in this worktree for your report/);
+});
+
+test("README review prompt block is the built-in prompt, for GitHub and GitLab", () => {
+  const readme = readFileSync(new URL("../mods/argus-pull-requests/README.md", import.meta.url), "utf8");
+  const start = readme.indexOf("````text\n") + "````text\n".length;
+  const block = readme.slice(start, readme.indexOf("\n````", start));
+  for (const d of [gh, gl]) {
+    assert.equal(reviewPrompt({ detail: d, configured: null, extra: "", template: block }), reviewPrompt({ detail: d, configured: null, extra: "" }));
+  }
+});
+
+test("templateRefusal: placeholder names are case-sensitive, and spaces inside the braces are allowed", () => {
+  assert.equal(templateRefusal("{{ number }} {{  headSha}}"), null);
+  assert.match(templateRefusal("{{head_sha}}"), /\{\{head_sha\}\}/);
+  assert.match(templateRefusal("{{base-branch}}"), /\{\{base-branch\}\}/);
+  assert.match(templateRefusal("{{Number}}"), /\{\{Number\}\}/);
+  assert.equal(reviewPrompt({ detail: gh, configured: null, extra: "", template: "{{ number }}/{{repo }}" }), "12/example-org/example-repo");
+});
+
+test("templateUses finds a placeholder by name", () => {
+  assert.equal(templateUses("a {{base}} b", "base"), true);
+  assert.equal(templateUses("a {{ base }} b", "base"), true);
+  assert.equal(templateUses("a {{number}} b", "base"), false);
+});
+
+test("reviewPrompt: a placeholder named like an Object property stays as written", () => {
+  assert.equal(reviewPrompt({ detail: gh, configured: null, extra: "", template: "{{constructor}} {{toString}}" }), "{{constructor}} {{toString}}");
+});
+
+test("startRefusal: repo and host must be plain, and the base is checked only when the prompt uses it", () => {
+  assert.match(startRefusal({ ...gh, pr: { ...gh.pr, repo: "example-org/x y" } }), /"example-org\/x y"/);
+  assert.match(startRefusal({ ...gh, pr: { ...gh.pr, repo: "example-org/x;rm" } }), /repo/);
+  assert.match(startRefusal({ ...gh, pr: { ...gh.pr, host: "github.com;x" } }), /"github\.com;x"/);
+  assert.equal(startRefusal({ ...gl, pr: { ...gl.pr, host: "gitlab.example.com:8443" } }), null);
+  const odd = { ...gh, pr: { ...gh.pr, baseRef: "release/1.0+hotfix" } };
+  assert.match(startRefusal(odd), /base branch/);
+  assert.match(startRefusal(odd, { checksBase: true }), /base branch/);
+  assert.equal(startRefusal(odd, { checksBase: false }), null);
+  assert.match(startRefusal({ ...odd, headSha: "zz" }, { checksBase: false }), /head commit/);
+});
+
+test("promptFileRefusal: the path is absolute or starts with ~/", () => {
+  assert.equal(promptFileRefusal("/home/test/p.md"), null);
+  assert.equal(promptFileRefusal("~/prompts/p.md"), null);
+  assert.equal(promptFileRefusal("prompts/p.md"), "Set pullRequests.review.promptFile to an absolute or ~/ path.");
+  assert.equal(promptFileRefusal("./p.md"), "Set pullRequests.review.promptFile to an absolute or ~/ path.");
+  assert.equal(promptFileRefusal("~other/p.md"), "Set pullRequests.review.promptFile to an absolute or ~/ path.");
+});
+
+test("templateRefusal: a NUL character or more than 100000 characters is refused", () => {
+  assert.match(templateRefusal("Review\u0000 {{number}}"), /NUL/);
+  assert.match(templateRefusal("x".repeat(100001)), /100000/);
+  assert.equal(templateRefusal("x".repeat(100000)), null);
 });
 
 test("reviewPrompt with a prompt file: placeholders filled, PR text quoted, extras appended", () => {

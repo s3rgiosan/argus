@@ -18,7 +18,7 @@ import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
-import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
+import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, expandHome, readFirst } from "./accounts.js";
 import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
@@ -748,6 +748,8 @@ export default class PullRequests extends View {
     // A prompt file from argus.json replaces the built-in prompt.
     let template = null;
     if (configured.promptFile !== null) {
+      const pathRefusal = promptFileRefusal(configured.promptFile);
+      if (pathRefusal !== null) return pathRefusal;
       template = await readTextFile(expandHome(configured.promptFile, home()));
       if (template === null) return `Could not read the prompt file ${configured.promptFile} from argus.json.`;
       const refusal = templateRefusal(template);
@@ -755,7 +757,8 @@ export default class PullRequests extends View {
     }
     // The prompt names the head commit, so the pull request is read again now. A gh or glab error throws.
     const detail = await this.readDetail(pr);
-    const refusal = startRefusal(detail);
+    // Only a prompt that uses {{base}} puts the base branch in a command.
+    const refusal = startRefusal(detail, { checksBase: template === null || templateUses(template, "base") });
     if (refusal !== null) return refusal;
     const plan = reviewPlan({ localPath: pr.localPath, root: resolved.root, branch });
     const checked = await exec("git", plan.check, { cwd: plan.cwd, timeout: GIT_TIMEOUT });
