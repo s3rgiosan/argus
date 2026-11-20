@@ -80,33 +80,47 @@ export function checkoutBranch(pr) {
 /**
  * Reads the output of `git worktree list --porcelain`.
  * @param {string} porcelain
- * @returns {Array<{path: string, branch: ?string}>}
+ * @returns {Array<{path: string, branch: ?string, prunable: boolean}>}
  */
 export function parseWorktrees(porcelain) {
   const result = [];
   for (const block of String(porcelain).split(/\r?\n\r?\n/)) {
     let path = null;
     let branch = null;
+    let prunable = false;
     for (const line of block.split(/\r?\n/)) {
       if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
       else if (line.startsWith("branch ")) branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+      else if (line === "prunable" || line.startsWith("prunable ")) prunable = true;
     }
-    if (path !== null) result.push({ path, branch });
+    if (path !== null) result.push({ path, branch, prunable });
   }
   return result;
 }
 
 /**
+ * The worktree that holds `branch`. A prunable entry has no folder, so it gives no path and asks for a prune.
+ * @param {string} porcelain
+ * @param {string} branch
+ * @returns {{path: ?string, prune: string[]|null}}
+ */
+export function findWorktree(porcelain, branch) {
+  const found = parseWorktrees(porcelain).find((worktree) => worktree.branch === branch);
+  if (!found) return { path: null, prune: null };
+  return found.prunable ? { path: null, prune: ["worktree", "prune"] } : { path: found.path, prune: null };
+}
+
+/**
  * Opens the worktree that already holds the PR branch, else plans a fetch and a new worktree.
  * @param {{pr: Pr, localPath: string, root: string, porcelain: string}} input
- * @returns {{kind: "open", path: string}|{kind: "create", path: string, cwd: string, branch: string, exists: string[], peek: string[], ahead: string[], fetch: string[], add: string[]}}
- * For a create plan, `exists` tells whether the branch is already there; `peek` fetches the PR head to FETCH_HEAD
+ * @returns {{kind: "open", path: string}|{kind: "create", path: string, cwd: string, branch: string, prune: string[]|null, exists: string[], peek: string[], ahead: string[], fetch: string[], add: string[]}}
+ * For a create plan, `prune` clears a worktree entry whose folder is gone; `exists` tells whether the branch is already there; `peek` fetches the PR head to FETCH_HEAD
  * and `ahead` counts the branch commits not on it; `fetch` then force-updates the branch.
  */
 export function checkoutPlan({ pr, localPath, root, porcelain }) {
   const branch = checkoutBranch(pr);
-  const existing = parseWorktrees(porcelain).find((worktree) => worktree.branch === branch);
-  if (existing) return { kind: "open", path: existing.path };
+  const existing = findWorktree(porcelain, branch);
+  if (existing.path !== null) return { kind: "open", path: existing.path };
   const folder = localPath.replace(/\/+$/, "").split("/").pop();
   const path = `${root}/${folder}/${branchSlug(branch)}`;
   const ref = fetchRef(pr.provider, pr.number);
@@ -115,6 +129,7 @@ export function checkoutPlan({ pr, localPath, root, porcelain }) {
     path,
     cwd: localPath,
     branch,
+    prune: existing.prune,
     exists: ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`],
     peek: ["fetch", "--no-tags", "origin", ref],
     ahead: ["rev-list", "--count", `FETCH_HEAD..refs/heads/${branch}`],

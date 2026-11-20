@@ -2,11 +2,12 @@
 // remote branch or an issue. The functions are pure; the caller runs the commands.
 
 import { compareNames } from "./follow.js";
-import { branchSlug, parseWorktrees } from "./worktree.js";
+import { branchSlug, findWorktree, gitError, parseWorktrees } from "./worktree.js";
 import { titleSlug } from "./review.js";
+import { ISSUE_LIMIT, limitNote } from "./forge.js";
 
-/** The most characters an issue branch name has. */
-const ISSUE_BRANCH_LENGTH = 60;
+/** The note of a Branch tab read that could not find the default branch. */
+export const DEFAULT_BRANCH_NOTE = "Could not read the default branch, so it is listed too.";
 
 /** The arguments that list the branches of the remote. */
 export function remoteHeadsArgs() {
@@ -40,7 +41,117 @@ export function branchItems(heads, defaultBranch, porcelain) {
   const worktrees = parseWorktrees(porcelain);
   return heads
     .filter((branch) => branch !== defaultBranch)
-    .map((branch) => ({ branch, path: worktrees.find((worktree) => worktree.branch === branch)?.path ?? null }));
+    .map((branch) => ({ branch, path: worktrees.find((worktree) => worktree.branch === branch && !worktree.prunable)?.path ?? null }));
+}
+
+/**
+ * The Branch tab read: the rows, and a note when the default branch is unknown and so listed too.
+ * @param {string[]} heads
+ * @param {string|null} defaultBranch
+ * @param {string} porcelain
+ * @returns {{entries: Array<{branch: string, path: string|null}>, note: string|null}}
+ */
+export function branchRead(heads, defaultBranch, porcelain) {
+  return { entries: branchItems(heads, defaultBranch, porcelain), note: defaultBranch === null ? DEFAULT_BRANCH_NOTE : null };
+}
+
+/**
+ * The Issue tab read: the issues, and a note when the list reached the read limit.
+ * @template T
+ * @param {T[]} issues
+ * @returns {{entries: T[], note: string|null}}
+ */
+export function issueRead(issues) {
+  return { entries: issues, note: limitNote("issues", issues.length, ISSUE_LIMIT) };
+}
+
+/**
+ * The text of a stored create error or note when it belongs to the shown repo and tab, else null.
+ * @param {?{key: string, tab: string, text: string}} entry
+ * @param {string} key
+ * @param {string} tab
+ * @returns {string|null}
+ */
+export function noticeFor(entry, key, tab) {
+  return entry && entry.key === key && entry.tab === tab ? entry.text : null;
+}
+
+/** The refusal for a worktree folder that already exists. */
+export function folderExistsMessage(path) {
+  return `The folder ${path} already exists. Remove it or pick another branch.`;
+}
+
+/**
+ * The refusal for a branch name that git rejects or rewrites (`@{-1}` expands to another name); null when valid.
+ * @param {string} branch
+ * @param {{code: number, stdout: string, stderr: string}} reply `check-ref-format --branch` result.
+ * @returns {string|null}
+ */
+export function branchNameError(branch, reply) {
+  if (reply.code !== 0) return gitError(reply);
+  return String(reply.stdout ?? "").trim() === branch ? null : `git: '${branch}' is not a valid branch name`;
+}
+
+/**
+ * The commits of the local branch the remote lacks, and the other way, from `git rev-list --left-right --count`.
+ * @param {string} stdout
+ * @returns {{ahead: number, behind: number}|null}
+ */
+export function aheadBehind(stdout) {
+  const match = /^(\d+)\s+(\d+)$/.exec(String(stdout ?? "").trim());
+  return match === null ? null : { ahead: Number(match[1]), behind: Number(match[2]) };
+}
+
+/**
+ * What to do with a local branch before its worktree: use it ("add"), move it up to the remote ("fastForward"),
+ * or use it as it is and tell the person ("note").
+ * @param {{ahead: number, behind: number}} counts
+ * @returns {"add"|"fastForward"|"note"}
+ */
+export function localBranchStep({ ahead, behind }) {
+  if (ahead > 0) return "note";
+  return behind > 0 ? "fastForward" : "add";
+}
+
+/** The note for a local branch that is ahead of the remote branch, or has diverged. */
+export function branchNote(branch, { ahead, behind }) {
+  return `The local branch ${branch} is ${ahead} ahead and ${behind} behind origin/${branch}.`;
+}
+
+/** The arguments that move a local branch to `origin` only while it still points at `local`. */
+export function fastForwardArgs(branch, origin, local) {
+  return ["update-ref", `refs/heads/${branch}`, origin, local];
+}
+
+/** The arguments that list one branch of the remote. */
+export function remoteBranchArgs(branch) {
+  return ["ls-remote", "--heads", "origin", `refs/heads/${branch}`];
+}
+
+/**
+ * Whether `remoteBranchArgs` output names the branch.
+ * @param {string} stdout
+ * @param {string} branch
+ * @returns {boolean}
+ */
+export function remoteHasBranch(stdout, branch) {
+  return String(stdout ?? "")
+    .split(/\r?\n/)
+    .some((line) => line.split("\t")[1] === `refs/heads/${branch}`);
+}
+
+/**
+ * Whether no fetch refspec of the remote stores `branch` (a single-branch clone), from `remote.origin.fetch` values.
+ * @param {string} stdout
+ * @param {string} branch
+ * @returns {boolean}
+ */
+export function refspecMissing(stdout, branch) {
+  const stores = (line) => {
+    const spec = line.trim().replace(/^\+/, "");
+    return spec === `refs/heads/${branch}:refs/remotes/origin/${branch}` || spec === "refs/heads/*:refs/remotes/origin/*";
+  };
+  return !String(stdout ?? "").split(/\r?\n/).some(stores);
 }
 
 /** The worktree path for `branch` of the repo at `localPath`. */
@@ -50,58 +161,74 @@ function pathFor(root, localPath, branch) {
 }
 
 /**
- * Opens the worktree that holds a remote branch, else plans a fetch and a new worktree. A local branch of
- * the same name stays as it is; without one, a new branch tracks the remote branch.
+ * Opens the worktree that holds a remote branch, else plans the create. A local branch of the same name stays
+ * as it is, and `compare` tells how it differs from the fetched remote branch. Without one, `add` makes the
+ * branch with no tracking (a single-branch clone cannot track), then `track` sets its upstream, and `refspec`
+ * is added to the remote when `refspecs` output shows none stores the branch. `prune` clears a stale entry.
  * @param {{branch: string, localPath: string, root: string, porcelain: string, localExists: boolean}} input
- * @returns {{kind: "open", path: string}|{kind: "create", path: string, fetch: string[], add: string[]}}
+ * @returns {{kind: "open", path: string}|{kind: "create", path: string, branch: string, prune: string[]|null, check: string[], fetch: string[], compare: string[]|null, add: string[], newBranch: boolean, track: string[][]|null, refspecs: string[], refspec: string}}
  */
 export function remoteBranchPlan({ branch, localPath, root, porcelain, localExists }) {
-  const existing = parseWorktrees(porcelain).find((worktree) => worktree.branch === branch);
-  if (existing) return { kind: "open", path: existing.path };
+  const existing = findWorktree(porcelain, branch);
+  if (existing.path !== null) return { kind: "open", path: existing.path };
   const path = pathFor(root, localPath, branch);
+  const remoteRef = `refs/remotes/origin/${branch}`;
+  const refspec = `+refs/heads/${branch}:${remoteRef}`;
   return {
     kind: "create",
     path,
-    fetch: ["fetch", "--no-tags", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`],
-    add: localExists ? ["worktree", "add", path, branch] : ["worktree", "add", "--track", "-b", branch, path, `origin/${branch}`],
+    branch,
+    prune: existing.prune,
+    check: ["check-ref-format", "--branch", branch],
+    fetch: ["fetch", "--no-tags", "origin", refspec],
+    compare: localExists ? ["rev-list", "--left-right", "--count", `refs/heads/${branch}...${remoteRef}`] : null,
+    add: localExists ? ["worktree", "add", path, branch] : ["worktree", "add", "--no-track", "-b", branch, path, remoteRef],
+    newBranch: !localExists,
+    track: localExists
+      ? null
+      : [
+          ["config", `branch.${branch}.remote`, "origin"],
+          ["config", `branch.${branch}.merge`, `refs/heads/${branch}`],
+        ],
+    refspecs: ["config", "--get-all", "remote.origin.fetch"],
+    refspec,
   };
 }
 
 /**
- * The local branch name for an issue: the number and the title slug, at most 60 characters, cut on a dash.
+ * The local branch name for an issue: the number and the title slug. A title with no ASCII letters or digits
+ * gives the number alone.
  * @param {number} number
  * @param {string} title
  * @returns {string}
  */
 export function issueBranch(number, title) {
   const slug = titleSlug(title);
-  const name = slug === "" ? String(number) : `${number}-${slug}`;
-  if (name.length <= ISSUE_BRANCH_LENGTH) return name;
-  const cut = name.slice(0, ISSUE_BRANCH_LENGTH);
-  if (name[ISSUE_BRANCH_LENGTH] === "-") return cut;
-  const dash = cut.lastIndexOf("-");
-  return (dash > 0 ? cut.slice(0, dash) : cut).replace(/-+$/, "");
+  return slug === "" ? String(number) : `${number}-${slug}`;
 }
 
 /**
  * Opens the worktree of an issue branch, else plans a new worktree. A new branch is cut from the fetched
  * default branch with no upstream. An existing local branch gets a worktree with no fetch and no reset.
- * `check` validates the branch name first; `fetch` is null when no fetch is needed.
+ * `check` validates the branch name first; `fetch` is null when no fetch is needed; `prune` clears a stale entry.
  * @param {{number: number, title: string, defaultBranch: string, localPath: string, root: string, porcelain: string, localExists: boolean}} input
- * @returns {{kind: "open", path: string}|{kind: "create", path: string, branch: string, check: string[], fetch: string[]|null, add: string[]}}
+ * @returns {{kind: "open", path: string}|{kind: "create", path: string, branch: string, prune: string[]|null, check: string[], fetch: string[]|null, add: string[], newBranch: boolean}}
  */
 export function issuePlan({ number, title, defaultBranch, localPath, root, porcelain, localExists }) {
   const branch = issueBranch(number, title);
-  const existing = parseWorktrees(porcelain).find((worktree) => worktree.branch === branch);
-  if (existing) return { kind: "open", path: existing.path };
+  const existing = findWorktree(porcelain, branch);
+  if (existing.path !== null) return { kind: "open", path: existing.path };
   const path = pathFor(root, localPath, branch);
   const check = ["check-ref-format", "--branch", branch];
-  if (localExists) return { kind: "create", path, branch, check, fetch: null, add: ["worktree", "add", path, branch] };
+  const prune = existing.prune;
+  if (localExists) return { kind: "create", path, branch, prune, check, fetch: null, add: ["worktree", "add", path, branch], newBranch: false };
   return {
     kind: "create",
     path,
     branch,
+    prune,
     check,
+    newBranch: true,
     fetch: ["fetch", "--no-tags", "origin", defaultBranch],
     add: ["worktree", "add", "--no-track", "-b", branch, path, `origin/${defaultBranch}`],
   };
