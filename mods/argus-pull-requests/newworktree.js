@@ -45,14 +45,55 @@ export function branchItems(heads, defaultBranch, porcelain) {
 }
 
 /**
- * The Branch tab read: the rows, and a note when the default branch is unknown and so listed too.
+ * The Branch tab read: the rows, the branches that hold a worktree, and a note when the default branch is
+ * unknown and so listed too.
  * @param {string[]} heads
  * @param {string|null} defaultBranch
  * @param {string} porcelain
- * @returns {{entries: Array<{branch: string, path: string|null}>, note: string|null}}
+ * @returns {{entries: Array<{branch: string, path: string|null}>, held: string[], note: string|null}}
  */
 export function branchRead(heads, defaultBranch, porcelain) {
-  return { entries: branchItems(heads, defaultBranch, porcelain), note: defaultBranch === null ? DEFAULT_BRANCH_NOTE : null };
+  const held = parseWorktrees(porcelain)
+    .filter((worktree) => worktree.branch !== null && !worktree.prunable)
+    .map((worktree) => worktree.branch);
+  return { entries: branchItems(heads, defaultBranch, porcelain), held, note: defaultBranch === null ? DEFAULT_BRANCH_NOTE : null };
+}
+
+/**
+ * Whether a Branch read lists a worktree on `branch`. False when there is no read.
+ * @param {?{held?: string[]}} read
+ * @param {string} branch
+ * @returns {boolean}
+ */
+export function holdsWorktree(read, branch) {
+  return read?.held?.includes(branch) === true;
+}
+
+/**
+ * The key of the repo the view shows when it opens: the followed one when listed, else the first, else null.
+ * @param {Array<{key: string}>} projects
+ * @param {?string} followed
+ * @returns {string|null}
+ */
+export function defaultProjectKey(projects, followed) {
+  return projects.find((project) => project.key === followed)?.key ?? projects[0]?.key ?? null;
+}
+
+const EMPTY_TEXTS = {
+  branch: "No other branches on the remote",
+  pr: "No open pull requests of this repo on the board",
+  issue: "No open issues assigned to you",
+};
+
+/**
+ * The text of an empty list: a filter miss when the tab has rows, else the text of the tab.
+ * @param {"branch"|"pr"|"issue"} tab
+ * @param {number} total Rows before the filter.
+ * @param {number} shown Rows after the filter.
+ * @returns {string}
+ */
+export function emptyText(tab, total, shown) {
+  return total > 0 && shown === 0 ? "Nothing matches the filter" : (EMPTY_TEXTS[tab] ?? "");
 }
 
 /**

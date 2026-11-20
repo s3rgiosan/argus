@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { remoteHeadsArgs, parseRemoteHeads, branchItems, remoteBranchPlan, issueBranch, issuePlan, filterItems, aheadBehind, localBranchStep, branchNote, fastForwardArgs, remoteBranchArgs, remoteHasBranch, refspecMissing, branchNameError, branchRead, issueRead, noticeFor, folderExistsMessage, DEFAULT_BRANCH_NOTE } from "../mods/argus-pull-requests/newworktree.js";
+import { remoteHeadsArgs, parseRemoteHeads, branchItems, remoteBranchPlan, issueBranch, issuePlan, filterItems, aheadBehind, localBranchStep, branchNote, fastForwardArgs, remoteBranchArgs, remoteHasBranch, refspecMissing, branchNameError, branchRead, issueRead, noticeFor, folderExistsMessage, DEFAULT_BRANCH_NOTE, emptyText, defaultProjectKey, holdsWorktree } from "../mods/argus-pull-requests/newworktree.js";
 import { titleSlug } from "../mods/argus-pull-requests/review.js";
 
 const SHA = "a".repeat(40);
@@ -124,12 +124,13 @@ test("branchNameError refuses a name git rejects or rewrites", () => {
 });
 
 test("branchRead lists the branches and notes an unknown default branch", () => {
-  assert.deepEqual(branchRead(["main", "x"], "main", LIST), { entries: [{ branch: "x", path: null }], note: null });
+  assert.deepEqual(branchRead(["main", "x"], "main", LIST), { entries: [{ branch: "x", path: null }], held: ["main", "feature/a"], note: null });
   assert.deepEqual(branchRead(["main", "x"], null, LIST), {
     entries: [
       { branch: "main", path: "/home/test/example-repo" },
       { branch: "x", path: null },
     ],
+    held: ["main", "feature/a"],
     note: DEFAULT_BRANCH_NOTE,
   });
   assert.equal(DEFAULT_BRANCH_NOTE, "Could not read the default branch, so it is listed too.");
@@ -229,4 +230,33 @@ test("issue branch names pass git check-ref-format for odd titles", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("emptyText tells a filter miss from an empty list", () => {
+  assert.equal(emptyText("branch", 3, 0), "Nothing matches the filter");
+  assert.equal(emptyText("pr", 1, 0), "Nothing matches the filter");
+  assert.equal(emptyText("branch", 0, 0), "No other branches on the remote");
+  assert.equal(emptyText("pr", 0, 0), "No open pull requests of this repo on the board");
+  assert.equal(emptyText("issue", 0, 0), "No open issues assigned to you");
+});
+
+test("defaultProjectKey gives the followed key when listed, else the first, else null", () => {
+  const projects = [{ key: "a" }, { key: "b" }];
+  assert.equal(defaultProjectKey(projects, "b"), "b");
+  assert.equal(defaultProjectKey(projects, "z"), "a");
+  assert.equal(defaultProjectKey(projects, null), "a");
+  assert.equal(defaultProjectKey([], "b"), null);
+});
+
+test("branchRead lists the branches that hold a worktree, prunable ones left out", () => {
+  assert.deepEqual(branchRead(["x"], "main", LIST).held, ["main", "feature/a"]);
+  assert.deepEqual(branchRead(["x"], "main", PRUNABLE).held, ["main"]);
+});
+
+test("holdsWorktree is true only when the read lists the branch", () => {
+  const read = branchRead(["x"], "main", LIST);
+  assert.equal(holdsWorktree(read, "feature/a"), true);
+  assert.equal(holdsWorktree(read, "pr/7"), false);
+  assert.equal(holdsWorktree(undefined, "feature/a"), false);
+  assert.equal(holdsWorktree({ entries: [], note: null }, "feature/a"), false);
 });
