@@ -109,8 +109,29 @@ test("ghMergeMethods: the allowed methods, the default marked", () => {
 test("glMergeMethods: an enforced squash setting offers one method", () => {
   assert.deepEqual(glMergeMethods(detail({ squashLocked: true, squash: true })).methods, [{ method: "squash", label: "Squash and merge", isDefault: true }]);
   assert.deepEqual(glMergeMethods(detail({ squashLocked: true, squash: false })).methods, [{ method: "merge", label: "Merge", isDefault: true }]);
-  assert.deepEqual(glMergeMethods(detail({ squashLocked: false, squash: true })).methods, [
-    { method: "merge", label: "Merge", isDefault: false },
-    { method: "squash", label: "Squash and merge", isDefault: true },
+  // A merge request set to squash cannot be merged without squash through glab, so only squash is offered.
+  assert.deepEqual(glMergeMethods(detail({ squashLocked: false, squash: true })).methods, [{ method: "squash", label: "Squash and merge", isDefault: true }]);
+  assert.deepEqual(glMergeMethods(detail({ squashLocked: false, squash: false })).methods, [
+    { method: "merge", label: "Merge", isDefault: true },
+    { method: "squash", label: "Squash and merge", isDefault: false },
   ]);
+});
+
+test("statusRows: with no decision, the review row follows the reviewers", () => {
+  assert.equal(statusRows(detail({ reviewers: [{ name: "a", state: "approved" }] }), [], true).review.title, "Approved");
+  assert.equal(statusRows(detail({ reviewers: [{ name: "a", state: "approved" }, { name: "b", state: "changes_requested" }] }), [], true).review.title, "Changes requested");
+  assert.equal(statusRows(detail({ reviewers: [{ name: "a", state: "requested" }] }), [], true).review.title, "No review yet");
+});
+
+test("statusRows: a merged or closed pull request says so in the merge row", () => {
+  assert.deepEqual(statusRows(detail({ pr: { state: "merged" }, merge: { state: "unknown", reason: null } }), [], true).merge, { icon: "pass", title: "Merged", note: "" });
+  assert.deepEqual(statusRows(detail({ pr: { state: "closed" }, merge: { state: "unknown", reason: null } }), [], true).merge, { icon: "none", title: "Closed", note: "" });
+});
+
+test("conversationItems: an empty commented review with no threads is left out", () => {
+  const reply = entry("B", "2026-01-02", { kind: "review", state: "commented", id: "PRR_reply", body: "" });
+  const approval = entry("C", "2026-01-03", { kind: "review", state: "approved", id: "PRR_ok", body: "" });
+  const withThread = entry("D", "2026-01-04", { kind: "review", state: "commented", id: "PRR_t", body: "" });
+  const d = detail({ conversation: [reply, approval, withThread], threads: [thread("a.js", 1, "2026-01-04", { reviewId: "PRR_t" })] });
+  assert.deepEqual(conversationItems(d, "oldest").map((i) => i.entry?.id), ["PRR_ok", "PRR_t"]);
 });

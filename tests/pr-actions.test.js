@@ -84,7 +84,6 @@ test("merge args pin the head", () => {
 });
 
 test("GitLab merge follows the picked method", () => {
-  assert.deepEqual(actionCommand({ kind: "merge", detail: { ...gl, squash: true }, body: "", method: "merge" }).args.slice(-1), ["--squash=false"]);
   assert.deepEqual(actionCommand({ kind: "merge", detail: gl, body: "", method: "squash" }).args.slice(-1), ["--squash"]);
   assert.deepEqual(actionCommand({ kind: "merge", detail: gl, body: "", method: "rebase" }), { error: NO_METHOD });
 });
@@ -299,4 +298,14 @@ test("ownPr is true for the signed-in author of a GitHub pull request", () => {
   assert.equal(ownPr(gh.pr, null), false);
   // GitLab projects decide whether authors may approve, so the buttons stay.
   assert.equal(ownPr(gl.pr, "octo-user"), false);
+});
+
+test("mergePrompt on GitLab names the picked method", () => {
+  assert.equal(mergePrompt({ ...gl, squash: false }, "squash"), "Merge #12 into main with squash?");
+  assert.equal(mergePrompt({ ...gl, squash: true }, "merge"), "Merge #12 into main?");
+  assert.equal(mergePrompt({ ...gl, squash: true }, null), "Merge #12 into main with squash?");
+});
+
+test("GitLab Merge sends no squash flag, because glab sends nothing for --squash=false", () => {
+  assert.deepEqual(actionCommand({ kind: "merge", detail: { ...gl, squash: false }, body: "", method: "merge" }).args.slice(-2), ["--sha", "abc123"]);
 });

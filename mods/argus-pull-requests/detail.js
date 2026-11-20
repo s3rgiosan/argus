@@ -42,8 +42,14 @@ export function statusRows(detail, runs, hasCheckout) {
   else if (running > 0) checks = { icon: "run", title: "Checks running", note: `${running} of ${total} running` };
   else checks = { icon: "pass", title: "Checks passed", note: `${count("passed")} passed` };
 
-  const review = REVIEW_ROWS[detail.pr.reviewDecision] ?? { icon: "none", title: "No review yet" };
-  const merge = { ...(MERGE_ROWS[detail.merge.state] ?? { icon: "none", title: "Not checked yet" }), note: detail.merge.reason ?? `Open into ${detail.pr.baseRef}` };
+  // Without a decision from the forge, the reviewers' latest states give the row.
+  const states = new Set(detail.reviewers.map((reviewer) => reviewer.state));
+  const fallback = states.has("changes_requested") ? "changes_requested" : states.has("approved") ? "approved" : null;
+  const review = REVIEW_ROWS[detail.pr.reviewDecision ?? fallback] ?? { icon: "none", title: "No review yet" };
+  let merge;
+  if (detail.pr.state === "merged") merge = { icon: "pass", title: "Merged", note: "" };
+  else if (detail.pr.state === "closed") merge = { icon: "none", title: "Closed", note: "" };
+  else merge = { ...(MERGE_ROWS[detail.merge.state] ?? { icon: "none", title: "Not checked yet" }), note: detail.merge.reason ?? `Open into ${detail.pr.baseRef}` };
 
   let agent;
   if (!hasCheckout) agent = "No local checkout";
@@ -87,12 +93,15 @@ function byPlace(a, b) {
 export function conversationItems(detail, order) {
   const reviewIds = new Set(detail.conversation.filter((entry) => entry.kind === "review" && entry.id !== null).map((entry) => entry.id));
   /** @type {Item[]} */
-  const items = detail.conversation.map((entry) => ({
-    kind: entry.kind,
-    at: entry.at,
-    entry,
-    threads: entry.kind === "review" && entry.id !== null ? detail.threads.filter((thread) => thread.reviewId === entry.id).sort(byPlace) : [],
-  }));
+  const items = detail.conversation
+    .map((entry) => ({
+      kind: entry.kind,
+      at: entry.at,
+      entry,
+      threads: entry.kind === "review" && entry.id !== null ? detail.threads.filter((thread) => thread.reviewId === entry.id).sort(byPlace) : [],
+    }))
+    // A review that only holds replies to other threads has no text and no thread of its own; its replies show in those threads.
+    .filter((item) => !(item.kind === "review" && item.entry.state === "commented" && item.entry.body.trim() === "" && item.threads.length === 0));
   for (const thread of detail.threads) {
     if (thread.reviewId !== null && reviewIds.has(thread.reviewId)) continue;
     items.push({ kind: "thread", at: thread.comments[0]?.at ?? "", entry: null, threads: [thread] });
@@ -150,14 +159,16 @@ export function ghMergeMethods(text) {
 }
 
 /**
- * The GitLab merge methods: only the enforced one when the project's squash setting is
- * enforced, else Merge and Squash and merge, with the merge request's setting as the default.
+ * The GitLab merge methods: Squash and merge alone when the merge request is set to squash
+ * (glab cannot turn squash off), Merge alone when the project forbids squash, else Merge
+ * (the default) and Squash and merge.
  * @param {Detail} detail
  * @returns {{methods: Method[]}}
  */
 export function glMergeMethods(detail) {
-  const merge = { method: "merge", label: "Merge", isDefault: !detail.squash };
-  const squash = { method: "squash", label: "Squash and merge", isDefault: detail.squash };
-  if (detail.squashLocked) return { methods: [{ ...(detail.squash ? squash : merge), isDefault: true }] };
-  return { methods: /** @type {Method[]} */ ([merge, squash]) };
+  const merge = { method: "merge", label: "Merge", isDefault: true };
+  const squash = { method: "squash", label: "Squash and merge", isDefault: true };
+  // glab can turn squash on but not off, so a merge request set to squash offers only squash.
+  if (detail.squashLocked || detail.squash) return { methods: [detail.squash ? squash : merge] };
+  return { methods: /** @type {Method[]} */ ([merge, { ...squash, isDefault: false }]) };
 }

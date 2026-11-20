@@ -165,22 +165,25 @@ export function actionCommand({ kind, detail, body, method = null, publishOnly =
  */
 function glSquashArgs(method, squash) {
   if (method === "squash") return ["--squash"];
-  if (method === "merge") return ["--squash=false"];
+  // glab sends nothing for --squash=false, so Merge sends no flag.
+  if (method === "merge") return [];
   return squash ? ["--squash"] : [];
 }
 
 /**
  * The merge confirm text: the pull request, its base branch and how it merges.
- * GitLab merges send no method flag, so the text names a method only when the merge request squashes.
+ * On GitLab the text says "with squash" when the picked method squashes, or, with no
+ * method picked, when the merge request squashes.
  * @param {Detail} detail
- * @param {MergeMethod|null} method GitHub's method; unused on GitLab.
+ * @param {MergeMethod|null} method The picked method, or null.
  * @returns {string}
  */
 export function mergePrompt(detail, method) {
   const { pr } = detail;
   let how = null;
   if (pr.provider === "gitlab") {
-    how = detail.squash ? "squash" : null;
+    // A picked method decides; without one, the merge request's own squash setting does.
+    how = (method === null ? detail.squash : method === "squash") ? "squash" : null;
   } else {
     switch (method) {
       case "merge":
