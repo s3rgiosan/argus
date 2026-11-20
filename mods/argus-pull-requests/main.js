@@ -13,7 +13,7 @@ import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidat
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
-import { assembleBoard, normalizeBoard, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
+import { assembleBoard, normalizeBoard, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
@@ -210,7 +210,13 @@ export default class PullRequests extends View {
         await Promise.all(unseen.filter((folder) => !this.repoCache.has(folder)).map((folder) => this.probe(folder)));
         const entries = unseen.map((folder) => this.repoCache.get(folder) ?? null);
         const fresh = newProjectKeys(entries, readBoard().projects);
-        if (fresh.length === 0) return;
+        if (fresh.length === 0) {
+          // No new project: the board lists the probed folders at once, so Follow space stops waiting on them.
+          const board = readBoard();
+          const listed = withFolders(board, unseen.filter((folder) => this.repoCache.has(folder)));
+          if (listed !== board) setShared(BOARD_KEY, listed);
+          return;
+        }
         if (!this.force) this.forceKeys = [];
         if (this.forceKeys !== null) this.forceKeys = [...new Set([...this.forceKeys, ...fresh])];
         this.force = true;
@@ -543,7 +549,9 @@ export default class PullRequests extends View {
     const board = readBoard();
     const scope = readScope();
     const followed = followedOf(board);
-    const unfollowed = scope.where === "follow" && followed === null;
+    // A new space's folder is unknown until a read or the folder watch lists it; until then, Follow space waits.
+    const following = scope.where === "follow" ? followStatus(board, followFolder(focused(), panes(), spaces()), followed) : "followed";
+    const unfollowed = following !== "followed";
     const text = this.filterInput.value();
     const shown = prsInScope(board, scope, followed).filter((pr) => matchesFilter(pr, text));
     const selected = readSelected()?.key ?? null;
@@ -583,7 +591,9 @@ export default class PullRequests extends View {
     const head = header(t, "Pull requests", [scopeButton, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
 
     const parts = board.notes.map((message, index) => div().id(`note-${index}`).px(8).py(6).text_size(12).text_color(t.blocked).whitespace_normal().child(message));
-    if (unfollowed) {
+    if (following === "pending") {
+      parts.push(note(t, "Reading this space…"));
+    } else if (unfollowed) {
       parts.push(note(t, "This space is not a GitHub or GitLab repo."));
     } else if (shown.length === 0) {
       parts.push(note(t, board.readAt > 0 ? "No pull requests here" : "Loading…"));

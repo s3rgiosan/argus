@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every review shows in the conversation with its state, also an approval without text. A comment review with no text and no file comments of its own is left out, because its replies show in their threads.
 - GitLab merge requests read their discussions in place of their notes.
 
+### Fixed
+
+- With Follow space, a new space shows "Reading this space…" until the board knows its folder, in place of "This space is not a GitHub or GitLab repo." while its pull requests load.
+
 ## [1.7.0] - 2026-11-20
 
 ### Added

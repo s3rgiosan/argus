@@ -432,3 +432,31 @@ export function prPaneTitle(pr) {
   if (pr === null) return "Pull requests";
   return pr.title ? `#${pr.number} · ${pr.title}` : `#${pr.number}`;
 }
+
+/**
+ * What Follow space shows for the focused folder: its project ("followed"), a wait while the
+ * board has not read that folder yet ("pending"), or that the folder is no GitHub or GitLab
+ * repo ("none"). A new space's folder is unknown until a read or the folder watch lists it.
+ * @param {Board} board
+ * @param {string|null} folder The focused space's folder (`followFolder`).
+ * @param {string|null} followed The project key of that folder (`followProjectKey`).
+ * @returns {"followed"|"pending"|"none"}
+ */
+export function followStatus(board, folder, followed) {
+  if (followed !== null) return "followed";
+  if (folder === null) return "none";
+  if (board.readAt === 0 || !board.folders.includes(folder)) return "pending";
+  return "none";
+}
+
+/**
+ * The board with `folders` added to the folders it lists, or the board itself when it lists them all.
+ * The folder watch uses it for folders that are no repo, so Follow space can say so without a read.
+ * @param {Board} board
+ * @param {string[]} folders
+ * @returns {Board}
+ */
+export function withFolders(board, folders) {
+  const missing = folders.filter((folder) => !board.folders.includes(folder));
+  return missing.length === 0 ? board : { ...board, folders: [...board.folders, ...missing] };
+}

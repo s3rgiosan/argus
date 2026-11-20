@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ageText,
+  followStatus,
+  withFolders,
   prPaneTitle,
   fetchedAtOf,
   keepStale,
@@ -311,4 +313,23 @@ test("assembleBoard and normalizeBoard keep the review runs", () => {
 test("normalizeBoard drops review runs with a malformed run", () => {
   const board = assembleBoard(input({ reviews: { "x#1": [{ path: 1, branch: "argus/review-1-a" }] } }));
   assert.deepEqual(normalizeBoard(board).reviews, {});
+});
+
+test("followStatus: followed, still being read, or not a repo", () => {
+  const board = { ...assembleBoard(input({})), folders: ["/home/test/code/example-repo", "/home/test/notes"] };
+  assert.equal(followStatus(board, "/home/test/code/example-repo", project.key), "followed");
+  // A folder the board has not read yet is still being read, not "not a repo".
+  assert.equal(followStatus(board, "/home/test/new-space", null), "pending");
+  assert.equal(followStatus(board, "/home/test/notes", null), "none");
+  // Before the first read, nothing is known yet.
+  assert.equal(followStatus({ ...board, readAt: 0 }, "/home/test/notes", null), "pending");
+  // With no folder to follow, there is nothing to read.
+  assert.equal(followStatus(board, null, null), "none");
+});
+
+test("withFolders adds folders the board has not listed, once", () => {
+  const board = { ...assembleBoard(input({})), folders: ["/a"] };
+  assert.deepEqual(withFolders(board, ["/a", "/b"]).folders, ["/a", "/b"]);
+  assert.equal(withFolders(board, ["/a"]), board);
+  assert.deepEqual(board.folders, ["/a"]);
 });
