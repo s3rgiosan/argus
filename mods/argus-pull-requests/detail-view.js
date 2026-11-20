@@ -202,13 +202,20 @@ function checkRow(t, id, check) {
   return h_flex().id(id).gap(8).child(div().flex_none().text_color(color).child(mark)).child(div().flex_1().min_w(0).whitespace_normal().child(check.name));
 }
 
+/**
+ * One conversation item: a header line (name, chip, age) and a balloon with the text and, for a
+ * review, its file threads. An item with nothing to put in the balloon shows the header only.
+ */
 function itemView(t, view, item, index) {
-  const threads = item.threads.map((thread, n) => threadView(t, view, thread, `${index}-${n}`));
-  if (item.kind === "thread") return v_flex().id(`item-${index}`).gap(6).children(threads);
   const entry = item.entry;
-  // Every item has one chip: "commented" for a comment, the review's state for a review.
-  const label = entry.kind === "review" ? (REVIEW_CHIPS[entry.state] ?? "reviewed") : "commented";
-  const color = entry.state === "changes_requested" ? t.blocked : entry.state === "approved" ? t.done : t.muted;
+  // A thread with no listed review stands for itself: its first comment gives the header.
+  const first = item.threads[0]?.comments[0] ?? null;
+  const author = entry?.author ?? first?.author ?? "";
+  const label = entry === null ? "commented" : entry.kind === "review" ? (REVIEW_CHIPS[entry.state] ?? "reviewed") : "commented";
+  const color = entry?.state === "changes_requested" ? t.blocked : entry?.state === "approved" ? t.done : t.muted;
+  const parts = [];
+  if (entry !== null && entry.body.trim() !== "") parts.push(div().p(10).child(markdown(t, `md-item-${index}`, entry.body)));
+  item.threads.forEach((thread, n) => parts.push(threadSection(t, view, thread, `${index}-${n}`, author, parts.length > 0)));
   return v_flex()
     .id(`item-${index}`)
     .gap(6)
@@ -216,23 +223,23 @@ function itemView(t, view, item, index) {
       h_flex()
         .gap(6)
         .items_center()
-        .child(div().flex_none().font_semibold().child(view.nameOf(entry.author)))
+        .child(div().flex_none().font_semibold().child(view.nameOf(author)))
         .child(chip(t, `item-state-${index}`, label, color))
         .child(div().flex_1())
-        .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(entry.at, view.now))),
+        .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(item.at, view.now))),
     )
-    .when(entry.body.trim() !== "", (el) => el.child(markdown(t, `md-item-${index}`, entry.body)))
-    .when(threads.length > 0, (el) => el.child(v_flex().pl(16).gap(6).children(threads)));
+    .when(parts.length > 0, (el) => el.child(v_flex().id(`balloon-${index}`).rounded(8).border_1().border_color(t.border).overflow_hidden().children(parts)));
 }
 
-function threadView(t, view, thread, key) {
+/**
+ * A file thread inside a balloon: a bar with the file, line and open or resolved, then its
+ * comments. A comment by the balloon's author shows no name line, so a name never shows twice.
+ */
+function threadSection(t, view, thread, key, author, divided) {
   const place = thread.line === null ? thread.path : `${thread.path}:${thread.line}`;
   return v_flex()
     .id(`thread-${key}`)
-    .rounded(8)
-    .border_1()
-    .border_color(t.border)
-    .overflow_hidden()
+    .when(divided, (el) => el.border_t(1).border_color(t.border))
     .child(
       h_flex()
         .px(10)
@@ -253,14 +260,16 @@ function threadView(t, view, thread, key) {
             v_flex()
               .id(`thread-${key}-${n}`)
               .gap(2)
-              .child(
-                h_flex()
-                  .gap(6)
-                  .items_center()
-                  .text_size(12)
-                  .child(div().flex_none().font_semibold().child(view.nameOf(comment.author)))
-                  .child(div().flex_1())
-                  .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(comment.at, view.now))),
+              .when(comment.author !== author, (el) =>
+                el.child(
+                  h_flex()
+                    .gap(6)
+                    .items_center()
+                    .text_size(12)
+                    .child(div().flex_none().font_semibold().child(view.nameOf(comment.author)))
+                    .child(div().flex_1())
+                    .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(comment.at, view.now))),
+                ),
               )
               .child(markdown(t, `md-thread-${key}-${n}`, comment.body)),
           ),
