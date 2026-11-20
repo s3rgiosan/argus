@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, positionIn, shownOrder, statusRows, summaryOf } from "../mods/argus-pull-requests/detail.js";
+import { checkGroups, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
 import { NO_METHOD } from "../mods/argus-pull-requests/actions.js";
 import { assembleBoard } from "../mods/argus-pull-requests/board.js";
 
@@ -18,25 +18,9 @@ const detail = (over = {}) => ({
 const entry = (author, at, extra = {}) => ({ author, body: "text", at, kind: "comment", state: null, id: null, ...extra });
 const thread = (path, line, at, extra = {}) => ({ path, line, resolved: false, reviewId: null, comments: [{ author: "review-user", body: "note", at }], ...extra });
 
-test("statusRows: checks", () => {
-  assert.deepEqual(statusRows(detail({ checks: check("passed", 14) }), [], true).checks, { icon: "pass", title: "Checks passed", note: "14 passed" });
-  assert.deepEqual(statusRows(detail({ checks: [...check("passed", 12), ...check("failed", 2)] }), [], true).checks, { icon: "fail", title: "Checks failed", note: "2 of 14 failed" });
-  assert.deepEqual(statusRows(detail({ checks: [...check("passed", 11), ...check("running", 3)] }), [], true).checks, { icon: "run", title: "Checks running", note: "3 of 14 running" });
-  assert.deepEqual(statusRows(detail(), [], true).checks, { icon: "none", title: "No checks", note: "" });
-});
 
-test("statusRows: review, merge and agent", () => {
-  assert.equal(statusRows(detail(), [], true).review.title, "No review yet");
-  assert.equal(statusRows(detail({ pr: { reviewDecision: "changes_requested" } }), [], true).review.title, "Changes requested");
-  assert.equal(statusRows(detail({ pr: { reviewDecision: "approved" } }), [], true).review.title, "Approved");
-  assert.equal(statusRows(detail({ pr: { reviewDecision: "review_required" } }), [], true).review.title, "Review required");
-  assert.deepEqual(statusRows(detail({ merge: { state: "blocked", reason: null } }), [], true).merge, { icon: "fail", title: "Merge blocked", note: "Open into main" });
-  assert.equal(statusRows(detail({ merge: { state: "conflicting", reason: "Has merge conflicts." } }), [], true).merge.note, "Has merge conflicts.");
-  assert.equal(statusRows(detail(), [], false).agent.title, "No local checkout");
-  assert.equal(statusRows(detail(), [], true).agent.title, "No agent yet");
-  assert.equal(statusRows(detail(), [{ path: "/w", branch: "b" }], true).agent.title, "1 review agent worktree");
-  assert.equal(statusRows(detail(), [{ path: "/w", branch: "b" }, { path: "/x", branch: "c" }], true).agent.title, "2 review agent worktrees");
-});
+
+
 
 test("summaryOf: requested changes, open threads, comments and people", () => {
   const d = detail({
@@ -117,16 +101,9 @@ test("glMergeMethods: an enforced squash setting offers one method", () => {
   ]);
 });
 
-test("statusRows: with no decision, the review row follows the reviewers", () => {
-  assert.equal(statusRows(detail({ reviewers: [{ name: "a", state: "approved" }] }), [], true).review.title, "Approved");
-  assert.equal(statusRows(detail({ reviewers: [{ name: "a", state: "approved" }, { name: "b", state: "changes_requested" }] }), [], true).review.title, "Changes requested");
-  assert.equal(statusRows(detail({ reviewers: [{ name: "a", state: "requested" }] }), [], true).review.title, "No review yet");
-});
 
-test("statusRows: a merged or closed pull request says so in the merge row", () => {
-  assert.deepEqual(statusRows(detail({ pr: { state: "merged" }, merge: { state: "unknown", reason: null } }), [], true).merge, { icon: "pass", title: "Merged", note: "" });
-  assert.deepEqual(statusRows(detail({ pr: { state: "closed" }, merge: { state: "unknown", reason: null } }), [], true).merge, { icon: "none", title: "Closed", note: "" });
-});
+
+
 
 test("conversationItems: an empty commented review with no threads is left out", () => {
   const reply = entry("B", "2026-01-02", { kind: "review", state: "commented", id: "PRR_reply", body: "" });
@@ -136,10 +113,7 @@ test("conversationItems: an empty commented review with no threads is left out",
   assert.deepEqual(conversationItems(d, "oldest").map((i) => i.entry?.id), ["PRR_ok", "PRR_t"]);
 });
 
-test("statusRows: the forge's decision wins over the reviewers, and dismissed or commented reviews give no state", () => {
-  assert.equal(statusRows(detail({ pr: { reviewDecision: "review_required" }, reviewers: [{ name: "a", state: "approved" }] }), [], true).review.title, "Review required");
-  assert.equal(statusRows(detail({ reviewers: [{ name: "a", state: "dismissed" }, { name: "b", state: "commented" }, { name: "c", state: "pending" }] }), [], true).review.title, "No review yet");
-});
+
 
 test("conversationItems keeps empty commented reviews when the thread list was cut", () => {
   const reply = entry("B", "2026-01-02", { kind: "review", state: "commented", id: "PRR_reply", body: "" });
@@ -162,4 +136,56 @@ test("mergeMenuNote explains a missing Merge on a GitLab merge request set to sq
   assert.equal(mergeMenuNote(gl({ squash: true, squashLocked: true })), null);
   assert.equal(mergeMenuNote(gl({ squash: false })), null);
   assert.equal(mergeMenuNote(detail({ squash: true })), null);
+});
+
+const sum = (passed, failed, running) => ({ passed, failed, running, total: passed + failed + running });
+
+test("verdictOf: the board's group, with the reasons in one line", () => {
+  const needs = detail({
+    pr: { checks: sum(12, 2, 0), reviewDecision: "changes_requested" },
+    checks: [...check("passed", 12), ...check("failed", 2)],
+    reviewers: [{ name: "review-user", state: "changes_requested" }],
+  });
+  assert.deepEqual(verdictOf(needs), { group: "needsWork", title: "Needs work", reasons: "2 of 14 checks failed · changes requested by review-user" });
+  const ready = detail({ pr: { checks: sum(3, 0, 0), reviewDecision: "approved" }, checks: check("passed", 3), reviewers: [{ name: "a", state: "approved" }] });
+  assert.deepEqual(verdictOf(ready), { group: "ready", title: "Ready to merge", reasons: "3 checks passed · approved by a" });
+  const waiting = detail({ pr: { checks: sum(1, 0, 2), reviewDecision: "review_required" }, checks: [...check("passed", 1), ...check("running", 2)] });
+  assert.deepEqual(verdictOf(waiting), { group: "waiting", title: "Waiting on review", reasons: "2 of 3 checks running · review required" });
+  assert.equal(verdictOf(detail({ pr: { isDraft: true } })).title, "Draft");
+  assert.equal(verdictOf(detail({ pr: { mergeable: "conflicting" }, merge: { state: "conflicting", reason: null } })).reasons, "merge conflicts");
+  assert.equal(verdictOf(detail({ pr: { mergeable: "blocked" }, merge: { state: "blocked", reason: "Blocked by branch protection." } })).reasons, "Blocked by branch protection.");
+  assert.equal(verdictOf(detail()).reasons, "Nothing blocks the merge");
+});
+
+test("verdictOf: merged and closed pull requests", () => {
+  assert.deepEqual(verdictOf(detail({ pr: { state: "merged" } })), { group: "merged", title: "Merged", reasons: "Merged into main" });
+  assert.deepEqual(verdictOf(detail({ pr: { state: "closed" } })), { group: "closed", title: "Closed", reasons: "Closed without a merge" });
+});
+
+test("openByDefault: sections that need you open by themselves", () => {
+  assert.deepEqual([...openByDefault(detail(), [])], []);
+  assert.deepEqual([...openByDefault(detail({ checks: check("failed", 1) }), [])], ["checks"]);
+  assert.deepEqual([...openByDefault(detail({ checks: check("running", 1) }), [])], ["checks"]);
+  assert.deepEqual([...openByDefault(detail({ threads: [thread("a.js", 1, "1")] }), [])], ["conversation"]);
+  assert.deepEqual([...openByDefault(detail({ threads: [thread("a.js", 1, "1", { resolved: true })] }), [])], []);
+  assert.deepEqual([...openByDefault(detail(), [{ path: "/w", branch: "b" }])], ["agent"]);
+});
+
+test("checkGroups: failed, then running, then the passed ones apart", () => {
+  const groups = checkGroups([{ name: "a", state: "passed" }, { name: "b", state: "running" }, { name: "c", state: "failed" }]);
+  assert.deepEqual(groups.problems.map((c) => c.name), ["c", "b"]);
+  assert.deepEqual(groups.passed.map((c) => c.name), ["a"]);
+});
+
+test("sectionSummaries: the text beside each section heading", () => {
+  const d = detail({
+    checks: [...check("passed", 12), ...check("failed", 2)],
+    reviewers: [{ name: "a", state: "changes_requested" }, { name: "b", state: "approved" }, { name: "c", state: "requested" }],
+    conversation: [entry("A", "1")],
+    threads: [thread("a.js", 1, "2"), thread("b.js", 2, "3", { resolved: true })],
+  });
+  assert.deepEqual(sectionSummaries(d, [], true), { checks: "12 / 14", reviews: "1 changes requested · 1 approved · 1 waiting", agent: "none yet", conversation: "3 comments · 1 open thread" });
+  assert.equal(sectionSummaries(detail(), [{ path: "/w", branch: "b" }, { path: "/x", branch: "c" }], true).agent, "2 worktrees");
+  assert.equal(sectionSummaries(detail(), [], false).agent, "no local checkout");
+  assert.deepEqual(sectionSummaries(detail(), [], true), { checks: "none", reviews: "none yet", agent: "none yet", conversation: "no comments" });
 });

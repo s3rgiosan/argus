@@ -20,7 +20,7 @@ import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, readFirst } from "./accounts.js";
-import { conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, positionIn, shownOrder, statusRows, summaryOf } from "./detail.js";
+import { checkGroups, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
@@ -90,8 +90,6 @@ export default class PullRequests extends View {
     this.actions = new Map();
     // The PR key whose comment the comment box holds now.
     this.boxKey = null;
-    // The pane's chosen tab; it stays when the pane shows another pull request.
-    this.tab = "conversation";
     // Worktree path -> {confirm: null|"plain"|"dirty", running, error} for Remove worktree in the Agent section.
     this.removals = new Map();
     // The Review with agent dialog: the pull request it was opened for, the agents (null while they load), the picked one.
@@ -112,7 +110,10 @@ export default class PullRequests extends View {
     this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     // The body of a review comment, for Request changes and Comment.
-    this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Leave a comment…", rows: 2 }, (cx) => this.submitComment(cx, "comment"), { multiline: true }) : null;
+    this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Write a comment", rows: 4 }, (cx) => this.submitComment(cx), { multiline: true }) : null;
+    // PR key -> {section: open} for the sections the person folded or opened, and the PR keys whose passed checks show.
+    this.folds = new Map();
+    this.passedOpen = new Set();
     // Repo -> the merge methods `ghMergeMethods` read for it, kept for this pane copy.
     this.methodCache = new Map();
     if (this.review) {
@@ -1107,7 +1108,7 @@ export default class PullRequests extends View {
 
   /** The review and merge state of one pull request in this pane. */
   actionState(key) {
-    return this.actions.get(key) ?? { running: null, error: null, confirm: null, text: "", draftText: null, menu: null, methods: null };
+    return this.actions.get(key) ?? { running: null, error: null, confirm: null, text: "", draftText: null, menu: null, methods: null, composing: null };
   }
 
   /** The action running on a pull request in this copy or in another copy of the mod, or null. */
@@ -1146,17 +1147,24 @@ export default class PullRequests extends View {
     this.actions.set(key, { ...this.actionState(key), ...patch });
   }
 
-  /** Runs Comment or Request changes with the comment bar's text. */
-  submitComment(cx, kind) {
-    const shown = this.shown;
-    if (shown?.kind !== "ok") return;
-    // Until the box holds this pull request's comment, it holds the one left behind.
-    if (this.boxKey !== shown.key) return;
-    this.setAction(shown.key, { menu: null });
-    this.runAction(cx, shown.key, kind, shown.detail, this.bodyInput?.value() ?? "", null);
+  /** Opens the comment field above the footer for Comment or Request changes. */
+  compose(cx, key, kind) {
+    this.setAction(key, { composing: kind, menu: null, confirm: null, error: null });
+    cx.timer.after(0, () => this.bodyInput?.focus());
+    cx.notify();
   }
 
-  /** Opens or closes a menu of the pane: "comment" (Approve, Request changes) or "merge" (the merge methods). */
+  /** Runs the open comment field's action with its text. */
+  submitComment(cx) {
+    const shown = this.shown;
+    if (shown?.kind !== "ok") return;
+    const state = this.actionState(shown.key);
+    // Until the box holds this pull request's comment, it holds the one left behind.
+    if (state.composing === null || this.boxKey !== shown.key) return;
+    this.runAction(cx, shown.key, state.composing, shown.detail, this.bodyInput?.value() ?? "", null);
+  }
+
+  /** Opens or closes a menu of the footer: "merge" (the merge methods) or "more" (⋯: comment, review, check out, browser). */
   toggleMenu(cx, key, detail, menu) {
     const open = this.actionState(key).menu === menu ? null : menu;
     this.setAction(key, { menu: open, error: null });
@@ -1273,7 +1281,7 @@ export default class PullRequests extends View {
         const inBox = this.boxKey === key;
         const current = inBox ? (this.bodyInput?.value() ?? "") : this.actionState(key).text;
         const clear = clearsComment(after, body, current);
-        this.finishRunning(key, { error: null, confirm: null, ...done, ...(clear ? { text: "" } : {}) });
+        this.finishRunning(key, { error: null, confirm: null, ...done, ...(clear ? { text: "", composing: null } : {}) });
         if (clear && inBox) this.bodyInput?.set_value("");
       }
       // A failed action may still have reached the forge (a timeout), so the board reads it again either way.
@@ -1319,106 +1327,77 @@ export default class PullRequests extends View {
     const detail = shown.detail;
     const pr = detail.pr;
     const board = readBoard();
+    const key = shown.key;
     const localPath = localPathFor(board.projects, pr.host, pr.repo);
-    const checkout = this.checkouts.get(shown.key) ?? { running: false, error: null };
-    const act = this.actionState(shown.key);
-    const busy = this.runningOn(shown.key) !== null;
-    const error = (this.actionError?.key === shown.key ? this.actionError.text : null) ?? checkout.error;
-    const runs = board.reviews[shown.key] ?? [];
-    const position = positionIn(shownOrder(board, readScope(), followedOf(board)), shown.key);
-    const canReview = localPath !== null && canAct(pr);
+    const checkout = this.checkouts.get(key) ?? { running: false, error: null };
+    const runs = board.reviews[key] ?? [];
+    const position = positionIn(shownOrder(board, readScope(), followedOf(board)), key);
     const agentRows = localPath === null ? [] : runs.map((reviewRun, index) => this.reviewRunRow(t, index, reviewRun, localPath)).filter((row) => row !== null);
-    const cardActions = canAct(pr) ? this.cardActions(t, shown.key, detail, act, () => openReview(pr, localPath ?? "", this.owner), canReview) : null;
+    // A section the person folded or opened keeps that choice; the others follow what needs them.
+    const defaults = openByDefault(detail, runs);
+    const folds = this.folds.get(key) ?? {};
+    const open = new Set(["checks", "reviews", "agent", "description", "conversation"].filter((id) => folds[id] ?? defaults.has(id)));
     // Moves to a neighbour in the board's order, as a row click does.
-    const go = (key) => {
-      const target = key === null ? null : board.prs.find((candidate) => prKey(candidate) === key);
-      if (target) selectPr(target);
+    const go = (target) => {
+      const next = target === null ? null : board.prs.find((candidate) => prKey(candidate) === target);
+      if (next) selectPr(next);
     };
     const view = {
       detail,
-      status: statusRows(detail, runs, localPath !== null),
-      summary: summaryOf(detail),
+      verdict: verdictOf(detail),
+      summaries: sectionSummaries(detail, runs, localPath !== null),
+      open,
+      checks: checkGroups(detail.checks),
+      passedOpen: this.passedOpen.has(key),
       items: conversationItems(detail, readSettings().conversation),
       position,
-      tab: this.tab,
       hasCheckout: localPath !== null,
       checkingOut: checkout.running,
-      error,
+      error: (this.actionError?.key === key ? this.actionError.text : null) ?? checkout.error,
       now: Date.now(),
       age: ageText,
       icon: ICON,
-      stateLabel: prState(pr),
-      cardActions,
-      bottom: canAct(pr) ? this.commentBar(t, shown.key, detail, act, busy) : null,
       agentRows,
-      canReview,
+      bottom: this.bottomBar(t, key, detail, localPath, checkout.running),
     };
     const on = {
-      tab: (name, cx) => {
-        this.tab = name;
+      toggle: (id, cx) => {
+        this.folds.set(key, { ...folds, [id]: !open.has(id) });
+        cx.notify();
+      },
+      togglePassed: (cx) => {
+        if (this.passedOpen.has(key)) this.passedOpen.delete(key);
+        else this.passedOpen.add(key);
         cx.notify();
       },
       prev: () => go(position?.prev ?? null),
       next: () => go(position?.next ?? null),
       openBrowser: (cx) => this.openInBrowser(cx, pr),
       checkOut: (cx) => this.checkOut(cx, pr, localPath ?? ""),
-      reviewWithAgent: () => openReview(pr, localPath ?? "", this.owner),
     };
     return prPane(t, view, on);
   }
 
-  /** The status card's actions: Review with agent and Merge ▾, with the merge menu under them. */
-  cardActions(t, key, detail, act, review, canReview) {
-    const enabled = this.runningOn(key) === null;
-    const tick = iconResolver(MOD, this.found)("check");
-    let box = v_flex()
-      .gap(8)
-      .w_full()
-      .child(
-        h_flex()
-          .flex_wrap()
-          .gap(8)
-          .child(button(t, "review-agent", "Review with agent", () => review(), { primary: true, enabled: canReview }))
-          .child(button(t, "merge", "Merge ▾", (_e, cx) => this.toggleMenu(cx, key, detail, "merge"), { enabled })),
-      );
-    if (act.menu === "merge") {
-      // GitLab's methods follow the merge request as read now; GitHub's come from the repo read.
-      const methods = detail.pr.provider === "gitlab" ? glMergeMethods(detail) : act.methods;
-      let rows;
-      if (!methods || methods.loading) rows = [note(t, "Loading…")];
-      else if ("error" in methods) rows = [div().px(8).py(4).text_size(12).text_color(t.blocked).whitespace_normal().child(methods.error)];
-      else {
-        rows = methods.methods.map((entry, index) =>
-          menuRow(t, `merge-method-${index}`, {
-            label: entry.label,
-            count: entry.isDefault ? "default" : null,
-            current: entry.isDefault,
-            enabled,
-            tick,
-            onClick: (_e, cx) => this.pickMethod(cx, key, detail, entry.method),
-          }),
-        );
-      }
-      const menuNote = mergeMenuNote(detail);
-      if (menuNote !== null) rows.push(div().px(8).py(4).text_size(11.5).text_color(t.muted).whitespace_normal().child(menuNote));
-      box = box.child(v_flex().id("merge-menu").p(MENU_PAD).rounded(8).border_1().border_color(t.border).bg(t.popover).children(rows));
-    }
-    return box;
-  }
-
   /**
-   * The bar at the bottom of the pane: the kept GitLab draft, the merge confirm, the running
-   * and error lines, the own-PR note, then the comment field with Comment ▾ (Approve, Request changes).
+   * The area under the pane's scroll: the kept GitLab draft, the merge confirm, the running and
+   * error lines, the own-PR note, the comment field when open, the open menu, then the footer with
+   * Review with agent, Merge ▾ and ⋯. A pull request that is no longer open keeps only ⋯.
    */
-  commentBar(t, key, detail, act, busy) {
+  bottomBar(t, key, detail, localPath, checkingOut) {
+    const pr = detail.pr;
+    const act = this.actionState(key);
+    const busy = this.runningOn(key) !== null;
     const enabled = !busy;
+    const live = canAct(pr);
     // A null login leaves the buttons on; GitHub's own message then explains a refusal.
-    const own = ownPr(detail.pr, this.login?.value ?? null);
+    const own = ownPr(pr, this.login?.value ?? null);
     const tick = iconResolver(MOD, this.found)("check");
     const line = (text, color) => div().text_size(11.5).text_color(color).whitespace_normal().child(text);
+    const menuBox = (id, rows) => v_flex().id(id).p(MENU_PAD).rounded(8).border_1().border_color(t.border).bg(t.popover).children(rows);
     let bar = v_flex().flex_none().px(12).py(10).gap(8).border_t(1).border_color(t.border).bg(t.background);
-    if (act.draftText !== null) bar = bar.child(line("Your comment is a pending review comment on the merge request. Request changes with the same text publishes it.", t.muted));
-    if (act.confirm !== null) {
+
+    if (live && act.draftText !== null) bar = bar.child(line("Your comment is a pending review comment on the merge request. Request changes with the same text publishes it.", t.muted));
+    if (live && act.confirm !== null) {
       const method = act.confirm.method;
       bar = bar.child(
         h_flex()
@@ -1437,42 +1416,87 @@ export default class PullRequests extends View {
     }
     if (busy) bar = bar.child(line("Working…", t.muted));
     if (act.error !== null) bar = bar.child(line(act.error, t.blocked));
-    if (own) bar = bar.child(line(OWN_PR, t.muted));
-    bar = bar.child(
-      h_flex()
-        .flex_wrap()
-        .gap(8)
-        .items_end()
-        // In a narrow pane the buttons wrap below the field.
-        .child(div().flex_1().min_w(160).child(textBox(t, "body", this.bodyInput, this.focused === "body")))
-        .child(button(t, "comment", "Comment", (_e, cx) => this.submitComment(cx, "comment"), { enabled }))
-        .child(button(t, "comment-more", "▾", (_e, cx) => this.toggleMenu(cx, key, detail, "comment"), { enabled })),
-    );
-    if (act.menu === "comment") {
+    if (live && own) bar = bar.child(line(OWN_PR, t.muted));
+
+    if (live && act.composing !== null && this.bodyInput) {
       bar = bar.child(
         v_flex()
-          .id("comment-menu")
-          .p(MENU_PAD)
-          .rounded(8)
-          .border_1()
-          .border_color(t.border)
-          .bg(t.popover)
+          .gap(6)
+          .child(div().text_size(12).font_semibold().child(act.composing === "request_changes" ? "Request changes" : "Comment"))
+          .child(textBox(t, "body", this.bodyInput, this.focused === "body"))
           .child(
-            menuRow(t, "comment-approve", {
-              label: "Approve",
-              enabled: enabled && !own,
-              tick,
-              onClick: (_e, cx) => {
-                this.setAction(key, { menu: null });
-                this.runAction(cx, key, "approve", detail, "", null);
-              },
-            }),
-          )
-          .child(menuRow(t, "comment-request", { label: "Request changes", enabled: enabled && !own, tick, onClick: (_e, cx) => this.submitComment(cx, "request_changes") })),
+            h_flex()
+              .flex_wrap()
+              .gap(8)
+              .child(button(t, "submit-body", act.composing === "request_changes" ? "Request changes" : "Comment", (_e, cx) => this.submitComment(cx), { primary: true, enabled }))
+              .child(
+                button(t, "cancel-body", "Cancel", (_e, cx) => {
+                  this.setAction(key, { composing: null, error: null });
+                  cx.notify();
+                }),
+              ),
+          ),
       );
     }
-    return bar;
+
+    if (live && act.menu === "merge") {
+      // GitLab's methods follow the merge request as read now; GitHub's come from the repo read.
+      const methods = pr.provider === "gitlab" ? glMergeMethods(detail) : act.methods;
+      let rows;
+      if (!methods || methods.loading) rows = [note(t, "Loading…")];
+      else if ("error" in methods) rows = [div().px(8).py(4).text_size(12).text_color(t.blocked).whitespace_normal().child(methods.error)];
+      else {
+        rows = methods.methods.map((entry, index) =>
+          menuRow(t, `merge-method-${index}`, {
+            label: entry.label,
+            count: entry.isDefault ? "default" : null,
+            current: entry.isDefault,
+            enabled,
+            tick,
+            onClick: (_e, cx) => this.pickMethod(cx, key, detail, entry.method),
+          }),
+        );
+      }
+      const menuNote = mergeMenuNote(detail);
+      if (menuNote !== null) rows.push(div().px(8).py(4).text_size(11.5).text_color(t.muted).whitespace_normal().child(menuNote));
+      bar = bar.child(menuBox("merge-menu", rows));
+    }
+    if (act.menu === "more") {
+      const pick = (run) => (_e, cx) => {
+        this.setAction(key, { menu: null });
+        run(cx);
+      };
+      const rows = [];
+      if (live) {
+        rows.push(
+          menuRow(t, "more-comment", { label: "Comment…", enabled, tick, onClick: pick((cx) => this.compose(cx, key, "comment")) }),
+          menuRow(t, "more-approve", { label: "Approve", enabled: enabled && !own, tick, onClick: pick((cx) => this.runAction(cx, key, "approve", detail, "", null)) }),
+          menuRow(t, "more-request", { label: "Request changes…", enabled: enabled && !own, tick, onClick: pick((cx) => this.compose(cx, key, "request_changes")) }),
+          div().my(4).h(1).bg(t.border),
+        );
+      }
+      rows.push(
+        menuRow(t, "more-checkout", { label: "Check out in a worktree", enabled: localPath !== null && !checkingOut, tick, onClick: pick((cx) => this.checkOut(cx, pr, localPath ?? "")) }),
+        menuRow(t, "more-browser", { label: "Open in browser", tick, onClick: pick((cx) => this.openInBrowser(cx, pr)) }),
+      );
+      bar = bar.child(menuBox("more-menu", rows));
+    }
+
+    return bar.child(
+      h_flex()
+        .flex_wrap()
+        .gap(6)
+        .items_center()
+        .when(live, (el) =>
+          el
+            .child(button(t, "review-agent", "Review with agent", () => openReview(pr, localPath ?? "", this.owner), { primary: true, enabled: localPath !== null }))
+            .child(button(t, "merge", "Merge ▾", (_e, cx) => this.toggleMenu(cx, key, detail, "merge"), { enabled })),
+        )
+        .child(div().flex_1())
+        .child(button(t, "more", "⋯", (_e, cx) => this.toggleMenu(cx, key, detail, "more"))),
+    );
   }
+
 }
 
 function prState(pr) {

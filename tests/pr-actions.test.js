@@ -279,7 +279,7 @@ test("afterAction after a failed request changes keeps the comment", () => {
 });
 
 test("leavePr keeps the typed text and a running action, and drops the rest", () => {
-  const idle = { running: null, error: null, confirm: null, text: "", draftText: null, menu: null, methods: null };
+  const idle = { running: null, error: null, confirm: null, text: "", draftText: null, menu: null, methods: null, composing: null };
   assert.equal(leavePr(idle, ""), null);
   assert.equal(leavePr({ ...idle, error: "gh: old" }, ""), null);
   assert.equal(leavePr({ ...idle, confirm: { method: "merge" } }, ""), null);
@@ -289,6 +289,8 @@ test("leavePr keeps the typed text and a running action, and drops the rest", ()
   assert.deepEqual(leavePr({ ...idle, draftText: "Fix it" }, ""), { ...idle, draftText: "Fix it" });
   // An open menu and the merge methods it read are dropped; the text stays.
   assert.deepEqual(leavePr({ ...idle, menu: "merge", methods: { loading: true }, text: "x" }, "x"), { ...idle, text: "x" });
+  // An open comment field stays open with its text.
+  assert.deepEqual(leavePr({ ...idle, composing: "request_changes", menu: "more" }, ""), { ...idle, composing: "request_changes" });
 });
 
 test("ownPr is true for the signed-in author of a GitHub pull request", () => {

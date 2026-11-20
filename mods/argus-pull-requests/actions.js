@@ -226,15 +226,15 @@ export function actionFailure(error, drafted) {
 
 /**
  * The action state a pull request keeps when the pane moves to another one, or null when
- * nothing is worth keeping. The typed text, a kept draft and a running action stay; the
- * merge confirm, an open menu with the merge methods it read, and an error already shown go.
- * @param {{running: ActionKind|null, error: string|null, confirm: object|null, text: string, draftText: string|null, menu: string|null, methods: object|null}} state
+ * nothing is worth keeping. The typed text, the open comment field, a kept draft and a running
+ * action stay; the merge confirm, an open menu with the merge methods it read, and an error already shown go.
+ * @param {{running: ActionKind|null, error: string|null, confirm: object|null, text: string, draftText: string|null, menu: string|null, methods: object|null, composing: string|null}} state
  * @param {string} text The comment box text at the time of the move.
  */
 export function leavePr(state, text) {
   const running = state.running !== null;
   const next = { ...state, confirm: null, error: running ? state.error : null, text, menu: null, methods: null };
-  const empty = !running && text === "" && next.draftText === null;
+  const empty = !running && text === "" && next.draftText === null && (next.composing ?? null) === null;
   return empty ? null : next;
 }
 

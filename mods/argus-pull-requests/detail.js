@@ -1,61 +1,121 @@
-// Builds what the pull request pane shows: the status card rows, the summary, the conversation
-// with its file threads, the position in the board, and the merge methods to offer.
+// Builds what the pull request pane shows: the verdict, the folding sections and their summaries,
+// the conversation with its file threads, the position in the board, and the merge methods to offer.
 
-import { buildGroups, prsInScope } from "./board.js";
+import { buildGroups, groupOf, prsInScope } from "./board.js";
 import { prKey } from "./model.js";
 import { NO_METHOD, pickMergeMethod } from "./actions.js";
 
 /** @typedef {import("./model.js").Detail} Detail */
 /** @typedef {import("./model.js").Entry} Entry */
 /** @typedef {import("./model.js").Thread} Thread */
-/** @typedef {"pass"|"fail"|"run"|"none"} Icon */
 /** @typedef {{kind: "comment"|"review"|"thread", at: string, entry: Entry|null, threads: Thread[]}} Item */
 /** @typedef {{method: "merge"|"squash"|"rebase", label: string, isDefault: boolean}} Method */
 
-const REVIEW_ROWS = {
-  approved: { icon: "pass", title: "Approved" },
-  changes_requested: { icon: "fail", title: "Changes requested" },
-  review_required: { icon: "run", title: "Review required" },
-};
+/** The verdict titles, in the board's words for its groups. */
+const VERDICT_TITLES = { ready: "Ready to merge", needsWork: "Needs work", waiting: "Waiting on review", draft: "Draft" };
 
-const MERGE_ROWS = {
-  mergeable: { icon: "pass", title: "Mergeable" },
-  blocked: { icon: "fail", title: "Merge blocked" },
-  conflicting: { icon: "fail", title: "Has conflicts" },
-};
+/** The names of the reviewers whose latest state is `state`, joined by commas. */
+function namesWith(detail, state) {
+  return detail.reviewers.filter((reviewer) => reviewer.state === state).map((reviewer) => reviewer.name).join(", ");
+}
 
 /**
- * The rows of the status card: checks, review, merge and agent.
+ * The pane's verdict: the board's group for the pull request (or Merged, Closed) and one line
+ * of reasons from its checks, review and merge state.
  * @param {Detail} detail
- * @param {Array<{path: string, branch: string}>} runs The review agent worktrees of the pull request.
- * @param {boolean} hasCheckout Whether the repo has a local checkout.
- * @returns {{checks: {icon: Icon, title: string, note: string}, review: {icon: Icon, title: string}, merge: {icon: Icon, title: string, note: string}, agent: {title: string}}}
+ * @returns {{group: "ready"|"needsWork"|"waiting"|"draft"|"merged"|"closed", title: string, reasons: string}}
  */
-export function statusRows(detail, runs, hasCheckout) {
+export function verdictOf(detail) {
+  const { pr } = detail;
+  if (pr.state === "merged") return { group: "merged", title: "Merged", reasons: `Merged into ${pr.baseRef}` };
+  if (pr.state === "closed") return { group: "closed", title: "Closed", reasons: "Closed without a merge" };
+  const group = groupOf(pr);
   const total = detail.checks.length;
-  const count = (state) => detail.checks.filter((check) => check.state === state).length;
-  const failed = count("failed");
-  const running = count("running");
-  let checks;
-  if (total === 0) checks = { icon: "none", title: "No checks", note: "" };
-  else if (failed > 0) checks = { icon: "fail", title: "Checks failed", note: `${failed} of ${total} failed` };
-  else if (running > 0) checks = { icon: "run", title: "Checks running", note: `${running} of ${total} running` };
-  else checks = { icon: "pass", title: "Checks passed", note: `${count("passed")} passed` };
+  const failed = detail.checks.filter((check) => check.state === "failed").length;
+  const running = detail.checks.filter((check) => check.state === "running").length;
+  const reasons = [];
+  if (failed > 0) reasons.push(`${failed} of ${total} checks failed`);
+  else if (running > 0) reasons.push(`${running} of ${total} checks running`);
+  else if (total > 0) reasons.push(`${total} checks passed`);
+  switch (pr.reviewDecision) {
+    case "changes_requested": {
+      const names = namesWith(detail, "changes_requested");
+      reasons.push(names === "" ? "changes requested" : `changes requested by ${names}`);
+      break;
+    }
+    case "approved": {
+      const names = namesWith(detail, "approved");
+      reasons.push(names === "" ? "approved" : `approved by ${names}`);
+      break;
+    }
+    case "review_required":
+      reasons.push("review required");
+      break;
+    default:
+      break;
+  }
+  if (detail.merge.state === "conflicting") reasons.push("merge conflicts");
+  else if (detail.merge.state === "blocked") reasons.push(detail.merge.reason ?? "merge blocked");
+  return { group, title: VERDICT_TITLES[group], reasons: reasons.length > 0 ? reasons.join(" · ") : "Nothing blocks the merge" };
+}
 
-  // Without a decision from the forge, the reviewers' latest states give the row.
-  const states = new Set(detail.reviewers.map((reviewer) => reviewer.state));
-  const fallback = states.has("changes_requested") ? "changes_requested" : states.has("approved") ? "approved" : null;
-  const review = REVIEW_ROWS[detail.pr.reviewDecision ?? fallback] ?? { icon: "none", title: "No review yet" };
-  let merge;
-  if (detail.pr.state === "merged") merge = { icon: "pass", title: "Merged", note: "" };
-  else if (detail.pr.state === "closed") merge = { icon: "none", title: "Closed", note: "" };
-  else merge = { ...(MERGE_ROWS[detail.merge.state] ?? { icon: "none", title: "Not checked yet" }), note: detail.merge.reason ?? `Open into ${detail.pr.baseRef}` };
+/**
+ * The sections that open by themselves because they need the person: Checks when a check failed
+ * or runs, Conversation when a file thread is open, Review agent when a run exists.
+ * @param {Detail} detail
+ * @param {Array<{path: string, branch: string}>} runs
+ * @returns {Set<"checks"|"conversation"|"agent">}
+ */
+export function openByDefault(detail, runs) {
+  const open = new Set();
+  if (detail.checks.some((check) => check.state === "failed" || check.state === "running")) open.add("checks");
+  if (detail.threads.some((thread) => !thread.resolved)) open.add("conversation");
+  if (runs.length > 0) open.add("agent");
+  return open;
+}
 
-  let agent;
-  if (!hasCheckout) agent = "No local checkout";
-  else if (runs.length === 0) agent = "No agent yet";
-  else agent = runs.length === 1 ? "1 review agent worktree" : `${runs.length} review agent worktrees`;
-  return { checks, review, merge, agent: { title: agent } };
+/**
+ * The checks to list (failed, then running) and the passed ones, which the pane folds into one line.
+ * @param {import("./model.js").Check[]} checks
+ * @returns {{problems: import("./model.js").Check[], passed: import("./model.js").Check[]}}
+ */
+export function checkGroups(checks) {
+  return {
+    problems: [...checks.filter((check) => check.state === "failed"), ...checks.filter((check) => check.state === "running")],
+    passed: checks.filter((check) => check.state === "passed"),
+  };
+}
+
+/**
+ * The text beside each section heading, so a folded section still says what it holds.
+ * @param {Detail} detail
+ * @param {Array<{path: string, branch: string}>} runs
+ * @param {boolean} hasCheckout
+ * @returns {{checks: string, reviews: string, agent: string, conversation: string}}
+ */
+export function sectionSummaries(detail, runs, hasCheckout) {
+  const passed = detail.checks.filter((check) => check.state === "passed").length;
+  const count = (state) => detail.reviewers.filter((reviewer) => reviewer.state === state).length;
+  const reviews = [
+    [count("changes_requested"), "changes requested"],
+    [count("approved"), "approved"],
+    [count("requested"), "waiting"],
+  ]
+    .filter(([n]) => n > 0)
+    .map(([n, word]) => `${n} ${word}`)
+    .join(" · ");
+  let agent = "none yet";
+  if (!hasCheckout) agent = "no local checkout";
+  else if (runs.length > 0) agent = runs.length === 1 ? "1 worktree" : `${runs.length} worktrees`;
+  const summary = summaryOf(detail);
+  const comments = summary.comments === 0 ? "no comments" : summary.comments === 1 ? "1 comment" : `${summary.comments} comments`;
+  const threads = summary.openThreads === 0 ? "" : summary.openThreads === 1 ? " · 1 open thread" : ` · ${summary.openThreads} open threads`;
+  return {
+    checks: detail.checks.length === 0 ? "none" : `${passed} / ${detail.checks.length}`,
+    reviews: reviews === "" ? "none yet" : reviews,
+    agent,
+    conversation: `${comments}${threads}`,
+  };
 }
 
 /**

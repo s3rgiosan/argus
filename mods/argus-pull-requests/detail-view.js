@@ -1,32 +1,34 @@
-// Draws the pull request pane from plain data: the header, the tab strip, and the content of
-// the chosen tab. State, reads and actions stay in main.js; handlers come in through `on`.
+// Draws the pull request pane from plain data: the header with the verdict, the folding
+// sections, and the bottom area that main.js builds (comment field, merge confirm, footer).
+// State, reads and actions stay in main.js; handlers come in through `on`.
 
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { frame, scrollArea, note, button } from "./ui.js";
+import { frame, scrollArea, note } from "./ui.js";
 
-/** The pane's tabs, in strip order. */
-export const TABS = [
-  ["conversation", "Conversation"],
+/** The pane's sections, in order. */
+export const SECTIONS = [
   ["checks", "Checks"],
+  ["reviews", "Reviews"],
+  ["agent", "Review agent"],
   ["description", "Description"],
-  ["agent", "Agent"],
-  ["details", "Details"],
+  ["conversation", "Conversation"],
 ];
 
 const STATE_WORDS = { approved: "approved", changes_requested: "changes requested", commented: "commented", dismissed: "dismissed" };
 const REVIEWER_WORDS = { approved: "Approved", changes_requested: "Changes requested", commented: "Commented", dismissed: "Dismissed", pending: "Pending", requested: "Review requested" };
-const MERGE_WORDS = { mergeable: "Mergeable", conflicting: "Has conflicts", blocked: "Blocked", unknown: "Not checked yet" };
 
-/** The color of a status icon. */
-function tone(t, icon) {
-  switch (icon) {
-    case "pass":
+/** The color of a verdict group. */
+function verdictTone(t, group) {
+  switch (group) {
+    case "ready":
       return t.done;
-    case "fail":
+    case "needsWork":
       return t.blocked;
-    case "run":
+    case "waiting":
       return t.working;
+    case "merged":
+      return t.accent;
     default:
       return t.muted;
   }
@@ -38,7 +40,7 @@ function chip(t, id, text, color) {
 }
 
 /** A 24 px icon button; off when `enabled` is false. */
-function iconAction(t, id, path, onClick, { enabled = true, tooltip = null } = {}) {
+export function iconAction(t, id, path, onClick, { enabled = true, tooltip = null } = {}) {
   let el = div().id(id).flex_none().size(24).flex().items_center().justify_center().rounded(5).text_color(enabled ? t.muted : t.dim);
   if (tooltip) el = el.tooltip(tooltip);
   if (enabled) el = el.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(onClick);
@@ -48,29 +50,27 @@ function iconAction(t, id, path, onClick, { enabled = true, tooltip = null } = {
 /**
  * The pull request pane.
  * @param {object} t The theme.
- * @param {object} view What to show: `detail`, `status` (`statusRows`), `summary` (`summaryOf`), `items`
- *   (`conversationItems`), `position` (`positionIn` or null), `tab`, `hasCheckout`, `checkingOut`, `error`,
- *   `now`, `age(at, now)`, `icon(name)` (a path), `stateLabel`, `cardActions` (an element or null),
- *   `bottom` (an element or null), `agentRows` (elements), `canReview`.
- * @param {object} on Handlers, each given the click's `cx` last: `tab(name, cx)`, `prev(cx)`, `next(cx)`, `openBrowser(cx)`, `checkOut(cx)`, `reviewWithAgent(cx)`.
+ * @param {object} view What to show: `detail`, `verdict` (`verdictOf`), `summaries` (`sectionSummaries`),
+ *   `open` (the open section ids), `checks` (`checkGroups`), `passedOpen`, `items` (`conversationItems`),
+ *   `position` (`positionIn` or null), `hasCheckout`, `checkingOut`, `error`, `now`, `age(at, now)`,
+ *   `icon(name)` (a path), `agentRows` (elements), `bottom` (an element: the area under the scroll).
+ * @param {object} on Handlers, each given the click's `cx` last: `toggle(section, cx)`, `togglePassed(cx)`,
+ *   `prev(cx)`, `next(cx)`, `openBrowser(cx)`, `checkOut(cx)`.
  */
 export function prPane(t, view, on) {
-  const { detail } = view;
+  const { detail, verdict, position } = view;
   const pr = detail.pr;
-  const position = view.position;
+  const color = verdictTone(t, verdict.group);
   const head = v_flex()
-    .flex_none()
     .px(14)
     .pt(12)
-    .pb(8)
-    .gap(8)
+    .gap(6)
     .child(
       h_flex()
         .gap(6)
         .items_center()
         .child(svg(view.icon(pr.provider === "gitlab" ? "gitlab" : "github")).size(14).flex_none().text_color(t.muted))
-        .child(div().min_w(0).truncate().text_size(12).text_color(t.muted).child(pr.repo))
-        .child(div().flex_none().text_size(12).text_color(t.muted).child(`#${pr.number}`))
+        .child(div().min_w(0).truncate().text_size(12).text_color(t.muted).child(`${pr.repo} · #${pr.number}`))
         .child(div().flex_1())
         .when(position !== null, (el) =>
           el
@@ -81,111 +81,106 @@ export function prPane(t, view, on) {
         .child(iconAction(t, "pr-browser", view.icon("external-link"), (_e, cx) => on.openBrowser(cx), { tooltip: "Open in browser" }))
         .child(iconAction(t, "pr-checkout", view.icon("git-branch"), (_e, cx) => on.checkOut(cx), { enabled: view.hasCheckout && !view.checkingOut, tooltip: "Check out in a worktree" })),
     )
+    .child(div().text_size(16).font_semibold().whitespace_normal().child(pr.title))
+    .child(div().text_size(12).text_color(t.dim).whitespace_normal().child(`${pr.headRef} → ${pr.baseRef}`))
     .child(
-      h_flex()
-        .gap(8)
-        .items_center()
-        .child(chip(t, "pr-state", view.stateLabel, pr.state === "open" ? (pr.isDraft ? t.muted : t.done) : t.muted))
-        .child(div().min_w(0).flex_1().truncate().text_size(12).text_color(t.dim).child(`${pr.headRef} → ${pr.baseRef}`)),
+      v_flex()
+        .id("verdict")
+        .mt(4)
+        .px(12)
+        .py(10)
+        .gap(2)
+        .rounded(8)
+        .bg(`${color}26`)
+        .child(div().text_size(14).font_semibold().text_color(color).child(verdict.title))
+        .child(div().text_size(12).text_color(t.muted).whitespace_normal().child(verdict.reasons)),
     )
-    .child(div().text_size(18).font_semibold().whitespace_normal().child(pr.title))
     .when(!view.hasCheckout, (el) => el.child(div().text_size(11.5).text_color(t.muted).child("No local checkout")))
     .when(view.checkingOut, (el) => el.child(div().text_size(11.5).text_color(t.muted).child("Checking out…")))
     .when(Boolean(view.error), (el) => el.child(div().text_size(11.5).text_color(t.blocked).whitespace_normal().child(view.error ?? "")));
 
-  const tabs = h_flex()
-    .flex_none()
-    .px(14)
-    .gap(16)
-    .border_b(1)
-    .border_color(t.border)
-    .children(
-      TABS.map(([id, label]) => {
-        const chosen = view.tab === id;
-        return div()
-          .id(`tab-${id}`)
-          .py(8)
-          .text_size(13)
-          .cursor_pointer()
-          .text_color(chosen ? t.foreground : t.muted)
-          .hover((s) => s.text_color(t.foreground))
-          .border_b(2)
-          .border_color(chosen ? t.accent : t.background)
-          .on_click((_e, cx) => on.tab(id, cx))
-          .child(label);
-      }),
+  const parts = [head];
+  for (const [id, label] of SECTIONS) {
+    const open = view.open.has(id);
+    parts.push(
+      h_flex()
+        .id(`sec-${id}`)
+        .mt(6)
+        .px(14)
+        .py(4)
+        .gap(6)
+        .items_center()
+        .cursor_pointer()
+        .hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => on.toggle(id, cx))
+        .child(svg(view.icon(open ? "chevron-down" : "chevron-right")).size(12).flex_none().text_color(t.dim))
+        .child(div().flex_none().text_size(11.5).font_medium().text_color(t.dim).child(label))
+        .child(div().flex_1())
+        .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(view.summaries[id] ?? "")),
     );
-
-  let parts;
-  switch (view.tab) {
-    case "checks":
-      parts = checksTab(t, detail);
-      break;
-    case "description":
-      parts = [detail.body.trim() === "" ? note(t, "No description") : div().whitespace_normal().child(detail.body)];
-      break;
-    case "agent":
-      parts = agentTab(t, view, on);
-      break;
-    case "details":
-      parts = detailsTab(t, view);
-      break;
-    default:
-      parts = conversationTab(t, view, on);
+    if (open) parts.push(v_flex().px(14).pt(2).pb(4).gap(6).children(sectionBody(t, id, view, on)));
   }
+  parts.push(div().h(10));
 
   return frame(t, "argus-pull-requests-pr")
     .rounded_none()
     .border_0()
-    .child(head)
-    .child(tabs)
-    .child(scrollArea("argus-pull-requests-pr-detail", parts, { padding: 12, gap: 12 }))
+    .child(scrollArea("argus-pull-requests-pr-detail", parts, { padding: 0, gap: 0 }))
     .when(view.bottom !== null && view.bottom !== undefined, (el) => el.child(view.bottom));
 }
 
-function conversationTab(t, view, on) {
-  const { status, summary, items } = view;
-  const row = (id, icon, color, title, noteText, onClick = null) => {
-    let el = h_flex().id(id).px(12).py(10).gap(10).items_center().border_b(1).border_color(t.border);
-    if (onClick) el = el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick);
-    return el
-      .child(svg(view.icon(icon)).size(14).flex_none().text_color(color))
-      .child(div().flex_none().font_medium().child(title))
-      .when(Boolean(noteText), (inner) => inner.child(div().min_w(0).flex_1().truncate().text_color(t.muted).child(noteText ?? "")));
-  };
-  const checkIcon = { pass: "circle-check", fail: "circle-x", run: "circle-dot", none: "circle-dot" };
-  const card = v_flex()
-    .id("status-card")
-    .rounded(8)
-    .border_1()
-    .border_color(t.border)
-    .overflow_hidden()
-    .child(row("status-checks", checkIcon[status.checks.icon], tone(t, status.checks.icon), status.checks.title, status.checks.note))
-    .child(row("status-review", checkIcon[status.review.icon], tone(t, status.review.icon), status.review.title, null))
-    .child(row("status-merge", "git-merge", tone(t, status.merge.icon), status.merge.title, status.merge.note))
-    .child(row("status-agent", "play", t.muted, status.agent.title, null, (_e, cx) => on.tab("agent", cx)))
-    .when(view.cardActions !== null, (el) => el.child(h_flex().flex_wrap().gap(8).p(12).bg(t.raised).child(view.cardActions)));
+function sectionBody(t, id, view, on) {
+  const { detail } = view;
+  switch (id) {
+    case "checks": {
+      const { problems, passed } = view.checks;
+      if (problems.length === 0 && passed.length === 0) return [note(t, "No checks")];
+      const rows = problems.map((check, index) => checkRow(t, `check-p-${index}`, check));
+      if (passed.length > 0) {
+        rows.push(
+          h_flex()
+            .id("checks-passed")
+            .gap(6)
+            .cursor_pointer()
+            .text_color(t.dim)
+            .hover((s) => s.text_color(t.foreground))
+            .on_click((_e, cx) => on.togglePassed(cx))
+            .child(svg(view.icon(view.passedOpen ? "chevron-down" : "chevron-right")).size(12).flex_none())
+            .child(`${passed.length} passed`),
+        );
+        if (view.passedOpen) passed.forEach((check, index) => rows.push(checkRow(t, `check-ok-${index}`, check)));
+      }
+      return rows;
+    }
+    case "reviews":
+      if (detail.reviewers.length === 0) return [note(t, "No reviewers")];
+      return detail.reviewers.map((reviewer, index) =>
+        h_flex()
+          .id(`reviewer-${index}`)
+          .gap(8)
+          .child(div().flex_1().min_w(0).truncate().child(reviewer.name))
+          .child(div().flex_none().text_color(reviewer.state === "changes_requested" ? t.blocked : reviewer.state === "approved" ? t.done : t.muted).child(REVIEWER_WORDS[reviewer.state] ?? reviewer.state)),
+      );
+    case "agent":
+      if (!view.hasCheckout) return [note(t, "No local checkout, so no review agent can start here.")];
+      return view.agentRows.length > 0 ? view.agentRows : [note(t, "No review agent yet. Review with agent starts one.")];
+    case "description":
+      return [detail.body.trim() === "" ? note(t, "No description") : div().whitespace_normal().child(detail.body)];
+    default: {
+      const rows = [];
+      if (detail.threadsError) rows.push(div().text_size(11.5).text_color(t.blocked).whitespace_normal().child(`File comments could not be read: ${detail.threadsError}`));
+      if (detail.threadsNote) rows.push(div().text_size(11.5).text_color(t.muted).child(detail.threadsNote));
+      if (view.items.length === 0) rows.push(note(t, "No comments"));
+      view.items.forEach((item, index) => rows.push(itemView(t, view, item, index)));
+      return rows;
+    }
+  }
+}
 
-  const chips = [];
-  if (summary.requested > 0) chips.push(chip(t, "sum-requested", `${summary.requested} requested changes`, t.blocked));
-  if (summary.openThreads > 0) chips.push(chip(t, "sum-threads", `${summary.openThreads} open threads`, t.working));
-  const people = summary.people === 1 ? "1 person" : `${summary.people} people`;
-  const comments = summary.comments === 1 ? "1 comment" : `${summary.comments} comments`;
-  const sum = v_flex()
-    .id("summary")
-    .p(12)
-    .gap(8)
-    .rounded(8)
-    .bg(t.raised)
-    .when(chips.length > 0, (el) => el.child(h_flex().flex_wrap().gap(6).children(chips)))
-    .child(div().text_color(t.muted).child(`${comments} from ${people}`))
-    .when(Boolean(view.detail.threadsError), (el) => el.child(div().text_size(11.5).text_color(t.blocked).whitespace_normal().child(`File comments could not be read: ${view.detail.threadsError}`)))
-    .when(Boolean(view.detail.threadsNote), (el) => el.child(div().text_size(11.5).text_color(t.muted).child(view.detail.threadsNote ?? "")));
-
-  const parts = [card, sum];
-  if (items.length === 0) parts.push(note(t, "No comments"));
-  items.forEach((item, index) => parts.push(itemView(t, view, item, index)));
-  return parts;
+function checkRow(t, id, check) {
+  const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.muted;
+  const mark = check.state === "failed" ? "✗" : check.state === "running" ? "●" : "✓";
+  return h_flex().id(id).gap(8).child(div().flex_none().text_color(color).child(mark)).child(div().flex_1().min_w(0).whitespace_normal().child(check.name));
 }
 
 function itemView(t, view, item, index) {
@@ -244,51 +239,4 @@ function threadView(t, view, thread, key) {
           ),
         ),
     );
-}
-
-function checksTab(t, detail) {
-  if (detail.checks.length === 0) return [note(t, "No checks")];
-  return detail.checks.map((check, index) => {
-    const color = check.state === "failed" ? t.blocked : check.state === "running" ? t.working : t.muted;
-    const mark = check.state === "failed" ? "✗" : check.state === "running" ? "●" : "✓";
-    return h_flex().id(`check-${index}`).gap(8).child(div().flex_none().text_color(color).child(mark)).child(div().flex_1().min_w(0).whitespace_normal().child(check.name));
-  });
-}
-
-function agentTab(t, view, on) {
-  const parts = [];
-  if (!view.hasCheckout) parts.push(note(t, "No local checkout"));
-  else if (view.agentRows.length === 0) parts.push(note(t, "No agent yet"));
-  parts.push(...view.agentRows);
-  parts.push(h_flex().child(button(t, "agent-review", "Review with agent", (_e, cx) => on.reviewWithAgent(cx), { primary: true, enabled: view.canReview })));
-  return parts;
-}
-
-function detailsTab(t, view) {
-  const { detail } = view;
-  const pr = detail.pr;
-  const line = (id, label, value) =>
-    h_flex().id(id).gap(10).child(div().w(110).flex_none().text_color(t.muted).child(label)).child(div().flex_1().min_w(0).whitespace_normal().child(value));
-  const parts = [
-    line("d-author", "Author", pr.author),
-    line("d-head", "Head", pr.headRef),
-    line("d-base", "Base", pr.baseRef),
-    line("d-updated", "Updated", view.age(pr.updatedAt, view.now)),
-    line("d-draft", "Draft", pr.isDraft ? "Yes" : "No"),
-    line("d-merge", "Merge state", MERGE_WORDS[detail.merge.state] ?? "Not checked yet"),
-  ];
-  if (detail.merge.reason) parts.push(line("d-reason", "Merge reason", detail.merge.reason));
-  parts.push(line("d-sha", "Head commit", detail.headSha ?? "Not known"));
-  parts.push(div().pt(4).text_size(11.5).font_medium().text_color(t.dim).child("Reviewers"));
-  if (detail.reviewers.length === 0) parts.push(note(t, "No reviewers"));
-  detail.reviewers.forEach((reviewer, index) =>
-    parts.push(
-      h_flex()
-        .id(`d-reviewer-${index}`)
-        .gap(8)
-        .child(div().flex_1().min_w(0).truncate().child(reviewer.name))
-        .child(div().flex_none().text_color(reviewer.state === "changes_requested" ? t.blocked : t.muted).child(REVIEWER_WORDS[reviewer.state] ?? reviewer.state)),
-    ),
-  );
-  return parts;
 }
