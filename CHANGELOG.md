@@ -5,11 +5,19 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.0] - 2026-11-20
+
+### Added
+
+- The `argus-pull-requests` pane has Review with agent. Its dialog starts an installed coding agent in a new worktree from the main checkout, with a read-only review prompt that checks the pull request with `gh` or `glab` before it reads the changes.
+- Claude Code shows once per account in the dialog, with the names from the Usage panel, and takes a model.
+- `pullRequests.review.instructions` in `argus.json` adds instructions to every review prompt.
+- A board row shows a dot when a review agent worktree exists for it, and the pane lists those worktrees with Open space and Remove worktree.
 
 ### Changed
 
 - The keep-awake button shows a full coffee cup while it keeps the display awake, and an empty cup while it is off.
+- Claude Code account discovery moved to `lib/accounts.js`, shared by `argus-claude-usage` and `argus-pull-requests`.
 
 ## [1.6.0] - 2026-11-19
 
@@ -137,7 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.6.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.7.0...HEAD
+[1.7.0]: https://github.com/s3rgiosan/argus/compare/1.6.0...1.7.0
 [1.6.0]: https://github.com/s3rgiosan/argus/compare/1.5.0...1.6.0
 [1.5.0]: https://github.com/s3rgiosan/argus/compare/1.4.1...1.5.0
 [1.4.1]: https://github.com/s3rgiosan/argus/compare/1.4.0...1.4.1
