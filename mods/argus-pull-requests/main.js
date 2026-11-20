@@ -842,6 +842,7 @@ export default class PullRequests extends View {
       .child(div().text_size(12).truncate().child(reviewRun.branch))
       .child(
         h_flex()
+          .flex_wrap()
           .gap(8)
           .child(button(t, `run-open-${index}`, "Open space", () => openRun(reviewRun), { enabled: !reviewRun.prunable }))
           .child(button(t, `run-remove-${index}`, "Remove worktree", (_e, cx) => set({ confirm: "plain", error: null }, cx), { enabled: !state.running && state.confirm === null && !reviewRun.locked })),
@@ -852,6 +853,7 @@ export default class PullRequests extends View {
       const dirty = state.confirm === "dirty";
       row = row.child(div().text_size(12).whitespace_normal().child(dirty ? "The worktree has changes. Remove it and lose them?" : `Remove ${reviewRun.branch}?`)).child(
         h_flex()
+          .flex_wrap()
           .gap(8)
           .child(button(t, `run-confirm-${index}`, "Remove", (_e, cx) => this.removeRun(cx, reviewRun, localPath, dirty), { primary: true, enabled: !state.running }))
           .child(button(t, `run-cancel-${index}`, "Cancel", (_e, cx) => set({ confirm: null }, cx), { enabled: !state.running })),
@@ -1281,6 +1283,7 @@ export default class PullRequests extends View {
       .when(localPath === null, (el) => el.child(note(t, "No local checkout")))
       .child(
         h_flex()
+          .flex_wrap()
           .gap(8)
           .child(button(t, "open-browser", "Open in browser", (_e, cx) => this.openInBrowser(cx, pr)))
           .child(
