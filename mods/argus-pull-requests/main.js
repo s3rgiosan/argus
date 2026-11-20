@@ -11,10 +11,10 @@ import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
-import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghPrStateArgs, ghDefaultBranchArgs, ghIssuesArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY, GL_ISSUES_QUERY, GL_USERNAME_QUERY } from "./forge.js";
-import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, parseGhIssues, parseGlIssues, parseGlUsername, prKey } from "./model.js";
-import { candidates, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
-import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
+import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghDefaultBranchArgs, ghIssuesArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY, GL_ISSUES_QUERY, GL_USERNAME_QUERY } from "./forge.js";
+import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, parseGhIssues, parseGlIssues, parseGlUsername, prKey } from "./model.js";
+import { candidates, countMerged, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
+import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, mergedCounts, mergedInScope, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { remoteHeadsArgs, parseRemoteHeads, branchRead, issueRead, remoteBranchPlan, issueBranch, issuePlan, filterItems, aheadBehind, localBranchStep, branchNote, fastForwardArgs, remoteBranchArgs, remoteHasBranch, refspecMissing, branchNameError, noticeFor, folderExistsMessage, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
 import { worktreeRoot, checkoutBranch, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
@@ -330,14 +330,16 @@ export default class PullRequests extends View {
       this.renewLock();
     }
 
-    const reviews = await this.readReviews(projects);
+    const { reviews, listings } = await this.readReviews(projects);
     this.renewLock();
-    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews });
+    const merged = mergedCounts(readBoard().merged ?? {}, await this.readMergedCounts(listings, gh, glab));
+    this.renewLock();
+    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged });
   }
 
   /**
-   * The review agent worktrees of the projects with a local checkout. A project whose git call
-   * fails keeps the runs of the last read.
+   * The review agent worktrees of the projects with a local checkout, and the worktree lists read.
+   * A project whose git call fails keeps the runs of the last read.
    */
   async readReviews(projects) {
     const local = projects.filter((project) => project.localPath);
@@ -354,7 +356,40 @@ export default class PullRequests extends View {
     });
     const failed = local.filter((_project, index) => listings[index] === null);
     const now = Date.now();
-    return keepRuns(reviewRuns(listings.filter((listing) => listing !== null), now), readBoard().reviews, failed, now);
+    const read = listings.filter((listing) => listing !== null);
+    return { reviews: keepRuns(reviewRuns(read, now), readBoard().reviews, failed, now), listings: read };
+  }
+
+  /**
+   * The merged worktree count of each project whose worktree list was read. A project without
+   * candidate worktrees needs no forge call; a failed call gives null, so the last count stays.
+   * Failures add no note: the Merged worktrees view shows them.
+   */
+  async readMergedCounts(listings, gh, glab) {
+    return mapPool(listings, CLI_CONCURRENCY, async ({ project, porcelain }) => {
+      let count = null;
+      try {
+        const remoteHead = await exec("git", defaultBranchArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
+        const defaultBranch = remoteHead.code === 0 ? defaultBranchOf(remoteHead.stdout) : null;
+        const worktrees = candidates(porcelain, defaultBranch);
+        if (worktrees.length === 0) {
+          count = 0;
+        } else {
+          const github = project.provider === "github";
+          const command = github ? gh : glab;
+          if (command !== null) {
+            const label = github ? "gh" : `glab (${project.host})`;
+            const args = github ? ghMergedListArgs(project.repo) : glabArgs(project.host, GL_MERGED_LIST_QUERY, { path: project.repo });
+            const heads = await this.attempt(label, command, args, github ? parseGhMergedList : parseGlMergedList, []);
+            if (heads !== null) count = countMerged(worktrees, heads, defaultBranch);
+          }
+        }
+      } catch {
+        count = null;
+      }
+      this.renewLock();
+      return { key: project.key, count };
+    });
   }
 
   /** Caches what `folder` is: a repository entry, or null. A rejected probe caches nothing. */

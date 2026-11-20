@@ -5,6 +5,8 @@ import {
   emptyMessage,
   scopeRepos,
   scopeProjects,
+  mergedCounts,
+  mergedInScope,
   openBranches,
   followStatus,
   withFolders,
@@ -401,4 +403,27 @@ test("openBranches: the head branches of a repo's open pull requests", () => {
   const pr = (number, headRef, state, repo = project.repo) => ({ ...board.prs[0], provider: project.provider, host: project.host, repo, number, headRef, state });
   const withPrs = { ...board, prs: [pr(1, "feat/a", "open"), pr(2, "feat/b", "merged"), pr(3, "feat/c", "open", "example-org/other-repo")] };
   assert.deepEqual([...openBranches(withPrs, project)], ["feat/a"]);
+});
+
+test("merged counts: kept on the board, checked when loaded", () => {
+  const board = assembleBoard(input({}));
+  assert.deepEqual(board.merged, {});
+  assert.deepEqual(assembleBoard({ ...input({}), merged: { k: 2 } }).merged, { k: 2 });
+  assert.deepEqual(normalizeBoard({ ...board, merged: undefined }).merged, {});
+  assert.deepEqual(normalizeBoard({ ...board, merged: { k: -1 } }).merged, {});
+  assert.deepEqual(normalizeBoard({ ...board, merged: { k: 1.5 } }).merged, {});
+  assert.deepEqual(normalizeBoard({ ...board, merged: "x" }).merged, {});
+  assert.deepEqual(normalizeBoard({ ...board, merged: { k: 3 } }).merged, { k: 3 });
+});
+
+test("mergedCounts: a failed read keeps the old count, an unread project goes", () => {
+  assert.deepEqual(mergedCounts({ a: 2, b: 1, gone: 4 }, [{ key: "a", count: null }, { key: "b", count: 0 }, { key: "c", count: 3 }, { key: "d", count: null }]), { a: 2, b: 0, c: 3 });
+});
+
+test("mergedInScope sums the counts of the scope's projects", () => {
+  const lab = { ...project, key: "gitlab.example.com/example-group/example-project", provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project" };
+  const board = { ...assembleBoard(input({ projects: [project, lab] })), merged: { [project.key]: 2, [lab.key]: 1 } };
+  assert.equal(mergedInScope(board, { show: "all", where: "all" }, null), 3);
+  assert.equal(mergedInScope(board, { show: "all", where: "project", key: lab.key }, null), 1);
+  assert.equal(mergedInScope(board, { show: "all", where: "follow" }, null), 0);
 });

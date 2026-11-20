@@ -13,7 +13,7 @@ export { compareNames };
  * @typedef {import("./remote.js").Project} Project
  * @typedef {"needsReview" | "mine" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
- * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>}} Board
+ * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>, merged?: Record<string, number>}} Board
  * `reviews` holds the review runs of each pull request, keyed by `prKey`.
  * @typedef {{path: string, branch: string}} Run
  * @typedef {"ready"|"needsWork"|"waiting"|"draft"} GroupId
@@ -70,7 +70,7 @@ export function assembleBoard(input) {
   for (const project of projects) {
     scopes.projects[project.key] = keysOf(projectPrs[project.key] ?? []);
   }
-  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {} };
+  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {} };
 }
 
 function isObject(value) {
@@ -111,7 +111,9 @@ export function normalizeBoard(value) {
   if (!valid) return emptyBoard();
   // A board from an older version has no review runs.
   const reviews = isObject(value.reviews) && Object.values(value.reviews).every((runs) => Array.isArray(runs) && runs.every(isRun)) ? value.reviews : {};
-  return /** @type {Board} */ ({ ...value, reviews });
+  // A board saved before merged counts existed, or with bad counts, has none.
+  const merged = isObject(value.merged) && Object.values(value.merged).every((count) => Number.isInteger(count) && count >= 0) ? value.merged : {};
+  return /** @type {Board} */ ({ ...value, reviews, merged });
 }
 
 /**
@@ -554,4 +556,33 @@ export function emptyMessage(board, repos = []) {
     .some((note) => repos.length === 0 || repos.some((repo) => noteIsFor(note, repo)));
   if (failed) return "No pull requests could be read. See the messages above.";
   return "No pull requests here";
+}
+
+/**
+ * The merged worktree count per project after a read. A failed read (`count` null) keeps the
+ * project's last count; a project the read did not cover is left out.
+ * @param {Record<string, number>} previous
+ * @param {Array<{key: string, count: number|null}>} read
+ * @returns {Record<string, number>}
+ */
+export function mergedCounts(previous, read) {
+  /** @type {Record<string, number>} */
+  const counts = {};
+  for (const { key, count } of read) {
+    if (count !== null) counts[key] = count;
+    else if (Object.hasOwn(previous, key)) counts[key] = previous[key];
+  }
+  return counts;
+}
+
+/**
+ * The merged worktrees of the projects a scope shows.
+ * @param {Board} board
+ * @param {Scope} scope
+ * @param {?string} followed
+ * @returns {number}
+ */
+export function mergedInScope(board, scope, followed) {
+  const merged = board.merged ?? {};
+  return scopeProjects(board, scope, followed).reduce((sum, project) => sum + (Object.hasOwn(merged, project.key) ? merged[project.key] : 0), 0);
 }
