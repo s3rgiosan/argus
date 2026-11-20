@@ -5,7 +5,7 @@ GitHub pull requests and GitLab merge requests in Herdr. Board in a panel on the
 - Four groups with counts: Ready to merge (checks pass, nothing running, mergeable, approved or no review needed), Needs work (a failed check, changes requested or a merge conflict), Waiting on review (everything else), Draft. Newest first inside a group.
 - Row: number, title, checks (`✓ 3/3`, `✗ 1/3` or `● running`), age, repo, branch and review state. An accent dot means a review agent worktree exists for it.
 - Scope button in the header, with two separate choices and counts. Show: Needs my review, Mine or All open. All open lists every pull request the board holds: the ones that need your review, your own, and the open ones of the projects in your spaces. In: Follow space, All repos or one project (each project is indented under All repos). For example, Needs my review in Follow space lists the pull requests that need your review in the focused space's repo. The list stays open after a pick, so you can set both; Escape or a click outside closes it. Follow space uses the project that holds the focused space's folder. A new space shows "Reading this space…" until the board knows its folder. The default is Needs my review in All repos. A project is a GitHub or GitLab repo found in an open space.
-- Filter field at the bottom: matches the title, number (`#12` or `12`), author and branch.
+- Filter field at the bottom: matches the title, number (`#12` or `12`), author and branch. The `+` button right of it opens New worktree.
 - Click a row: it opens in a pane on the right of the current tab, or the tab's open pull request pane shows it.
 - Pull request pane:
   - Header: repo and number, its place in the board's list (`3 of 9`) with ↑ and ↓ to show the previous or next pull request, and Open in browser and Check out in a worktree icons; then the title and `head → base`.
@@ -98,12 +98,21 @@ When there are extra instructions, Argus adds them after the prompt, under the l
 
 The `+` button right of the filter field ("New worktree") starts a git worktree, and its Herdr space, from a remote branch, a pull request or an issue. Nothing is written to GitHub or GitLab.
 
-- Repo: the repos of the board's scope that have a local checkout. The followed space's repo is the default, else the first. With more than one repo, "Change" shows the list. With none, the view says "No repo with a local checkout in this scope."
-- Three tabs: Branch, Pull request, Issue. The filter field narrows the list by branch name, number or title. The refresh button ("Read again") reads the tab again.
-- Branch: the remote branches of `origin`, without the default branch. A branch that has a worktree shows "open", and a pick opens its space. Any other pick fetches the branch and adds a worktree. A local branch of the same name stays as it is; without one, a new branch tracks the remote branch.
+- Repo: the repos of the board's scope that have a local checkout. The view picks one when it opens: the followed space's repo, else the first. It stays fixed until you pick another with "Change" (shown with more than one repo). The list scrolls. When the repo leaves the scope, the view says "This repo is no longer in the scope." and lists the repos. With none, it says "No repo with a local checkout in this scope".
+- Three tabs: Branch, Pull request, Issue. The filter field narrows the list by branch name, number or title. When the filter hides every row, the list says "Nothing matches the filter". Enter in the filter picks the only row left, unless a create or check out runs.
+- Read again (the refresh button) reads the Branch or Issue list again. The old rows stay until the new list arrives. The Pull request tab has no such button, because its list comes from the board. Opening the view drops the Branch list of the repo, and the Branch tab reads it again, so the "worktree" marks are fresh. After a create, the Branch list is read again. Issue lists stay until Read again.
+- One create runs at a time. While a create or a pull request check out runs, no row takes a click, and the row being created shows "creating…".
+- A row shows "worktree" when a worktree for its branch exists. The Pull request tab (branch `pr/<number>` or `mr/<number>`) and the Issue tab take this from the Branch list of the repo, so they show it after that list is read.
+- Branch: the remote branches of `origin`, without the default branch (it is listed too, with a note, when the default branch cannot be read). A pick opens the space of an existing worktree. Any other pick checks the branch name, stops when the worktree folder already exists, prunes a worktree entry whose folder is gone, fetches the branch and adds a worktree.
+  - A local branch of the same name is used as it is. It moves up to the remote branch when it is only behind. When it is ahead, or has diverged, a note tells how far ("The local branch x is 1 ahead and 2 behind origin/x.").
+  - Without a local branch, a new branch starts at the remote branch. Its upstream is set to `origin`, and a single-branch clone gets a fetch refspec for it.
+  - A failed create deletes the branch it made.
 - Pull request: the open pull requests of the repo on the board. A pick runs Check out in a worktree.
-- Issue: the open issues assigned to you. A pick adds a worktree on a new branch cut from the fetched default branch, with no upstream. If the branch exists, a pick opens its worktree, or adds one for the branch and leaves the branch as it is.
-- Issue branch names are `<number>-<title as lowercase ASCII words>`, at most 60 characters. A title with no ASCII letters or digits gives just the number. git checks the name before it creates anything.
+- Issue: the open issues assigned to you, at most 50 ("Showing the first 50 issues." after that). Branch names are `<number>-<title as lowercase ASCII words>`, at most 60 characters; a title with no ASCII letters or digits gives just the number. git checks the name first.
+  - A pick opens the worktree of that branch when one exists.
+  - A local branch of that name gets a worktree and stays as it is.
+  - A branch of that name that exists only on the remote is used like a pick on the Branch tab.
+  - Otherwise a new branch is cut from the fetched default branch, with no upstream. When the default branch cannot be read, the create stops with an error.
 - Worktrees go in the Herdr worktrees folder, as `<folder>/<repo folder>/<branch with / and other characters turned into ->`.
 - A failed create shows the git error under the list. Escape goes back to the board.
 
