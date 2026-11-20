@@ -14,14 +14,27 @@ import { NO_METHOD, pickMergeMethod } from "./actions.js";
 /** The verdict titles, in the board's words for its groups. */
 const VERDICT_TITLES = { ready: "Ready to merge", needsWork: "Needs work", waiting: "Waiting on review", draft: "Draft" };
 
-/** The names of the reviewers whose latest state is `state`, joined by commas. */
+/** The display names of the reviewers whose latest state is `state`, joined by commas. */
 function namesWith(detail, state) {
-  return detail.reviewers.filter((reviewer) => reviewer.state === state).map((reviewer) => reviewer.name).join(", ");
+  return detail.reviewers
+    .filter((reviewer) => reviewer.state === state)
+    .map((reviewer) => displayName(reviewer.name, detail.names))
+    .join(", ");
 }
+
+/** The words for `count` checks in `state`; `total` is the number of all checks. */
+function checkReason(count, total, state) {
+  if (total === 1) return `1 check ${state}`;
+  return state === "passed" ? `${count} checks passed` : `${count} of ${total} checks ${state}`;
+}
+
+/** The line a verdict shows when it has no reason of its own, by group. */
+const FALLBACK_REASONS = { ready: "Nothing blocks the merge", waiting: "No review yet", draft: "Marked as draft", needsWork: "Needs work" };
 
 /**
  * The pane's verdict: the board's group for the pull request (or Merged, Closed) and one line
- * of reasons from its checks, review and merge state.
+ * of reasons from its checks, review and merge state. A reviewer's open request for changes
+ * moves an open pull request that is not a draft to Needs work, as the review decision may not show it.
  * @param {Detail} detail
  * @returns {{group: "ready"|"needsWork"|"waiting"|"draft"|"merged"|"closed", title: string, reasons: string}}
  */
@@ -29,20 +42,19 @@ export function verdictOf(detail) {
   const { pr } = detail;
   if (pr.state === "merged") return { group: "merged", title: "Merged", reasons: `Merged into ${pr.baseRef}` };
   if (pr.state === "closed") return { group: "closed", title: "Closed", reasons: "Closed without a merge" };
-  const group = groupOf(pr);
+  let group = groupOf(pr);
   const total = detail.checks.length;
   const failed = detail.checks.filter((check) => check.state === "failed").length;
   const running = detail.checks.filter((check) => check.state === "running").length;
   const reasons = [];
-  if (failed > 0) reasons.push(`${failed} of ${total} checks failed`);
-  else if (running > 0) reasons.push(`${running} of ${total} checks running`);
-  else if (total > 0) reasons.push(`${total} checks passed`);
+  if (failed > 0) reasons.push(checkReason(failed, total, "failed"));
+  else if (running > 0) reasons.push(checkReason(running, total, "running"));
+  else if (total > 0) reasons.push(checkReason(total, total, "passed"));
+  const requestedBy = namesWith(detail, "changes_requested");
   switch (pr.reviewDecision) {
-    case "changes_requested": {
-      const names = namesWith(detail, "changes_requested");
-      reasons.push(names === "" ? "changes requested" : `changes requested by ${names}`);
+    case "changes_requested":
+      reasons.push(requestedBy === "" ? "changes requested" : `changes requested by ${requestedBy}`);
       break;
-    }
     case "approved": {
       const names = namesWith(detail, "approved");
       reasons.push(names === "" ? "approved" : `approved by ${names}`);
@@ -54,9 +66,15 @@ export function verdictOf(detail) {
     default:
       break;
   }
+  if (pr.reviewDecision !== "changes_requested" && requestedBy !== "") {
+    reasons.push(`changes requested by ${requestedBy}`);
+    if (!pr.isDraft) group = "needsWork";
+  }
+  if (pr.isDraft) reasons.push("draft");
   if (detail.merge.state === "conflicting") reasons.push("merge conflicts");
   else if (detail.merge.state === "blocked") reasons.push(detail.merge.reason ?? "merge blocked");
-  return { group, title: VERDICT_TITLES[group], reasons: reasons.length > 0 ? reasons.join(" · ") : "Nothing blocks the merge" };
+  else if (detail.merge.state === "unknown") reasons.push("merge state not known yet");
+  return { group, title: VERDICT_TITLES[group], reasons: reasons.length > 0 ? reasons.join(" · ") : FALLBACK_REASONS[group] };
 }
 
 /**
@@ -72,6 +90,18 @@ export function openByDefault(detail, runs) {
   if (detail.threads.some((thread) => !thread.resolved)) open.add("conversation");
   if (runs.length > 0) open.add("agent");
   return open;
+}
+
+/**
+ * Whether a section is open: the person's stored choice while the default is what it was when
+ * they chose, else the default now. A section closed while it was green opens when it needs them.
+ * @param {{open: boolean, defaultWas: boolean}|undefined} stored
+ * @param {boolean} defaultNow
+ * @returns {boolean}
+ */
+export function sectionOpen(stored, defaultNow) {
+  if (stored && typeof stored === "object" && stored.defaultWas === defaultNow) return stored.open;
+  return defaultNow;
 }
 
 /**
@@ -117,6 +147,7 @@ export function sectionSummaries(detail, runs, hasCheckout) {
   const reviews = [
     [count("changes_requested"), "changes requested"],
     [count("approved"), "approved"],
+    [count("commented"), "commented"],
     [count("requested"), "waiting"],
   ]
     .filter(([n]) => n > 0)
@@ -290,8 +321,8 @@ const KNOWN_BOTS = {
  * @returns {string}
  */
 export function displayName(login, names) {
-  const known = names?.[login];
-  if (known) return known;
+  const known = names && Object.hasOwn(names, login) ? names[login] : undefined;
+  if (typeof known === "string" && known !== "") return known;
   const bare = login.startsWith("app/") ? login.slice("app/".length) : login;
-  return KNOWN_BOTS[bare] ?? bare;
+  return Object.hasOwn(KNOWN_BOTS, bare) ? KNOWN_BOTS[bare] : bare;
 }

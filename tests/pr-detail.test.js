@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkGroups, checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
+import { checkGroups, checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
 import { NO_METHOD } from "../mods/argus-pull-requests/actions.js";
 import { assembleBoard } from "../mods/argus-pull-requests/board.js";
 
@@ -151,7 +151,7 @@ test("verdictOf: the board's group, with the reasons in one line", () => {
   assert.deepEqual(verdictOf(ready), { group: "ready", title: "Ready to merge", reasons: "3 checks passed · approved by a" });
   const waiting = detail({ pr: { checks: sum(1, 0, 2), reviewDecision: "review_required" }, checks: [...check("passed", 1), ...check("running", 2)] });
   assert.deepEqual(verdictOf(waiting), { group: "waiting", title: "Waiting on review", reasons: "2 of 3 checks running · review required" });
-  assert.equal(verdictOf(detail({ pr: { isDraft: true } })).title, "Draft");
+  assert.deepEqual(verdictOf(detail({ pr: { isDraft: true } })), { group: "draft", title: "Draft", reasons: "draft" });
   assert.equal(verdictOf(detail({ pr: { mergeable: "conflicting" }, merge: { state: "conflicting", reason: null } })).reasons, "merge conflicts");
   assert.equal(verdictOf(detail({ pr: { mergeable: "blocked" }, merge: { state: "blocked", reason: "Blocked by branch protection." } })).reasons, "Blocked by branch protection.");
   assert.equal(verdictOf(detail()).reasons, "Nothing blocks the merge");
@@ -209,4 +209,68 @@ test("displayName: the forge's name, else a known bot's name, else the login", (
   assert.equal(displayName("app/example-bot", {}), "example-bot");
   assert.equal(displayName("cli-triage", {}), "cli-triage");
   assert.equal(displayName("octo-user", undefined), "octo-user");
+});
+
+test("displayName: a login that matches an Object property is a plain name", () => {
+  assert.equal(displayName("constructor", {}), "constructor");
+  assert.equal(displayName("constructor", { constructor: "C Name" }), "C Name");
+  assert.equal(displayName("app/constructor", undefined), "constructor");
+  assert.equal(displayName("__proto__", {}), "__proto__");
+  assert.equal(displayName("toString", {}), "toString");
+});
+
+test("verdictOf: changes requested by a reviewer move an undecided pull request to Needs work", () => {
+  const d = detail({
+    pr: { checks: sum(2, 0, 0), reviewDecision: "review_required" },
+    checks: check("passed", 2),
+    reviewers: [{ name: "review-user", state: "changes_requested" }, { name: "a", state: "approved" }],
+    names: { "review-user": "Review User" },
+  });
+  assert.deepEqual(verdictOf(d), { group: "needsWork", title: "Needs work", reasons: "2 checks passed · review required · changes requested by Review User" });
+  const none = detail({ pr: { reviewDecision: null }, reviewers: [{ name: "review-user", state: "changes_requested" }] });
+  assert.deepEqual(verdictOf(none), { group: "needsWork", title: "Needs work", reasons: "changes requested by review-user" });
+  // A draft stays a draft.
+  assert.equal(verdictOf(detail({ pr: { isDraft: true }, reviewers: [{ name: "r", state: "changes_requested" }] })).group, "draft");
+});
+
+test("verdictOf: reasons use display names, draft and unknown merge state are named", () => {
+  const approved = detail({ pr: { reviewDecision: "approved" }, reviewers: [{ name: "octo-user", state: "approved" }], names: { "octo-user": "Octo User" } });
+  assert.equal(verdictOf(approved).reasons, "approved by Octo User");
+  const draft = detail({ pr: { isDraft: true }, checks: check("passed", 1) });
+  assert.equal(verdictOf(draft).reasons, "1 check passed · draft");
+  const unknown = detail({ pr: { mergeable: "unknown" }, merge: { state: "unknown", reason: null } });
+  assert.deepEqual(verdictOf(unknown), { group: "waiting", title: "Waiting on review", reasons: "merge state not known yet" });
+});
+
+test("verdictOf: a pull request outside Ready to merge never says nothing blocks the merge", () => {
+  // The pull request row and the merge read disagree, so no other reason applies.
+  const waiting = detail({ pr: { mergeable: "blocked" } });
+  assert.deepEqual(verdictOf(waiting), { group: "waiting", title: "Waiting on review", reasons: "No review yet" });
+  assert.equal(verdictOf(detail()).reasons, "Nothing blocks the merge");
+});
+
+test("verdictOf: singular and plural check counts", () => {
+  assert.equal(verdictOf(detail({ checks: check("passed", 1) })).reasons, "1 check passed");
+  assert.equal(verdictOf(detail({ pr: { checks: sum(0, 1, 0) }, checks: check("failed", 1) })).reasons, "1 check failed");
+  assert.equal(verdictOf(detail({ pr: { checks: sum(0, 0, 1) }, checks: check("running", 1) })).reasons, "1 check running");
+  assert.equal(verdictOf(detail({ pr: { checks: sum(1, 1, 0) }, checks: [...check("passed", 1), ...check("failed", 1)] })).reasons, "1 of 2 checks failed");
+});
+
+test("sectionSummaries: commented-only reviewers count, singular wording", () => {
+  const d = detail({ reviewers: [{ name: "a", state: "commented" }] });
+  assert.equal(sectionSummaries(d, [], true).reviews, "1 commented");
+  assert.equal(sectionSummaries(detail({ reviewers: [{ name: "a", state: "commented" }, { name: "b", state: "approved" }] }), [], true).reviews, "1 approved · 1 commented");
+  assert.equal(sectionSummaries(detail(), [{ path: "/w", branch: "b" }], true).agent, "1 worktree");
+  assert.equal(sectionSummaries(detail({ conversation: [entry("A", "1")] }), [], true).conversation, "1 comment");
+});
+
+test("sectionOpen: a stored choice holds only while the default is what it was", () => {
+  assert.equal(sectionOpen(undefined, true), true);
+  assert.equal(sectionOpen(undefined, false), false);
+  assert.equal(sectionOpen({ open: false, defaultWas: true }, true), false);
+  assert.equal(sectionOpen({ open: true, defaultWas: false }, false), true);
+  // Closed while it was green, then a check fails: the section opens again.
+  assert.equal(sectionOpen({ open: false, defaultWas: false }, true), true);
+  assert.equal(sectionOpen({ open: true, defaultWas: true }, false), false);
+  assert.equal(sectionOpen(true, false), false);
 });
