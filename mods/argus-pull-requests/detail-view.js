@@ -15,7 +15,8 @@ export const SECTIONS = [
   ["conversation", "Conversation"],
 ];
 
-const STATE_WORDS = { approved: "approved", changes_requested: "changes requested", commented: "commented", dismissed: "dismissed" };
+/** The chip of a review, by its state; a review that only left comments reads "reviewed". */
+const REVIEW_CHIPS = { approved: "approved", changes_requested: "changes requested", commented: "reviewed", dismissed: "dismissed" };
 const REVIEWER_WORDS = { approved: "Approved", changes_requested: "Changes requested", commented: "Commented", dismissed: "Dismissed", pending: "Pending", requested: "Review requested" };
 
 /** The color of a verdict group. */
@@ -205,8 +206,9 @@ function itemView(t, view, item, index) {
   const threads = item.threads.map((thread, n) => threadView(t, view, thread, `${index}-${n}`));
   if (item.kind === "thread") return v_flex().id(`item-${index}`).gap(6).children(threads);
   const entry = item.entry;
-  const action = entry.kind === "review" ? "reviewed" : "commented";
-  const stateColor = entry.state === "changes_requested" ? t.blocked : entry.state === "approved" ? t.done : t.muted;
+  // Every item has one chip: "commented" for a comment, the review's state for a review.
+  const label = entry.kind === "review" ? (REVIEW_CHIPS[entry.state] ?? "reviewed") : "commented";
+  const color = entry.state === "changes_requested" ? t.blocked : entry.state === "approved" ? t.done : t.muted;
   return v_flex()
     .id(`item-${index}`)
     .gap(6)
@@ -215,8 +217,7 @@ function itemView(t, view, item, index) {
         .gap(6)
         .items_center()
         .child(div().flex_none().font_semibold().child(view.nameOf(entry.author)))
-        .child(div().flex_none().text_color(t.muted).child(action))
-        .when(entry.kind === "review" && entry.state !== null, (el) => el.child(chip(t, `item-state-${index}`, STATE_WORDS[entry.state] ?? entry.state, stateColor)))
+        .child(chip(t, `item-state-${index}`, label, color))
         .child(div().flex_1())
         .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(entry.at, view.now))),
     )
@@ -252,7 +253,15 @@ function threadView(t, view, thread, key) {
             v_flex()
               .id(`thread-${key}-${n}`)
               .gap(2)
-              .child(div().text_size(11.5).text_color(t.dim).child(`${view.nameOf(comment.author)} · ${view.age(comment.at, view.now)}`))
+              .child(
+                h_flex()
+                  .gap(6)
+                  .items_center()
+                  .text_size(12)
+                  .child(div().flex_none().font_semibold().child(view.nameOf(comment.author)))
+                  .child(div().flex_1())
+                  .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(comment.at, view.now))),
+              )
               .child(markdown(t, `md-thread-${key}-${n}`, comment.body)),
           ),
         ),
