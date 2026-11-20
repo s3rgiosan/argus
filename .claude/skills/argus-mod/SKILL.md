@@ -41,7 +41,7 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 - Section titles use sentence case, for example "Ready to merge".
 - Popup menus use `menuRow` and the keys in `lib/menu.js` (↑ and ↓ move, Enter picks).
 - Icons: use Herdr's own icon file when Herdr ships one, through `lib/icons.js` (`resolveIcon` / `iconResolver`). This keeps the icon in step with Herdr and falls back to the mod's own copy when Herdr's file is missing. Decide the path in `init`, never in `render`. For icons that Herdr does not ship, add the Lucide SVG to the mod's `icons/` folder with `LICENSE-Lucide.txt`.
-- Busy states spin the refresh icon (`.spin(900)`). Do not show "updating…" text.
+- A refresh spins the refresh icon (`.spin(900)`) with no text. An action the person started (Working…, Checking out…, Starting…) may show a short text state.
 - On a button, stop the left mouse-down (`on_mouse_down("left", (_e, cx) => cx.stop_propagation())`) and act on click. Handle a right-click with `on_mouse_down("right")` and `stop_propagation`. Give an icon-only button a tooltip.
 - Layout blocks in the tab row carry `window_drag: true`, like Herdr's own tab bar block.
 - Sizes that Herdr's layout defines are read from the live layout. For example, the Argus panel copies `size`, `min` and `max` from Herdr's `panel` block in `main.json`.
