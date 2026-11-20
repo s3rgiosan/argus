@@ -94,6 +94,21 @@ When there are extra instructions, Argus adds them after the prompt, under the l
 { "pullRequests": { "review": { "instructions": "Use the <name> skill.", "promptFile": "~/prompts/pr-review.md" } } }
 ```
 
+## Merged worktrees
+
+The trash icon in the header opens Merged worktrees. It lists the worktrees whose pull request is merged, so you can remove them in one step:
+
+- It reads the repos of the board's current scope: every linked worktree, whoever made it (Herdr's New worktree, Check out, Review with agent, tsk). It leaves out the main checkout and the repo's default branch.
+- Merged means GitHub or GitLab says the pull request of that branch is merged. A review worktree (`argus/review-<n>-…`) matches by its number.
+- Each worktree that may go is ticked. These stay, greyed, with the reason:
+  - "has changes": uncommitted or untracked files.
+  - "open in a space": a Herdr space works in it.
+  - "locked": `git worktree lock` holds it.
+  - "has an open pull request": the branch has a new open pull request.
+  - "has newer commits": the branch has commits the merged pull request did not have.
+- Remove removes the ticked worktrees with `git worktree remove` (never `--force`), then deletes each local branch only when its last commit is still the one the pull request merged. A review branch is deleted with `git branch -d`. Each row then shows its result. Nothing is removed until you press Remove, and no remote branch is touched.
+- A repo whose worktrees or pull requests cannot be read is left out, with a note.
+
 ## Settings
 
 Gear icon in the header:
