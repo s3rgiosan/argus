@@ -11,11 +11,12 @@ import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
-import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghPrStateArgs, ghDefaultBranchArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY } from "./forge.js";
-import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, prKey } from "./model.js";
+import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghPrStateArgs, ghDefaultBranchArgs, ghIssuesArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY, GL_ISSUES_QUERY, GL_USERNAME_QUERY } from "./forge.js";
+import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, parseGhIssues, parseGlIssues, parseGlUsername, prKey } from "./model.js";
 import { candidates, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
 import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
+import { remoteHeadsArgs, parseRemoteHeads, branchItems, remoteBranchPlan, issueBranch, issuePlan, filterItems } from "./newworktree.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
@@ -99,6 +100,9 @@ export default class PullRequests extends View {
     // The Merged worktrees view: {phase, scope, notes, groups, ticked, results, current}, or null before it opens.
     // `current` is the path being removed now, else null.
     this.cleanup = null;
+    // The New worktree view: {project, picking, tab, items, loading, errors, creating, createError, lastPr}, or null before it opens.
+    // `items` holds the read lists per tab and project key; `loading` and `errors` are keyed by `<tab>|<project key>`.
+    this.newWorktree = null;
     // The Review with agent dialog: the pull request it was opened for, the agents (null while they load), the picked one.
     this.review = this.view === "review" ? { pr: props()?.pr ?? null, owner: props()?.owner ?? null, choices: null, picked: 0, error: null, starting: false, startId: null, handled: null } : null;
     // The id of the last Start request this pane copy took.
@@ -114,6 +118,8 @@ export default class PullRequests extends View {
     this.handle = cx.focus_handle();
     this.filterInput = this.input("filter", { placeholder: "Filter by title, number, author or branch" }, () => {});
     this.filterInput.on("change", (_e, cx) => cx.notify());
+    this.worktreeFilter = this.input("worktree-filter", { placeholder: "Filter by branch, number or title" }, () => {});
+    this.worktreeFilter.on("change", (_e, cx) => cx.notify());
     this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     // The body of a review comment, for Request changes and Comment.
@@ -553,6 +559,8 @@ export default class PullRequests extends View {
         return this.renderSettings(t);
       case "cleanup":
         return this.renderCleanup(t);
+      case "newWorktree":
+        return this.renderNewWorktree(t);
       default:
         return this.renderBoard(t);
     }
@@ -605,7 +613,11 @@ export default class PullRequests extends View {
     return frame(t, "argus-pull-requests")
       .child(head)
       .child(scrollArea("argus-pull-requests-board", parts, { padding: 6 }))
-      .child(footer(t).child(field(t, "filter", this.filterInput, this.focused === "filter")));
+      .child(
+        footer(t)
+          .child(field(t, "filter", this.filterInput, this.focused === "filter"))
+          .child(iconButton(t, "new-worktree", ICON("plus"), (_e, cx) => this.openNewWorktree(cx), { tooltip: "New worktree" })),
+      );
   }
 
   renderScopes(t) {
@@ -1264,6 +1276,355 @@ export default class PullRequests extends View {
       return line.tooltip(`Remove deletes these ignored files: ${shown}${more}`);
     }
     return line.tooltip(row.branch);
+  }
+
+  /** Opens the New worktree view and reads the tab it shows. */
+  openNewWorktree(cx) {
+    this.view = "newWorktree";
+    this.handle.focus();
+    this.newWorktree ??= { project: null, picking: false, tab: "branch", items: { branch: {}, issue: {} }, loading: {}, errors: {}, creating: null, createError: null, lastPr: null };
+    this.readWorktreeTab(cx, false);
+    cx.notify();
+  }
+
+  /** The projects of the board's scope that have a local checkout. */
+  worktreeProjects() {
+    const board = readBoard();
+    return scopeProjects(board, readScope(), followedOf(board)).filter((project) => project.localPath);
+  }
+
+  /** The chosen project, else the followed one when it is listed, else the first. */
+  worktreeProject(projects) {
+    const state = this.newWorktree;
+    const chosen = projects.find((project) => project.key === state?.project);
+    if (chosen) return chosen;
+    const followed = followedOf(readBoard());
+    return projects.find((project) => project.key === followed) ?? projects[0] ?? null;
+  }
+
+  /** Reads the shown tab of the shown repo unless it is read or loading; `force` reads it again. The pull request tab has no read. */
+  readWorktreeTab(cx, force) {
+    const state = this.newWorktree;
+    const project = this.worktreeProject(this.worktreeProjects());
+    const tab = state.tab;
+    if (project === null || tab === "pr") return;
+    const slot = `${tab}|${project.key}`;
+    if (state.loading[slot]) return;
+    if (!force && Object.hasOwn(state.items[tab], project.key)) return;
+    state.loading[slot] = true;
+    delete state.errors[slot];
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      try {
+        const read = tab === "branch" ? await this.readBranches(project) : await this.readIssues(project);
+        if (read.error) state.errors[slot] = read.error;
+        else state.items[tab][project.key] = read;
+      } catch (caught) {
+        state.errors[slot] = caught?.message ?? String(caught);
+      }
+      delete state.loading[slot];
+      cx.notify();
+    });
+  }
+
+  /** The remote branches of a project, with the worktree of each. Gives `{error}` when a git call fails. */
+  async readBranches(project) {
+    const [heads, list] = await Promise.all([
+      exec("git", remoteHeadsArgs(), { cwd: project.localPath, timeout: CLI_TIMEOUT }),
+      exec("git", ["worktree", "list", "--porcelain"], { cwd: project.localPath, timeout: GIT_TIMEOUT }),
+    ]);
+    if (heads.code !== 0) return { error: gitError(heads) };
+    if (list.code !== 0) return { error: gitError(list) };
+    const defaultBranch = await this.defaultBranchFor(project);
+    return { entries: branchItems(parseRemoteHeads(heads.stdout), defaultBranch, list.stdout) };
+  }
+
+  /** The open issues assigned to the signed-in user. Gives `{error}` when gh or glab fails. */
+  async readIssues(project) {
+    const github = project.provider === "github";
+    const command = await this.locate(github ? "gh" : "glab");
+    if (command === null) return { error: github ? GH_MISSING : GLAB_MISSING };
+    const label = github ? "gh" : `glab (${project.host})`;
+    const notes = [];
+    let issues = null;
+    if (github) {
+      issues = await this.attempt(label, command, ghIssuesArgs(project.repo), parseGhIssues, notes);
+    } else {
+      const user = await this.attempt(label, command, glabArgs(project.host, GL_USERNAME_QUERY), parseGlUsername, notes);
+      if (user !== null) issues = await this.attempt(label, command, glabArgs(project.host, GL_ISSUES_QUERY, { path: project.repo, user }), parseGlIssues, notes);
+    }
+    return issues === null ? { error: notes[0] ?? `${label}: could not read the issues` } : { entries: issues };
+  }
+
+  /** The default branch of a project: the remote's HEAD, else the forge's answer, else null. */
+  async defaultBranchFor(project) {
+    const head = await exec("git", defaultBranchArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
+    const local = head.code === 0 ? defaultBranchOf(head.stdout) : null;
+    if (local !== null) return local;
+    const github = project.provider === "github";
+    const command = await this.locate(github ? "gh" : "glab");
+    if (command === null) return null;
+    const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
+    return this.attempt(github ? "gh" : `glab (${project.host})`, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
+  }
+
+  /** Runs a create flow for the row `slot` and shows its error under the list. */
+  createWorktree(cx, slot, task) {
+    const state = this.newWorktree;
+    if (state.creating !== null) return;
+    state.creating = slot;
+    state.createError = null;
+    state.lastPr = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let error = null;
+      try {
+        error = await task();
+      } catch (caught) {
+        error = caught?.message ?? String(caught);
+      }
+      state.creating = null;
+      state.createError = error;
+      if (error === null) {
+        // The branch list shows the new worktree after the next read.
+        const project = this.worktreeProject(this.worktreeProjects());
+        if (project !== null) delete state.items.branch[project.key];
+        this.readWorktreeTab(cx, false);
+      }
+      cx.notify();
+    });
+  }
+
+  /** Selects the space that shows a worktree folder, or opens one. */
+  openWorktreeSpace(path) {
+    const id = spaceFor(spaces(), panes(), path);
+    if (id !== null) run("space.select", { id });
+    else run("space.new", { folder: path });
+  }
+
+  /** The worktrees folder and the worktree list of a clone; gives an error text instead when either fails. */
+  async worktreeContext(localPath) {
+    const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
+    if ("error" in resolved) return { error: resolved.error };
+    const list = await exec("git", ["worktree", "list", "--porcelain"], { cwd: localPath, timeout: GIT_TIMEOUT });
+    if (list.code !== 0) return { error: gitError(list) };
+    return { root: resolved.root, porcelain: list.stdout };
+  }
+
+  /** Starts a worktree from a remote branch; gives an error text, or null on success. */
+  async runBranchWorktree(project, branch) {
+    const context = await this.worktreeContext(project.localPath);
+    if ("error" in context) return context.error;
+    const exists = await exec("git", tipArgs(branch), { cwd: project.localPath, timeout: GIT_TIMEOUT });
+    const plan = remoteBranchPlan({ branch, localPath: project.localPath, root: context.root, porcelain: context.porcelain, localExists: exists.code === 0 });
+    if (plan.kind === "open") {
+      this.openWorktreeSpace(plan.path);
+      return null;
+    }
+    const git = (args) => exec("git", args, { cwd: project.localPath, timeout: GIT_LONG_TIMEOUT });
+    const fetched = await git(plan.fetch);
+    if (fetched.code !== 0) return gitError(fetched);
+    const added = await git(plan.add);
+    if (added.code !== 0) return gitError(added);
+    run("space.new", { folder: plan.path });
+    return null;
+  }
+
+  /** Starts a worktree on a new branch for an issue; gives an error text, or null on success. */
+  async runIssueWorktree(project, issue) {
+    const context = await this.worktreeContext(project.localPath);
+    if ("error" in context) return context.error;
+    const defaultBranch = await this.defaultBranchFor(project);
+    if (defaultBranch === null) return "Could not read the default branch of the repo.";
+    const exists = await exec("git", tipArgs(issueBranch(issue.number, issue.title)), { cwd: project.localPath, timeout: GIT_TIMEOUT });
+    const plan = issuePlan({ ...issue, defaultBranch, localPath: project.localPath, root: context.root, porcelain: context.porcelain, localExists: exists.code === 0 });
+    if (plan.kind === "open") {
+      this.openWorktreeSpace(plan.path);
+      return null;
+    }
+    const checked = await exec("git", plan.check, { cwd: project.localPath, timeout: GIT_TIMEOUT });
+    if (checked.code !== 0) return gitError(checked);
+    const git = (args) => exec("git", args, { cwd: project.localPath, timeout: GIT_LONG_TIMEOUT });
+    if (plan.fetch !== null) {
+      const fetched = await git(plan.fetch);
+      if (fetched.code !== 0) return gitError(fetched);
+    }
+    const added = await git(plan.add);
+    if (added.code !== 0) return gitError(added);
+    run("space.new", { folder: plan.path });
+    return null;
+  }
+
+  renderNewWorktree(t) {
+    const state = this.newWorktree;
+    const icon = iconResolver(MOD, this.found);
+    const back = (_e, cx) => {
+      this.view = "board";
+      cx.notify();
+    };
+    const projects = this.worktreeProjects();
+    const project = this.worktreeProject(projects);
+    const slot = project === null ? null : `${state.tab}|${project.key}`;
+    const loading = slot !== null && state.loading[slot] === true;
+    const refresh = iconButton(t, "worktree-refresh", ICON("refresh-cw"), (_e, cx) => this.readWorktreeTab(cx, true), { busy: loading, enabled: state.tab !== "pr" && project !== null && !loading, tooltip: "Read again" });
+    const head = subHeader(t, back, "New worktree", icon("chevron-left")).child(div().flex_1()).child(refresh);
+
+    const top = [];
+    if (project === null) {
+      top.push(note(t, "No repo with a local checkout in this scope."));
+    } else {
+      top.push(sectionTitle(t, "Repo"));
+      if (projects.length > 1 && state.picking) {
+        for (const entry of projects) {
+          top.push(
+            listRow(t, `worktree-repo-${entry.key}`)
+              .cursor_pointer()
+              .on_click((_e, cx) => {
+                state.project = entry.key;
+                state.picking = false;
+                this.readWorktreeTab(cx, false);
+                cx.notify();
+              })
+              .child(div().flex_1().min_w(0).truncate().child(entry.repo))
+              .child(div().size(12).flex_none().when(entry.key === project.key, (el) => el.child(svg(icon("check")).size(12).text_color(t.accent)))),
+          );
+        }
+      } else {
+        const change = div()
+          .id("worktree-change")
+          .flex_none()
+          .text_size(12)
+          .text_color(t.accent)
+          .cursor_pointer()
+          .hover((s) => s.text_color(t.foreground))
+          .on_click((_e, cx) => {
+            state.picking = true;
+            cx.notify();
+          })
+          .child("Change");
+        top.push(
+          listRow(t, "worktree-repo", { hover: false })
+            .child(div().flex_1().min_w(0).truncate().child(project.repo))
+            .when(projects.length > 1, (el) => el.child(change)),
+        );
+      }
+      top.push(
+        h_flex()
+          .px(8)
+          .py(6)
+          .child(
+            segmented(
+              t,
+              "worktree-tab",
+              [
+                { value: "branch", label: "Branch" },
+                { value: "pr", label: "Pull request" },
+                { value: "issue", label: "Issue" },
+              ],
+              state.tab,
+              (value, cx) => {
+                state.tab = value;
+                this.readWorktreeTab(cx, false);
+                cx.notify();
+              },
+            ),
+          ),
+      );
+      top.push(h_flex().px(8).pb(6).child(field(t, "worktree-filter", this.worktreeFilter, this.focused === "worktree-filter")));
+    }
+
+    const parts = [];
+    if (project !== null) {
+      const text = this.worktreeFilter.value();
+      const error = state.errors[slot];
+      if (loading) {
+        parts.push(note(t, "Loading…"));
+      } else if (error) {
+        parts.push(errorLine(t, error));
+      } else {
+        parts.push(...this.worktreeRows(t, project, state, text));
+      }
+    }
+
+    return frame(t, "argus-pull-requests-new-worktree")
+      .track_focus(this.handle)
+      .on_key_down((e, cx) => {
+        if (e.key !== "escape") return;
+        cx.stop_propagation();
+        back(e, cx);
+      })
+      .child(head)
+      .child(v_flex().flex_none().px(6).children(top))
+      .child(scrollArea("argus-pull-requests-new-worktree-list", parts, { padding: 6 }))
+      .when(this.worktreeError(state) !== null, (el) => el.child(errorLine(t, this.worktreeError(state)).id("worktree-error")));
+  }
+
+  /** The create error to show: the one of a branch or issue create, else the one of the last pull request check out. */
+  worktreeError(state) {
+    if (state.createError) return state.createError;
+    const error = state.lastPr === null ? null : this.checkouts.get(state.lastPr)?.error;
+    return error ? error : null;
+  }
+
+  /** The rows of the shown tab, filtered by the filter text. */
+  worktreeRows(t, project, state, text) {
+    const rows = [];
+    const status = (label, color) => div().flex_none().text_size(11).text_color(color).child(label);
+    if (state.tab === "pr") {
+      const prs = readBoard()
+        .prs.filter((pr) => pr.state === "open" && pr.provider === project.provider && pr.host === project.host && pr.repo.toLowerCase() === project.repo.toLowerCase())
+        .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+      for (const pr of filterItems(prs, text, (item) => `#${item.number} ${item.title} ${item.headRef}`)) {
+        const running = this.checkouts.get(prKey(pr))?.running === true;
+        rows.push(
+          this.worktreeRow(t, `worktree-pr-${prKey(pr)}`, running || state.creating !== null, (cx) => {
+            state.lastPr = prKey(pr);
+            state.createError = null;
+            this.checkOut(cx, pr, project.localPath);
+          })
+            .child(div().flex_none().text_size(12).text_color(t.muted).child(`#${pr.number}`))
+            .child(div().flex_1().min_w(0).truncate().child(pr.title))
+            .when(running, (el) => el.child(status("Creating…", t.muted)))
+            .tooltip(pr.title),
+        );
+      }
+      return rows.length > 0 ? rows : [note(t, "No open pull requests of this repo on the board.")];
+    }
+    const read = state.items[state.tab][project.key];
+    if (state.tab === "branch") {
+      const items = filterItems(read?.entries ?? [], text, (item) => item.branch);
+      for (const item of items) {
+        const slot = `branch:${project.key}:${item.branch}`;
+        rows.push(
+          this.worktreeRow(t, `worktree-branch-${item.branch}`, state.creating !== null, (cx) => this.createWorktree(cx, slot, () => this.runBranchWorktree(project, item.branch)))
+            .child(div().flex_1().min_w(0).truncate().child(item.branch))
+            .when(state.creating === slot, (el) => el.child(status("Creating…", t.muted)))
+            .when(state.creating !== slot && item.path !== null, (el) => el.child(status("open", t.dim)))
+            .tooltip(item.branch),
+        );
+      }
+      return rows.length > 0 ? rows : [note(t, "No other branches on the remote.")];
+    }
+    const items = filterItems(read?.entries ?? [], text, (item) => `#${item.number} ${item.title}`);
+    for (const item of items) {
+      const slot = `issue:${project.key}:${item.number}`;
+      rows.push(
+        this.worktreeRow(t, `worktree-issue-${item.number}`, state.creating !== null, (cx) => this.createWorktree(cx, slot, () => this.runIssueWorktree(project, item)))
+          .child(div().flex_none().text_size(12).text_color(t.muted).child(`#${item.number}`))
+          .child(div().flex_1().min_w(0).truncate().child(item.title))
+          .when(state.creating === slot, (el) => el.child(status("Creating…", t.muted)))
+          .tooltip(item.title),
+      );
+    }
+    return rows.length > 0 ? rows : [note(t, "No open issues assigned to you.")];
+  }
+
+  /** A pickable 28 px row. A busy row takes no clicks. */
+  worktreeRow(t, id, busy, onPick) {
+    const line = listRow(t, id, { hover: !busy });
+    return busy ? line : line.cursor_pointer().on_click((_e, cx) => onPick(cx));
   }
 
   renderSettings(t) {
