@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An empty pull request list after a failed read says "No pull requests could be read. See the messages above." in place of "No pull requests here".
 - With Follow space, a new space shows "Reading this space…" until the board knows its folder, in place of "This space is not a GitHub or GitLab repo." while its pull requests load.
 
 ## [1.7.0] - 2026-11-20

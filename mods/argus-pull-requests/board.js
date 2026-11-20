@@ -460,3 +460,17 @@ export function withFolders(board, folders) {
   const missing = folders.filter((folder) => !board.folders.includes(folder));
   return missing.length === 0 ? board : { ...board, folders: [...board.folders, ...missing] };
 }
+
+/**
+ * The text of an empty pull request list: loading before the first read, a pointer to the notes
+ * when a read failed (the list may be empty because of it), else that the scope has none.
+ * @param {Board} board
+ * @returns {string}
+ */
+export function emptyMessage(board) {
+  if (board.readAt === 0) return "Loading…";
+  // Notes that a list was cut ("Showing the first …", `limitNote`) report no failure.
+  const failed = board.notes.some((note) => !note.startsWith("Showing the first "));
+  if (failed) return "No pull requests could be read. See the messages above.";
+  return "No pull requests here";
+}

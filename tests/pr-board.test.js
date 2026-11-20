@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ageText,
+  emptyMessage,
   followStatus,
   withFolders,
   prPaneTitle,
@@ -332,4 +333,13 @@ test("withFolders adds folders the board has not listed, once", () => {
   assert.deepEqual(withFolders(board, ["/a", "/b"]).folders, ["/a", "/b"]);
   assert.equal(withFolders(board, ["/a"]), board);
   assert.deepEqual(board.folders, ["/a"]);
+});
+
+test("emptyMessage: an empty list after failed reads does not claim there are no pull requests", () => {
+  const board = assembleBoard(input({}));
+  assert.equal(emptyMessage({ ...board, readAt: 0 }), "Loading…");
+  assert.equal(emptyMessage(board), "No pull requests here");
+  assert.equal(emptyMessage({ ...board, notes: ["gh: error connecting to api.github.com"] }), "No pull requests could be read. See the messages above.");
+  // A note that a list was cut is no failed read.
+  assert.equal(emptyMessage({ ...board, notes: ["Showing the first 100 pull requests of example-org/example-repo."] }), "No pull requests here");
 });
