@@ -4,6 +4,8 @@ import {
   ageText,
   emptyMessage,
   scopeRepos,
+  scopeProjects,
+  openBranches,
   followStatus,
   withFolders,
   prPaneTitle,
@@ -374,4 +376,20 @@ test("emptyMessage: only a failed read in the scope counts", () => {
   assert.equal(emptyMessage(failedGl), "No pull requests could be read. See the messages above.");
   // A cut list never counts.
   assert.equal(emptyMessage({ ...board, notes: ["Showing the first 100 pull requests of example-org/example-repo."] }, gh), "No pull requests here");
+});
+
+test("scopeProjects: the projects a scope shows", () => {
+  const lab = { ...project, key: "gitlab.example.com/example-group/example-project", provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project" };
+  const board = assembleBoard(input({ projects: [project, lab] }));
+  assert.deepEqual(scopeProjects(board, { show: "all", where: "all" }, null).map((p) => p.key), [project.key, lab.key]);
+  assert.deepEqual(scopeProjects(board, { show: "all", where: "project", key: lab.key }, null).map((p) => p.key), [lab.key]);
+  assert.deepEqual(scopeProjects(board, { show: "mine", where: "follow" }, project.key).map((p) => p.key), [project.key]);
+  assert.deepEqual(scopeProjects(board, { show: "all", where: "follow" }, null), []);
+});
+
+test("openBranches: the head branches of a repo's open pull requests", () => {
+  const board = assembleBoard(input({}));
+  const pr = (number, headRef, state, repo = project.repo) => ({ ...board.prs[0], provider: project.provider, host: project.host, repo, number, headRef, state });
+  const withPrs = { ...board, prs: [pr(1, "feat/a", "open"), pr(2, "feat/b", "merged"), pr(3, "feat/c", "open", "example-org/other-repo")] };
+  assert.deepEqual([...openBranches(withPrs, project)], ["feat/a"]);
 });
