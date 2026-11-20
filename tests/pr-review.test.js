@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, titleSlug, removePlan, branchDelete, dirtyRefusal, startRefusal, promptFileRefusal, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, titleSlug, removePlan, branchDelete, dirtyRefusal, startRefusal, promptFileRefusal, accountSettings, prefillNext, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
 
 const known = [
   { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true, agent: true, installed: true, run: ["claude"] },
@@ -113,9 +113,9 @@ test("reviewPrompt: configured and extra instructions come last, under the read-
 });
 
 test("reviewInstructions reads pullRequests.review.instructions and promptFile", () => {
-  assert.deepEqual(reviewInstructions(null), { instructions: null, promptFile: null, error: null });
-  assert.deepEqual(reviewInstructions('{"pullRequests":{"review":{"instructions":"  Be brief. "}}}'), { instructions: "Be brief.", promptFile: null, error: null });
-  assert.deepEqual(reviewInstructions('{"toolbar":{}}'), { instructions: null, promptFile: null, error: null });
+  assert.deepEqual(reviewInstructions(null), { instructions: null, promptFile: null, accounts: {}, error: null });
+  assert.deepEqual(reviewInstructions('{"pullRequests":{"review":{"instructions":"  Be brief. "}}}'), { instructions: "Be brief.", promptFile: null, accounts: {}, error: null });
+  assert.deepEqual(reviewInstructions('{"toolbar":{}}'), { instructions: null, promptFile: null, accounts: {}, error: null });
   assert.equal(reviewInstructions('{"pullRequests":{"review":{"promptFile":" ~/review.md "}}}').promptFile, "~/review.md");
   assert.equal(reviewInstructions('{"pullRequests":{"review":{"promptFile":5}}}').error, "pullRequests.review.promptFile is not text");
   assert.equal(reviewInstructions('{"pullRequests":{"review":{"instructions":3}}}').error, "pullRequests.review.instructions is not text");
@@ -352,4 +352,73 @@ test("templateRefusal names placeholders the prompt file does not know", () => {
   assert.equal(templateRefusal("Review {{number}} in {{repo}}."), null);
   assert.match(templateRefusal("Review {{numbr}} and {{x}}."), /\{\{numbr\}\}, \{\{x\}\}/);
   assert.match(templateRefusal("   "), /empty/);
+});
+
+const accountsText = JSON.stringify({
+  pullRequests: { review: { accounts: {
+    "~/.claude": { instructions: "  Use the example-skill skill. " },
+    "~/.claude-work/": { instructions: "Brief: ", promptFile: " ~/prompts/work-review.md " },
+    "/opt/claude-extra": { instructions: "" },
+  } } },
+});
+
+test("reviewInstructions: accounts are keyed by the expanded folder, trimmed, empty as null", () => {
+  const read = reviewInstructions(accountsText, "/home/test");
+  assert.equal(read.error, null);
+  assert.deepEqual(read.accounts, {
+    "/home/test/.claude": { instructions: "Use the example-skill skill.", promptFile: null },
+    "/home/test/.claude-work": { instructions: "Brief:", promptFile: "~/prompts/work-review.md" },
+    "/opt/claude-extra": { instructions: null, promptFile: null },
+  });
+  assert.deepEqual(reviewInstructions(null, "/home/test").accounts, {});
+  assert.deepEqual(reviewInstructions('{"pullRequests":{"review":{}}}', "/home/test").accounts, {});
+});
+
+test("reviewInstructions: a bad accounts setting gives an error", () => {
+  const bad = (value) => reviewInstructions(JSON.stringify({ pullRequests: { review: { accounts: value } } }), "/home/test").error;
+  assert.equal(bad([]), "pullRequests.review.accounts is not an object");
+  assert.equal(bad("x"), "pullRequests.review.accounts is not an object");
+  assert.equal(bad({ "~/.claude": "x" }), 'pullRequests.review.accounts["~/.claude"] is not an object');
+  assert.equal(bad({ "~/.claude": { instructions: 3 } }), 'pullRequests.review.accounts["~/.claude"].instructions is not text');
+  assert.equal(bad({ "~/.claude": { promptFile: [] } }), 'pullRequests.review.accounts["~/.claude"].promptFile is not text');
+});
+
+test("agentChoices: Claude Code choices carry their account folder, other agents null", () => {
+  const choices = agentChoices(known, profiles, { names: {}, hidden: [] }, "/home/test");
+  assert.deepEqual(choices.map((c) => c.folder), ["/home/test/.claude", "/home/test/.claude-work", null]);
+  assert.deepEqual(agentChoices(known.slice(0, 1), [], { names: {}, hidden: [] }, "/home/test").map((c) => c.folder), ["/home/test/.claude"]);
+});
+
+test("accountSettings: the entry of the account folder, or null", () => {
+  const accounts = reviewInstructions(accountsText, "/home/test").accounts;
+  assert.equal(accountSettings(accounts, "/home/test/.claude-work").instructions, "Brief:");
+  assert.equal(accountSettings(accounts, "/home/test/.claude-work/").promptFile, "~/prompts/work-review.md");
+  assert.equal(accountSettings(accounts, "/home/test/.claude-other"), null);
+  assert.equal(accountSettings(accounts, null), null);
+  assert.equal(accountSettings(undefined, "/home/test/.claude"), null);
+});
+
+test("prefillNext: an empty field takes the pre-fill", () => {
+  assert.deepEqual(prefillNext({ current: "", prefilled: null, next: "A" }), { value: "A", prefilled: "A" });
+  assert.deepEqual(prefillNext({ current: "", prefilled: null, next: null }), { value: null, prefilled: null });
+});
+
+test("prefillNext: an untouched pre-fill is replaced", () => {
+  assert.deepEqual(prefillNext({ current: "A", prefilled: "A", next: "B" }), { value: "B", prefilled: "B" });
+  assert.deepEqual(prefillNext({ current: "A", prefilled: "A", next: "A" }), { value: null, prefilled: "A" });
+});
+
+test("prefillNext: typed text is kept", () => {
+  assert.deepEqual(prefillNext({ current: "mine", prefilled: "A", next: "B" }), { value: null, prefilled: "A" });
+  assert.deepEqual(prefillNext({ current: "mine", prefilled: null, next: "B" }), { value: null, prefilled: null });
+});
+
+test("prefillNext: an account without instructions clears only an untouched pre-fill", () => {
+  assert.deepEqual(prefillNext({ current: "A", prefilled: "A", next: null }), { value: "", prefilled: null });
+  assert.deepEqual(prefillNext({ current: "mine", prefilled: "A", next: null }), { value: null, prefilled: "A" });
+});
+
+test("prefillNext: a whitespace difference counts as typed", () => {
+  assert.deepEqual(prefillNext({ current: "A ", prefilled: "A", next: "B" }), { value: null, prefilled: "A" });
+  assert.deepEqual(prefillNext({ current: " ", prefilled: null, next: "B" }), { value: null, prefilled: null });
 });

@@ -1,7 +1,7 @@
 // Builds Review with agent: the agents to offer, their commands, the review branch and
 // worktree, the review prompt, the review runs on the board, and their removal.
 
-import { tildePath, visibleProfiles } from "./accounts.js";
+import { expandHome, tildePath, visibleProfiles } from "./accounts.js";
 import { branchSlug } from "./worktree.js";
 import { fetchRef } from "./forge.js";
 
@@ -11,7 +11,8 @@ import { fetchRef } from "./forge.js";
 /** @typedef {{path: string, branch: string, locked: boolean, prunable: boolean, seenAt: number}} Run */
 /**
  * @typedef {{key: string, name: string, icon: string|null, tint: boolean, agent: boolean, installed: boolean, run: string[]}} KnownAgent
- * @typedef {{id: string, label: string, argv: string[], model: boolean, icon: string|null, tint: boolean}} Choice
+ * @typedef {{id: string, label: string, argv: string[], model: boolean, icon: string|null, tint: boolean, folder: string|null}} Choice
+ * @typedef {{instructions: string|null, promptFile: string|null}} AccountSettings
  */
 
 /** The agents that take `--model <name>`. Only Claude Code is checked live. */
@@ -36,7 +37,8 @@ export function agentChoices(known, profiles, settings, home) {
     // Accounts found but all hidden in the Usage panel: Claude Code is left out.
     if (agent.key === "claude" && profiles.length > 0 && accounts.length === 0) continue;
     if (accounts.length === 0) {
-      choices.push({ ...base, id: agent.key, label: agent.name, argv: [...agent.run] });
+      // Claude Code with no profile found runs as the default account.
+      choices.push({ ...base, id: agent.key, label: agent.name, argv: [...agent.run], folder: agent.key === "claude" ? expandHome("~/.claude", home) : null });
       continue;
     }
     // The default profile comes first, then the others by folder.
@@ -44,7 +46,7 @@ export function agentChoices(known, profiles, settings, home) {
     for (const profile of sorted) {
       const name = settings.names[tildePath(profile.folder, home)] ?? profile.label;
       const argv = profile.isDefault ? [...agent.run] : ["env", `CLAUDE_CONFIG_DIR=${profile.folder}`, ...agent.run];
-      choices.push({ ...base, id: `${agent.key}:${profile.folder}`, label: `${agent.name} · ${name}`, argv });
+      choices.push({ ...base, id: `${agent.key}:${profile.folder}`, label: `${agent.name} · ${name}`, argv, folder: profile.folder });
     }
   }
   return choices;
@@ -128,13 +130,16 @@ export function reviewPlan({ localPath, root, branch }) {
 
 /**
  * The review settings from the text of `argus.json`: `pullRequests.review.instructions`, text
- * added to every review prompt, and `pullRequests.review.promptFile`, a file whose text replaces
- * the built-in prompt. A missing file or key gives none and no error.
+ * added to every review prompt, `pullRequests.review.promptFile`, a file whose text replaces
+ * the built-in prompt, and `pullRequests.review.accounts`, the same two settings per Claude Code
+ * account folder. `accounts` is keyed by the folder with `~` expanded. A missing file or key gives
+ * none and no error.
  * @param {string|null} text
- * @returns {{instructions: string|null, promptFile: string|null, error: string|null}}
+ * @param {string} [home]
+ * @returns {{instructions: string|null, promptFile: string|null, accounts: Record<string, AccountSettings>, error: string|null}}
  */
-export function reviewInstructions(text) {
-  const none = { instructions: null, promptFile: null, error: null };
+export function reviewInstructions(text, home = "") {
+  const none = { instructions: null, promptFile: null, accounts: {}, error: null };
   if (text === null || text === undefined || text.trim() === "") return none;
   let data;
   try {
@@ -143,18 +148,58 @@ export function reviewInstructions(text) {
     return { ...none, error: `argus.json is not valid JSON (${error instanceof Error ? error.message : String(error)})` };
   }
   const review = data?.pullRequests?.review;
-  const read = (key) => {
-    const value = review?.[key];
+  // Reads one text value of an object: null when missing or empty.
+  const read = (source, key, name) => {
+    const value = source?.[key];
     if (value === undefined || value === null) return { value: null };
-    if (typeof value !== "string") return { error: `pullRequests.review.${key} is not text` };
+    if (typeof value !== "string") return { error: `${name} is not text` };
     const trimmed = value.trim();
     return { value: trimmed === "" ? null : trimmed };
   };
-  const instructions = read("instructions");
+  const instructions = read(review, "instructions", "pullRequests.review.instructions");
   if (instructions.error) return { ...none, error: instructions.error };
-  const promptFile = read("promptFile");
+  const promptFile = read(review, "promptFile", "pullRequests.review.promptFile");
   if (promptFile.error) return { ...none, error: promptFile.error };
-  return { instructions: instructions.value, promptFile: promptFile.value, error: null };
+  const accounts = {};
+  const raw = review?.accounts;
+  if (raw !== undefined && raw !== null) {
+    if (typeof raw !== "object" || Array.isArray(raw)) return { ...none, error: "pullRequests.review.accounts is not an object" };
+    for (const [key, entry] of Object.entries(raw)) {
+      const name = `pullRequests.review.accounts[${JSON.stringify(key)}]`;
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return { ...none, error: `${name} is not an object` };
+      const text = read(entry, "instructions", `${name}.instructions`);
+      if (text.error) return { ...none, error: text.error };
+      const file = read(entry, "promptFile", `${name}.promptFile`);
+      if (file.error) return { ...none, error: file.error };
+      accounts[expandHome(key, home)] = { instructions: text.value, promptFile: file.value };
+    }
+  }
+  return { instructions: instructions.value, promptFile: promptFile.value, accounts, error: null };
+}
+
+/**
+ * The settings of one Claude Code account folder, or null for another agent or an account with no entry.
+ * @param {Record<string, AccountSettings>|undefined} accounts The `accounts` of `reviewInstructions`.
+ * @param {string|null} folder
+ * @returns {AccountSettings|null}
+ */
+export function accountSettings(accounts, folder) {
+  if (!accounts || typeof folder !== "string" || folder === "") return null;
+  const key = folder.length > 1 ? folder.replace(/\/+$/, "") : folder;
+  return Object.hasOwn(accounts, key) ? accounts[key] : null;
+}
+
+/**
+ * What to do with the Extra instructions field when the picked account changes. The field changes only
+ * when it is empty or still holds the text last pre-filled, so typed text stays.
+ * @param {{current: string, prefilled: string|null, next: string|null}} input `next` is the instructions of the picked account.
+ * @returns {{value: string|null, prefilled: string|null}} `value` null leaves the field as it is.
+ */
+export function prefillNext({ current, prefilled, next }) {
+  const untouched = current === "" || (prefilled !== null && current === prefilled);
+  if (!untouched) return { value: null, prefilled };
+  const value = next ?? "";
+  return { value: value === current ? null : value, prefilled: next };
 }
 
 /**
