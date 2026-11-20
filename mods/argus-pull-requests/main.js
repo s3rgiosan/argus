@@ -20,7 +20,7 @@ import { remoteHeadsArgs, parseRemoteHeads, branchRead, issueRead, remoteBranchP
 import { worktreeRoot, checkoutBranch, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
-import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
+import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, expandHome, readFirst } from "./accounts.js";
 import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
@@ -104,7 +104,7 @@ export default class PullRequests extends View {
     // `items` holds the read lists per tab and project key; `loading` and `errors` are keyed by `<tab>|<project key>`.
     this.newWorktree = null;
     // The Review with agent dialog: the pull request it was opened for, the agents (null while they load), the picked one.
-    this.review = this.view === "review" ? { pr: props()?.pr ?? null, owner: props()?.owner ?? null, choices: null, picked: 0, error: null, starting: false, startId: null, handled: null } : null;
+    this.review = this.view === "review" ? { pr: props()?.pr ?? null, owner: props()?.owner ?? null, choices: null, picked: 0, accounts: {}, prefilled: null, error: null, starting: false, startId: null, handled: null } : null;
     // The id of the last Start request this pane copy took.
     this.takenReview = null;
 
@@ -753,9 +753,32 @@ export default class PullRequests extends View {
       } catch {
         // Without the profiles, Claude Code shows once with its plain command.
       }
-      this.review = { ...this.review, choices: agentChoices(known, profiles, usage, home()), error };
+      // The per-account settings come from argus.json. A file that cannot be read or has an error pre-fills nothing; Start reports the error.
+      let accounts = {};
+      try {
+        accounts = reviewInstructions(await readTextFile(`${appHome()}/argus.json`), home()).accounts;
+      } catch {
+        accounts = {};
+      }
+      this.review = { ...this.review, choices: agentChoices(known, profiles, usage, home()), accounts, error };
+      this.prefillExtra();
       cx.notify();
     });
+  }
+
+  /** Sets Extra instructions to the picked account's text, unless the person typed in the field. */
+  prefillExtra() {
+    const review = this.review;
+    const choice = review?.choices?.[review.picked] ?? null;
+    const next = accountSettings(review?.accounts, choice?.folder ?? null)?.instructions ?? null;
+    const step = prefillNext({ current: this.extraInput.value(), prefilled: review?.prefilled ?? null, next });
+    let prefilled = step.prefilled;
+    if (step.value !== null) {
+      this.extraInput.set_value(step.value);
+      // The field may change the text it takes; the read-back is what an untouched pre-fill holds.
+      if (prefilled !== null) prefilled = this.extraInput.value();
+    }
+    this.review = { ...review, prefilled };
   }
 
   /**
@@ -817,15 +840,16 @@ export default class PullRequests extends View {
   async runReview(pr, argv, branch, extra) {
     const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
     if ("error" in resolved) return resolved.error;
-    const configured = reviewInstructions(await readTextFile(`${appHome()}/argus.json`));
+    const configured = reviewInstructions(await readTextFile(`${appHome()}/argus.json`), home());
     if (configured.error !== null) return configured.error;
-    // A prompt file from argus.json replaces the built-in prompt.
+    // A prompt file from argus.json replaces the built-in prompt. The account's file wins over the global one.
+    const promptFile = promptFileFor(configured, accountFolderOf(argv, home()));
     let template = null;
-    if (configured.promptFile !== null) {
-      const pathRefusal = promptFileRefusal(configured.promptFile);
+    if (promptFile.path !== null) {
+      const pathRefusal = promptFileRefusal(promptFile.path, promptFile.source);
       if (pathRefusal !== null) return pathRefusal;
-      template = await readTextFile(expandHome(configured.promptFile, home()));
-      if (template === null) return `Could not read the prompt file ${configured.promptFile} from argus.json.`;
+      template = await readTextFile(expandHome(promptFile.path, home()));
+      if (template === null) return promptFileReadError(promptFile.path, promptFile.source);
       const refusal = templateRefusal(template);
       if (refusal !== null) return refusal;
     }
@@ -886,6 +910,7 @@ export default class PullRequests extends View {
         .hover((s) => s.bg(t.hover))
         .on_click((_e, cx) => {
           this.review = { ...this.review, picked: index };
+          this.prefillExtra();
           cx.notify();
         })
         .when(pic !== null, (el) => el.child(pic))
@@ -919,7 +944,7 @@ export default class PullRequests extends View {
       group("group-extra", [
         fieldLabel(t, "Extra instructions"),
         textBox(t, "extra", this.extraInput, this.focused === "extra"),
-        hint(t, "Optional. Added to the end of the review prompt, for example: Use the <name> skill. Text for every review, or a whole prompt of your own, goes in argus.json (pullRequests.review)."),
+        hint(t, "Optional. Added to the end of the review prompt, for example: Use the <name> skill. Text for one account comes from argus.json (pullRequests.review.accounts). Text for every review, or a whole prompt of your own, goes in pullRequests.review."),
       ]),
     );
     return v_flex()
