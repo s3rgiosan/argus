@@ -790,7 +790,8 @@ export default class PullRequests extends View {
     const review = this.review;
     const pr = review?.pr ?? null;
     const close = () => closeOverlay(props()?.overlay);
-    const label = (text) => div().text_size(11.5).font_medium().text_color(t.dim).child(text);
+    // A label reads as a heading for its field: larger, bolder and brighter than the help line under the field.
+    const label = (text) => div().text_size(12.5).font_semibold().text_color(t.foreground).child(text);
     const choices = review?.choices ?? null;
     const choice = choices?.[review.picked] ?? null;
     const tiles = (choices ?? []).map((entry, index) => {
@@ -819,22 +820,33 @@ export default class PullRequests extends View {
     const starting = Boolean(review?.starting);
     // A field grows along its row, so each one sits in its own row.
     const row = (child) => h_flex().w_full().child(child);
-    const body = [
-      label("Agent"),
-      choices === null
-        ? note(t, "Looking for agents…")
-        : choices.length === 0
-          ? note(t, "No agent is installed.")
-          : h_flex().flex_wrap().gap(8).children(tiles),
-    ];
-    // Each field has a help line under it, as in the Settings view.
     const help = (text) => div().text_size(11).text_color(t.dim).whitespace_normal().child(text);
-    if (choice?.model) body.push(label("Model"), row(field(t, "model", this.modelInput, this.focused === "model")), help("Empty uses your default model. Or type an alias, such as sonnet or opus, or a full model ID."));
-    body.push(label("Branch"), row(field(t, "branch", this.branchInput, this.focused === "branch")), help(`The review worktree's branch. Keep the ${review?.pr ? `argus/review-${review.pr.number}-` : "argus/review-<number>-"} start: the board finds review runs by it.`));
+    // Each field is a tight group (label, control, help line); the groups sit further apart.
+    const group = (id, children) => v_flex().id(id).gap(6).children(children);
+    const body = [
+      group("group-agent", [
+        label("Agent"),
+        choices === null
+          ? note(t, "Looking for agents…")
+          : choices.length === 0
+            ? note(t, "No agent is installed.")
+            : h_flex().flex_wrap().gap(8).children(tiles),
+      ]),
+    ];
+    if (choice?.model) {
+      body.push(group("group-model", [label("Model"), row(field(t, "model", this.modelInput, this.focused === "model")), help("Empty uses your default model. Or type an alias, such as sonnet or opus, or a full model ID.")]));
+    }
     body.push(
-      label("Extra instructions"),
-      textBox(t, "extra", this.extraInput, this.focused === "extra"),
-      help("Optional. Added to the end of the review prompt, for example: Use the <name> skill. Text for every review, or a whole prompt of your own, goes in argus.json (pullRequests.review)."),
+      group("group-branch", [
+        label("Branch"),
+        row(field(t, "branch", this.branchInput, this.focused === "branch")),
+        help(`The review worktree's branch. Keep the ${review?.pr ? `argus/review-${review.pr.number}-` : "argus/review-<number>-"} start: the board finds review runs by it.`),
+      ]),
+      group("group-extra", [
+        label("Extra instructions"),
+        textBox(t, "extra", this.extraInput, this.focused === "extra"),
+        help("Optional. Added to the end of the review prompt, for example: Use the <name> skill. Text for every review, or a whole prompt of your own, goes in argus.json (pullRequests.review)."),
+      ]),
     );
     return v_flex()
       .id("argus-pull-requests-review")
@@ -856,7 +868,7 @@ export default class PullRequests extends View {
         el.child(h_flex().flex_none().gap(8).px(10).py(8).rounded(8).bg(t.raised).child(div().flex_none().text_color(t.muted).child(`#${pr.number}`)).child(div().flex_1().min_w(0).truncate().child(pr.title))),
       )
       // The fields scroll, so Cancel and Start stay in view with many agents.
-      .child(scrollArea("argus-pull-requests-review-body", body, { padding: 0, gap: 10 }))
+      .child(scrollArea("argus-pull-requests-review-body", body, { padding: 0, gap: 18 }))
       // The error stays in view below the fields.
       .when(Boolean(this.review?.error), (el) => el.child(div().flex_none().text_size(11).text_color(t.blocked).whitespace_normal().child(this.review?.error ?? "")))
       .child(
