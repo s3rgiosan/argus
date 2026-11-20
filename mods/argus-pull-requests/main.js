@@ -18,8 +18,8 @@ import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
-import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
-import { discover, readFirst } from "./accounts.js";
+import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
+import { discover, expandHome, readFirst } from "./accounts.js";
 import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
@@ -118,9 +118,9 @@ export default class PullRequests extends View {
     this.methodCache = new Map();
     if (this.review) {
       const pr = this.review.pr;
-      this.modelInput = this.input("model", { placeholder: "Empty: your default model. Or sonnet, opus, or a model ID" }, (cx) => this.startReview(cx));
+      this.modelInput = this.input("model", {}, (cx) => this.startReview(cx));
       this.branchInput = this.input("branch", { value: pr ? reviewBranch(pr, randomUUID().replaceAll("-", "").slice(0, 8)) : "" }, (cx) => this.startReview(cx));
-      this.extraInput = this.input("extra", { placeholder: "Optional. Added to the end of the review prompt, for example: Use the <name> skill.", rows: 4 }, (cx) => this.startReview(cx), { multiline: true });
+      this.extraInput = this.input("extra", { rows: 4 }, (cx) => this.startReview(cx), { multiline: true });
     }
 
     if (checking()) return;
@@ -745,6 +745,14 @@ export default class PullRequests extends View {
     if ("error" in resolved) return resolved.error;
     const configured = reviewInstructions(await readTextFile(`${appHome()}/argus.json`));
     if (configured.error !== null) return configured.error;
+    // A prompt file from argus.json replaces the built-in prompt.
+    let template = null;
+    if (configured.promptFile !== null) {
+      template = await readTextFile(expandHome(configured.promptFile, home()));
+      if (template === null) return `Could not read the prompt file ${configured.promptFile} from argus.json.`;
+      const refusal = templateRefusal(template);
+      if (refusal !== null) return refusal;
+    }
     // The prompt names the head commit, so the pull request is read again now. A gh or glab error throws.
     const detail = await this.readDetail(pr);
     const refusal = startRefusal(detail);
@@ -758,7 +766,7 @@ export default class PullRequests extends View {
       name: `PR #${pr.number} · ${pr.title}`,
       folder: plan.path,
       argv,
-      task: reviewPrompt({ detail, configured: configured.instructions, extra }),
+      task: reviewPrompt({ detail, configured: configured.instructions, extra, template }),
     });
     setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
     return null;
@@ -819,9 +827,15 @@ export default class PullRequests extends View {
           ? note(t, "No agent is installed.")
           : h_flex().flex_wrap().gap(8).children(tiles),
     ];
-    if (choice?.model) body.push(label("Model"), row(field(t, "model", this.modelInput, this.focused === "model")));
-    body.push(label("Branch"), row(field(t, "branch", this.branchInput, this.focused === "branch")));
-    body.push(label("Extra instructions"), textBox(t, "extra", this.extraInput, this.focused === "extra"));
+    // Each field has a help line under it, as in the Settings view.
+    const help = (text) => div().text_size(11).text_color(t.dim).whitespace_normal().child(text);
+    if (choice?.model) body.push(label("Model"), row(field(t, "model", this.modelInput, this.focused === "model")), help("Empty uses your default model. Or type an alias, such as sonnet or opus, or a full model ID."));
+    body.push(label("Branch"), row(field(t, "branch", this.branchInput, this.focused === "branch")), help(`The review worktree's branch. Keep the ${review?.pr ? `argus/review-${review.pr.number}-` : "argus/review-<number>-"} start: the board finds review runs by it.`));
+    body.push(
+      label("Extra instructions"),
+      textBox(t, "extra", this.extraInput, this.focused === "extra"),
+      help("Optional. Added to the end of the review prompt, for example: Use the <name> skill. Text for every review, or a whole prompt of your own, goes in argus.json (pullRequests.review)."),
+    );
     return v_flex()
       .id("argus-pull-requests-review")
       .track_focus(this.handle)

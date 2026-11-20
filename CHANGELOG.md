@@ -13,9 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The pane header shows the pull request's place in the board's list, with arrows to move to the previous or next one.
 - Merge ▾ lists the merge methods the repo allows, with your default marked.
 - Comments, file comments and the description render as Markdown, and people show by their display name.
+- `pullRequests.review.promptFile` in `argus.json` replaces the built-in review prompt with your own file, with placeholders for the pull request.
+- The review dialog shows a help line under each field.
 
 ### Changed
 
+- The built-in review prompt lets the agent create its own report files in the review worktree. It still forbids changing or deleting the repository's files, commits, pushes and any write to GitHub or GitLab.
 - The pane leads with a verdict in the board's words (Ready to merge, Needs work, Waiting on review, Draft, or Merged and Closed) and the reasons in one line.
 - The pane's checks, reviews, review agent, description and conversation are folding sections. Sections that need you open by themselves, and your choice stays per pull request.
 - A footer holds Review with agent, Merge ▾ and a ⋯ menu with Comment, Approve, Request changes, Check out in a worktree and Open in browser.
