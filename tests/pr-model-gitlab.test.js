@@ -169,5 +169,11 @@ test("parseGlabDetail notes a thread list that reached its limit", () => {
 });
 
 test("parseGlabDetail: display names of the note authors", () => {
-  assert.deepEqual(parseGlabDetail(fixture("pr-glab-detail.json"), "gitlab.example.com").names, { "review-user": "Review User", "octo-user": "Octo User" });
+  const names = parseGlabDetail(fixture("pr-glab-detail.json"), "gitlab.example.com").names;
+  assert.equal(names["review-user"], "Review User");
+  assert.equal(names["octo-user"], "Octo User");
+  // A reviewer who has not commented gets the name from the reviewer list.
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  raw.data.project.mergeRequest.reviewers.nodes.push({ username: "quiet-user", name: "Quiet User", mergeRequestInteraction: { reviewState: "UNREVIEWED" } });
+  assert.equal(parseGlabDetail(JSON.stringify(raw), "gitlab.example.com").names["quiet-user"], "Quiet User");
 });

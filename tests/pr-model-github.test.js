@@ -175,9 +175,9 @@ test("mergeThreads: threads, the limit note, or the read error", () => {
 });
 
 test("parseGhThreads: display names of the participants, without empty ones", () => {
-  assert.deepEqual(parseGhThreads(fixture("pr-gh-threads.json")).names, { "octo-user": "Octo User" });
+  assert.deepEqual(parseGhThreads(fixture("pr-gh-threads.json")).names, { "octo-user": "Octo User", "waiting-user": "Waiting User" });
   const d = parseGhDetail(fixture("pr-gh-view.json"), repo);
   assert.deepEqual(d.names, {});
-  assert.deepEqual(mergeThreads(d, parseGhThreads(fixture("pr-gh-threads.json")), null).names, { "octo-user": "Octo User" });
+  assert.deepEqual(mergeThreads(d, parseGhThreads(fixture("pr-gh-threads.json")), null).names, { "octo-user": "Octo User", "waiting-user": "Waiting User" });
   assert.deepEqual(mergeThreads(d, null, "gh: x").names, {});
 });

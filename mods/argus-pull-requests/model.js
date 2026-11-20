@@ -264,8 +264,11 @@ export function parseGhThreads(text) {
   }
   /** @type {Record<string, string>} */
   const names = {};
-  const people = raw.data?.repository?.pullRequest?.participants?.nodes;
-  for (const person of Array.isArray(people) ? people : []) {
+  // Participants, and requested reviewers who have not taken part yet.
+  const pull = raw.data?.repository?.pullRequest;
+  const requested = Array.isArray(pull?.reviewRequests?.nodes) ? pull.reviewRequests.nodes.map((request) => request?.requestedReviewer) : [];
+  const people = [...(Array.isArray(pull?.participants?.nodes) ? pull.participants.nodes : []), ...requested];
+  for (const person of people) {
     const name = typeof person?.name === "string" ? person.name.trim() : "";
     if (typeof person?.login === "string" && name !== "") names[person.login] = name;
   }
@@ -574,6 +577,20 @@ function glDiscussions(node) {
 }
 
 /**
+ * The discussions' names plus the names of the reviewers, so a reviewer who has not commented shows by name too.
+ * @param {{names: Record<string, string>}} discussions
+ * @param {object} node The merge request.
+ */
+function withReviewerNames(discussions, node) {
+  const names = { ...discussions.names };
+  for (const reviewer of Array.isArray(node.reviewers?.nodes) ? node.reviewers.nodes : []) {
+    const name = typeof reviewer?.name === "string" ? reviewer.name.trim() : "";
+    if (typeof reviewer?.username === "string" && name !== "") names[reviewer.username] ??= name;
+  }
+  return { ...discussions, names };
+}
+
+/**
  * @param {string} text `glab api graphql` output for the detail query.
  * @param {string} host
  * @returns {Detail}
@@ -593,7 +610,7 @@ export function parseGlabDetail(text, host) {
     checks: glJobChecks(node),
     reviewers: glReviewers(node),
     merge: { state: pr.mergeable, reason: glReason(node.detailedMergeStatus) },
-    ...glDiscussions(node),
+    ...withReviewerNames(glDiscussions(node), node),
     threadsError: null,
     squashLocked: node.targetProject?.squashReadOnly === true,
   };

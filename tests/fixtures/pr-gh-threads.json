@@ -71,6 +71,26 @@
               "name": null
             }
           ]
+        },
+        "reviewRequests": {
+          "nodes": [
+            {
+              "requestedReviewer": null
+            },
+            {
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "waiting-user",
+                "name": "Waiting User"
+              }
+            },
+            {
+              "requestedReviewer": {
+                "__typename": "Team",
+                "name": "example-team"
+              }
+            }
+          ]
         }
       }
     }

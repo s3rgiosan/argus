@@ -86,3 +86,8 @@ test("the detail reads ask for display names", () => {
   assert.match(GH_THREADS_QUERY, /participants\(first: 100\) \{ nodes \{ login name \} \}/);
   assert.match(GL_DETAIL_QUERY, /author \{ username name \} body createdAt system position/);
 });
+
+test("the detail reads ask for reviewer names", () => {
+  assert.match(GH_THREADS_QUERY, /reviewRequests\(first: 50\) \{ nodes \{ requestedReviewer \{ ... on User \{ login name \} \} \} \}/);
+  assert.match(GL_DETAIL_QUERY, /reviewers \{ nodes \{ username name /);
+});
