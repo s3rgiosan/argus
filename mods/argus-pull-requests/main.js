@@ -11,9 +11,10 @@ import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
-import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
-import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
-import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
+import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghPrStateArgs, ghDefaultBranchArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY } from "./forge.js";
+import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, prKey } from "./model.js";
+import { candidates, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
+import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
@@ -23,7 +24,7 @@ import { discover, expandHome, readFirst } from "./accounts.js";
 import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, row as listRow, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -95,6 +96,9 @@ export default class PullRequests extends View {
     this.boxKey = null;
     // Worktree path -> {confirm: null|"plain"|"dirty", running, error} for Remove worktree in the Agent section.
     this.removals = new Map();
+    // The Merged worktrees view: {phase, scope, notes, groups, ticked, results, current}, or null before it opens.
+    // `current` is the path being removed now, else null.
+    this.cleanup = null;
     // The Review with agent dialog: the pull request it was opened for, the agents (null while they load), the picked one.
     this.review = this.view === "review" ? { pr: props()?.pr ?? null, owner: props()?.owner ?? null, choices: null, picked: 0, error: null, starting: false, startId: null, handled: null } : null;
     // The id of the last Start request this pane copy took.
@@ -547,6 +551,8 @@ export default class PullRequests extends View {
         return this.renderReview(t, cx);
       case "settings":
         return this.renderSettings(t);
+      case "cleanup":
+        return this.renderCleanup(t);
       default:
         return this.renderBoard(t);
     }
@@ -953,6 +959,313 @@ export default class PullRequests extends View {
     });
   }
 
+  /** Opens the Merged worktrees view. It reads only before the first list; finished results stay until Done. */
+  openCleanup(cx) {
+    this.view = "cleanup";
+    this.handle.focus();
+    if (readsOnOpen(this.cleanup)) this.readCleanup(cx);
+    cx.notify();
+  }
+
+  /** Reads the merged worktrees of the projects in the board's scope. */
+  readCleanup(cx) {
+    const phase = this.cleanup?.phase;
+    if (phase === "loading" || phase === "removing") return;
+    const board = readBoard();
+    const scope = readScope();
+    const followed = followedOf(board);
+    this.cleanup = { phase: "loading", scope: scopeWhereTitle(scope, board, followed), notes: [], groups: [], ticked: new Set(), results: {}, current: null };
+    cx.notify();
+    const projects = scopeProjects(board, scope, followed).filter((project) => project.localPath);
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      try {
+        if (projects.length === 0) {
+          this.cleanup = { ...this.cleanup, phase: "list", notes: ["No repo with a local checkout in this scope."] };
+        } else {
+          const github = projects.some((project) => project.provider === "github");
+          const gitlab = projects.some((project) => project.provider === "gitlab");
+          const [gh, glab] = await Promise.all([github ? this.locate("gh") : null, gitlab ? this.locate("glab") : null]);
+          const read = await mapPool(projects, CLI_CONCURRENCY, (project) => this.cleanupGroup(project, board, project.provider === "github" ? gh : glab));
+          const notes = [...new Set(read.flatMap((entry) => entry.notes))];
+          const groups = read.map((entry) => entry.group).filter((group) => group !== null && group.rows.length > 0);
+          const ticked = tickedByDefault(groups.flatMap((group) => group.rows));
+          this.cleanup = { ...this.cleanup, phase: "list", notes, groups, ticked };
+        }
+      } catch (caught) {
+        this.cleanup = { ...this.cleanup, phase: "list", notes: [...(this.cleanup?.notes ?? []), caught?.message ?? String(caught)] };
+      }
+      cx.notify();
+    });
+  }
+
+  /**
+   * One project's rows. A failed worktree list, a missing gh or glab, or a failed forge read
+   * leaves the project out and gives notes that name the repo.
+   * @returns {Promise<{group: {project: object, rows: object[]}|null, notes: string[]}>}
+   */
+  async cleanupGroup(project, board, command) {
+    const git = (args, cwd) => exec("git", args, { cwd, timeout: GIT_TIMEOUT });
+    let listing = null;
+    let remoteHead = null;
+    let failure = "";
+    try {
+      [listing, remoteHead] = await Promise.all([git(["worktree", "list", "--porcelain"], project.localPath), git(defaultBranchArgs(), project.localPath)]);
+    } catch (caught) {
+      failure = caught?.message ?? String(caught);
+      listing = null;
+    }
+    if (listing === null || listing.code !== 0) return { group: null, notes: [`${project.repo}: could not list worktrees (${listing === null ? failure : gitError(listing)})`] };
+    let defaultBranch = remoteHead.code === 0 ? defaultBranchOf(remoteHead.stdout) : null;
+    let worktrees = candidates(listing.stdout, defaultBranch);
+    if (worktrees.length === 0) return { group: null, notes: [] };
+    if (command === null) return { group: null, notes: [project.provider === "github" ? GH_MISSING : GLAB_MISSING] };
+
+    const github = project.provider === "github";
+    const label = github ? "gh" : `glab (${project.host})`;
+    if (defaultBranch === null) {
+      // A failed read leaves the default branch unknown: any base then counts.
+      const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
+      defaultBranch = await this.attempt(label, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
+      if (defaultBranch !== null) worktrees = candidates(listing.stdout, defaultBranch);
+      if (worktrees.length === 0) return { group: null, notes: [] };
+    }
+
+    // A worktree whose checks cannot be read counts as one with changes.
+    const dirty = new Set();
+    const ignored = {};
+    const unsaved = new Set();
+    const submodules = new Set();
+    await mapPool(
+      worktrees.filter((worktree) => !worktree.prunable),
+      CLI_CONCURRENCY,
+      async (worktree) => {
+        try {
+          const status = await git(statusArgs(), worktree.path);
+          if (status.code !== 0 || hasOutput(status.stdout)) dirty.add(worktree.path);
+          const listed = await git(ignoredArgs(), worktree.path);
+          if (listed.code === 0) ignored[worktree.path] = ignoredOf(listed.stdout);
+          else dirty.add(worktree.path);
+          const subs = await git(submoduleArgs(), worktree.path);
+          if (subs.code !== 0 || hasOutput(subs.stdout)) submodules.add(worktree.path);
+          const reflog = await git(reflogArgs(), worktree.path);
+          const check = reflog.code === 0 ? unsavedArgs(reflogShas(reflog.stdout)) : null;
+          if (reflog.code !== 0) unsaved.add(worktree.path);
+          else if (check !== null) {
+            const found = await git(check, worktree.path);
+            if (found.code !== 0 || hasOutput(found.stdout)) unsaved.add(worktree.path);
+          }
+        } catch {
+          dirty.add(worktree.path);
+        }
+      },
+    );
+    const inSpace = worktreesInSpaces(worktrees, spaces(), panes());
+
+    const notes = [];
+    const merged = {};
+    const reviewMerged = {};
+    await mapPool(worktrees, CLI_CONCURRENCY, async (worktree) => {
+      // The project stops reading after its first failed forge read.
+      if (notes.length > 0) return;
+      if (worktree.review !== null) {
+        const args = github ? ghPrStateArgs(project.repo, worktree.review) : glabArgs(project.host, GL_MR_STATE_QUERY, { path: project.repo, iid: String(worktree.review) });
+        reviewMerged[worktree.review] = await this.attempt(label, command, args, github ? parseGhPrState : parseGlMrState, notes);
+      } else {
+        const args = github ? ghMergedArgs(project.repo, worktree.branch) : glabArgs(project.host, GL_MERGED_QUERY, { path: project.repo, branch: worktree.branch });
+        merged[worktree.branch] = (await this.attempt(label, command, args, github ? parseGhMerged : parseGlMerged, notes)) ?? [];
+      }
+    });
+    // A failed read could hide a merged pull request or mark one wrongly, so the project is left out.
+    if (notes.length > 0) return { group: null, notes: notes.map((text) => `${project.repo}: ${text}`) };
+    return { group: { project, rows: rowsFor({ worktrees, merged, reviewMerged, dirty, inSpace, openBranches: openBranches(board, project), ignored, submodules, unsaved, defaultBranch }) }, notes: [] };
+  }
+
+  /** Removes the ticked worktrees one by one, then prunes the worktree list of a project that held a gone worktree. */
+  removeCleanup(cx) {
+    const state = this.cleanup;
+    if (state === null || state.phase !== "list" || state.ticked.size === 0) return;
+    this.cleanup = { ...state, phase: "removing", results: {}, current: null };
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      const results = {};
+      const notes = [...state.notes];
+      try {
+        for (const group of state.groups) {
+          const cwd = group.project.localPath;
+          const rows = group.rows.filter((row) => row.reason === null && state.ticked.has(row.path));
+          if (rows.length === 0) continue;
+          let anyGone = false;
+          for (const row of rows) {
+            this.cleanup = { ...this.cleanup, current: row.path };
+            cx.notify();
+            const outcome = await this.removeMerged(row, cwd);
+            results[row.path] = outcome.text;
+            if (outcome.gone) anyGone = true;
+            this.cleanup = { ...this.cleanup, results: { ...results }, current: null };
+            cx.notify();
+          }
+          if (!anyGone) continue;
+          try {
+            await exec("git", ["worktree", "prune"], { cwd, timeout: GIT_TIMEOUT });
+          } catch {
+            // A prune that fails leaves stale entries that the next `git worktree prune` clears.
+          }
+        }
+        setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
+      } catch (caught) {
+        notes.push(caught?.message ?? String(caught));
+      }
+      this.cleanup = { ...this.cleanup, phase: "done", results, notes, current: null };
+      cx.notify();
+    });
+  }
+
+  /**
+   * Removes one worktree without `--force`, then its branch when `branchStep` allows it.
+   * `gone` is true when the worktree was already gone, so the project needs a prune.
+   * @returns {Promise<{text: string, gone: boolean}>} The result text of the row.
+   */
+  async removeMerged(row, cwd) {
+    // A space may have opened the worktree after the list was read.
+    if (worktreesInSpaces([row], spaces(), panes()).size > 0) return { text: "open in a space", gone: false };
+    try {
+      if (!row.prunable) {
+        // The worktree may have changed after the list was read.
+        let statusOut = null;
+        let ignoredNow = null;
+        const status = await exec("git", statusArgs(), { cwd: row.path, timeout: GIT_TIMEOUT });
+        if (status.code === 0) statusOut = status.stdout;
+        const listed = await exec("git", ignoredArgs(), { cwd: row.path, timeout: GIT_TIMEOUT });
+        if (listed.code === 0) ignoredNow = ignoredOf(listed.stdout);
+        const changed = recheck(row, statusOut, ignoredNow);
+        if (changed !== null) return { text: changed, gone: false };
+      }
+      const removed = await exec("git", removePlan(row, false), { cwd, timeout: GIT_TIMEOUT });
+      const gone = removed.code !== 0 && goneRefusal(removed.stderr);
+      if (removed.code !== 0 && !gone) return { text: dirtyRefusal(removed.stderr) ? "has changes" : gitError(removed), gone: false };
+      const tip = await exec("git", tipArgs(row.branch), { cwd, timeout: GIT_TIMEOUT });
+      const step = branchStep(row, tip.code === 0 ? tip.stdout.trim() : null);
+      if (step.kept !== null) return { text: `removed, branch kept: ${step.kept}`, gone };
+      if (step.args === null) return { text: "removed", gone };
+      const deleted = await exec("git", step.args, { cwd, timeout: GIT_TIMEOUT });
+      return { text: deleted.code === 0 ? "removed" : `removed, branch kept: ${gitError(deleted)}`, gone };
+    } catch (caught) {
+      return { text: caught?.message ?? String(caught), gone: false };
+    }
+  }
+
+  renderCleanup(t) {
+    const state = this.cleanup;
+    const icon = iconResolver(MOD, this.found);
+    const now = Date.now();
+    const back = (_e, cx) => {
+      this.view = "board";
+      cx.notify();
+    };
+    const phase = state?.phase ?? "loading";
+    const refresh = iconButton(t, "cleanup-refresh", ICON("refresh-cw"), (_e, cx) => this.readCleanup(cx), { busy: phase === "loading", enabled: phase === "list", tooltip: "Read again" });
+    const head = subHeader(t, back, "Merged worktrees", icon("chevron-left")).child(div().flex_1()).child(refresh);
+
+    const parts = [];
+    if (state !== null) parts.push(hint(t, `Scope: ${state.scope}. Only worktrees whose pull request is merged are listed.`).px(8).pb(4));
+    for (const [index, text] of (state?.notes ?? []).entries()) parts.push(errorLine(t, text).id(`cleanup-note-${index}`));
+    if (phase === "loading") {
+      parts.push(note(t, "Loading…"));
+    } else if (state.groups.length === 0) {
+      parts.push(note(t, "No merged worktrees here"));
+    } else {
+      for (const group of state.groups) {
+        parts.push(sectionTitle(t, `${group.project.repo} · ${group.rows.length}`));
+        for (const row of group.rows) parts.push(this.cleanupRow(t, icon, row, state, now));
+      }
+    }
+
+    const count = state === null ? 0 : state.groups.flatMap((group) => group.rows).filter((row) => row.reason === null && state.ticked.has(row.path)).length;
+    // Done clears the results, so the next open reads again; Back keeps them.
+    const done = (_e, cx) => {
+      this.cleanup = null;
+      this.view = "board";
+      cx.notify();
+    };
+    let actions;
+    if (phase === "done") {
+      actions = [button(t, "cleanup-done", "Done", done, { primary: true })];
+    } else if (phase === "removing") {
+      actions = [div().text_size(12).text_color(t.muted).child("Removing…")];
+    } else {
+      actions = [button(t, "cleanup-cancel", "Cancel", back), button(t, "cleanup-remove", `Remove ${count}`, (_e, cx) => this.removeCleanup(cx), { primary: true, enabled: count > 0 && phase === "list" })];
+    }
+
+    return frame(t, "argus-pull-requests-cleanup")
+      .track_focus(this.handle)
+      .on_key_down((e, cx) => {
+        // Escape goes back and leaves a running removal alone; Enter removes the ticked rows.
+        if (e.key === "escape") {
+          cx.stop_propagation();
+          back(e, cx);
+        } else if (e.key === "enter" && phase === "list" && count > 0) {
+          cx.stop_propagation();
+          this.removeCleanup(cx);
+        }
+      })
+      .child(head)
+      .child(scrollArea("argus-pull-requests-cleanup-list", parts, { padding: 6 }))
+      .child(footer(t).child(h_flex().w_full().gap(8).items_center().justify_end().children(actions)));
+  }
+
+  /** One worktree: a tick for a removable row, the branch, the pull request and its state or result. */
+  cleanupRow(t, icon, row, state, now) {
+    const removable = row.reason === null;
+    const ticked = removable && state.ticked.has(row.path);
+    const result = Object.hasOwn(state.results, row.path) ? state.results[row.path] : null;
+    const removing = result === null && state.phase === "removing" && state.current === row.path;
+    const box = div()
+      .flex_none()
+      .size(14)
+      .rounded(4)
+      .border_1()
+      .border_color(ticked ? t.accent : t.border)
+      .bg(ticked ? t.accent : t.chrome)
+      .flex()
+      .items_center()
+      .justify_center();
+    const tick = ticked ? box.child(svg(icon("check")).size(10).text_color(t.accent_foreground)) : box;
+    let status = row.reason ?? (row.ignored.length > 0 ? "has ignored files" : row.mergedAt === null ? "merged" : `merged ${ageText(row.mergedAt, now)}`);
+    let statusColor = row.reason !== null ? t.dim : row.ignored.length > 0 ? t.working : t.dim;
+    if (removing) {
+      status = "removing…";
+      statusColor = t.muted;
+    } else if (result !== null) {
+      status = result;
+      statusColor = result === "removed" ? t.done : result.startsWith("removed, branch kept") ? t.working : t.blocked;
+    }
+    const clickable = removable && state.phase === "list";
+    let line = listRow(t, `cleanup-${row.path}`, { hover: clickable })
+      // A row with a result or a reason has no tick box, only its space.
+      .child(removable && result === null ? tick : div().flex_none().size(14))
+      .child(div().flex_1().min_w(0).truncate().text_color(removable ? t.foreground : t.dim).child(row.branch))
+      .child(div().flex_none().text_size(12).text_color(t.muted).child(`#${row.number}`))
+      .child(div().flex_none().max_w(170).truncate().text_size(11).text_color(statusColor).child(status));
+    if (clickable) {
+      line = line.cursor_pointer().on_click((_e, cx) => {
+        if (state.ticked.has(row.path)) state.ticked.delete(row.path);
+        else state.ticked.add(row.path);
+        cx.notify();
+      });
+    }
+    // One tooltip per row: the result, else the ignored files, else the full branch name.
+    if (result !== null && result !== "removed") return line.tooltip(result);
+    if (result === null && removable && row.ignored.length > 0) {
+      // Remove deletes ignored files too, so the tooltip names them; such a row starts unticked.
+      const shown = row.ignored.slice(0, 5).join(", ");
+      const more = row.ignored.length > 5 ? ` and ${row.ignored.length - 5} more` : "";
+      return line.tooltip(`Remove deletes these ignored files: ${shown}${more}`);
+    }
+    return line.tooltip(row.branch);
+  }
+
   renderSettings(t) {
     const settings = readSettings();
     const icon = iconResolver(MOD, this.found);
@@ -996,6 +1309,8 @@ export default class PullRequests extends View {
             (order) => setShared(SETTINGS_KEY, { ...readSettings(), conversation: order }),
           ),
         ),
+      sectionTitle(t, "Worktrees"),
+      h_flex().px(8).py(4).child(button(t, "cleanup-open", "Remove merged worktrees…", (_e, cx) => this.openCleanup(cx))),
     ];
     return frame(t, "argus-pull-requests-settings")
       .child(subHeader(t, back, "Settings", icon("chevron-left")))

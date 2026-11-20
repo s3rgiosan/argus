@@ -103,3 +103,41 @@ export function fetchRef(provider, number) {
 export function limitNote(what, count, limit = LIST_LIMIT) {
   return count >= limit ? `Showing the first ${limit} ${what}.` : null;
 }
+
+/**
+ * The merged pull requests whose head branch is `branch`, for the Merged worktrees view.
+ * @param {string} repo
+ * @param {string} branch
+ * @returns {string[]}
+ */
+export function ghMergedArgs(repo, branch) {
+  return ["pr", "list", "--repo", repo, "--head", branch, "--state", "merged", "--limit", "10", "--json", "number,headRefOid,mergedAt,baseRefName,isCrossRepository"];
+}
+
+/**
+ * The state and head commit of one pull request, for a review worktree.
+ * @param {string} repo
+ * @param {number} number
+ * @returns {string[]}
+ */
+export function ghPrStateArgs(repo, number) {
+  return ["pr", "view", String(number), "--repo", repo, "--json", "number,state,headRefOid,mergedAt,baseRefName"];
+}
+
+/** The merged merge requests of one source branch. Variables: `path`, `branch`. */
+export const GL_MERGED_QUERY = `query($path: ID!, $branch: String!) { project(fullPath: $path) { mergeRequests(sourceBranches: [$branch], state: merged, first: 10) { nodes { iid diffHeadSha mergedAt targetBranch sourceProjectId targetProjectId } } } }`;
+
+/** The state and head commit of one merge request. Variables: `path`, `iid`. */
+export const GL_MR_STATE_QUERY = `query($path: ID!, $iid: String!) { project(fullPath: $path) { mergeRequest(iid: $iid) { iid state diffHeadSha mergedAt targetBranch } } }`;
+
+/**
+ * The arguments that print a GitHub repo's default branch name.
+ * @param {string} repo
+ * @returns {string[]}
+ */
+export function ghDefaultBranchArgs(repo) {
+  return ["repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"];
+}
+
+/** The default branch of a GitLab project. Variable: `path`. */
+export const GL_DEFAULT_BRANCH_QUERY = `query($path: ID!) { project(fullPath: $path) { repository { rootRef } } }`;

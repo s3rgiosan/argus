@@ -664,3 +664,111 @@ export function parseGlabDetail(text, host) {
 function shaOf(value) {
   return typeof value === "string" && value !== "" ? value : null;
 }
+
+/** @typedef {{number: number, headSha: string, mergedAt: string|null, base: string|null}} Merged */
+
+/**
+ * A merged entry, or null when the number or the head commit is not valid. GitLab gives no merge
+ * time for old merge requests, so `mergedAt` may be null. `base` is null when it is unknown.
+ * @param {unknown} number
+ * @param {unknown} headSha
+ * @param {unknown} mergedAt
+ * @param {unknown} base
+ * @returns {Merged|null}
+ */
+function mergedEntry(number, headSha, mergedAt, base) {
+  const value = typeof number === "string" ? Number(number) : number;
+  if (!Number.isInteger(value) || value <= 0) return null;
+  if (typeof headSha !== "string" || !/^[0-9a-f]{40}$/.test(headSha)) return null;
+  return {
+    number: value,
+    headSha,
+    mergedAt: typeof mergedAt === "string" && mergedAt !== "" ? mergedAt : null,
+    base: typeof base === "string" && base !== "" ? base : null,
+  };
+}
+
+/** Newest merge first; an entry with no merge time goes last. */
+function byMergedAt(a, b) {
+  if (a.mergedAt === b.mergedAt) return 0;
+  if (a.mergedAt === null) return 1;
+  if (b.mergedAt === null) return -1;
+  return a.mergedAt < b.mergedAt ? 1 : -1;
+}
+
+/**
+ * `gh pr list --state merged --json number,headRefOid,mergedAt` output.
+ * @param {string} text
+ * @returns {Merged[]}
+ */
+export function parseGhMerged(text) {
+  const raw = JSON.parse(text);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => isObject(entry) && entry.isCrossRepository !== true)
+    .map((entry) => mergedEntry(entry.number, entry.headRefOid, entry.mergedAt, entry.baseRefName))
+    .filter((entry) => entry !== null)
+    .sort(byMergedAt);
+}
+
+/**
+ * `gh pr view --json number,state,headRefOid,mergedAt` output: the pull request when it is merged.
+ * @param {string} text
+ * @returns {Merged|null}
+ */
+export function parseGhPrState(text) {
+  const raw = JSON.parse(text);
+  if (!isObject(raw) || raw.state !== "MERGED") return null;
+  return mergedEntry(raw.number, raw.headRefOid, raw.mergedAt, raw.baseRefName);
+}
+
+/** False for a merge request from another project (a fork). */
+function sameProject(node) {
+  return !(Number.isInteger(node.sourceProjectId) && Number.isInteger(node.targetProjectId) && node.sourceProjectId !== node.targetProjectId);
+}
+
+/**
+ * `GL_MERGED_QUERY` output, without merge requests from other projects.
+ * @param {string} text
+ * @returns {Merged[]}
+ */
+export function parseGlMerged(text) {
+  const nodes = JSON.parse(text)?.data?.project?.mergeRequests?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  return nodes
+    .filter((node) => isObject(node) && sameProject(node))
+    .map((node) => mergedEntry(node.iid, node.diffHeadSha, node.mergedAt, node.targetBranch))
+    .filter((entry) => entry !== null)
+    .sort(byMergedAt);
+}
+
+/**
+ * `GL_MR_STATE_QUERY` output: the merge request when it is merged.
+ * @param {string} text
+ * @returns {Merged|null}
+ */
+export function parseGlMrState(text) {
+  const node = JSON.parse(text)?.data?.project?.mergeRequest;
+  if (!isObject(node) || node.state !== "merged") return null;
+  return mergedEntry(node.iid, node.diffHeadSha, node.mergedAt, node.targetBranch);
+}
+
+/**
+ * `ghDefaultBranchArgs` output: the branch name.
+ * @param {string} stdout
+ * @returns {string|null}
+ */
+export function parseGhDefaultBranch(stdout) {
+  const name = String(stdout ?? "").trim();
+  return name === "" ? null : name;
+}
+
+/**
+ * `GL_DEFAULT_BRANCH_QUERY` output: the project's root ref.
+ * @param {string} text
+ * @returns {string|null}
+ */
+export function parseGlDefaultBranch(text) {
+  const name = JSON.parse(text)?.data?.project?.repository?.rootRef;
+  return typeof name === "string" && name !== "" ? name : null;
+}

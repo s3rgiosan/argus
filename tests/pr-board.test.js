@@ -4,6 +4,8 @@ import {
   ageText,
   emptyMessage,
   scopeRepos,
+  scopeProjects,
+  openBranches,
   followStatus,
   withFolders,
   prPaneTitle,
@@ -23,6 +25,7 @@ import {
   reviewLabel,
   scopeItems,
   scopeTitle,
+  scopeWhereTitle,
   shortRepo,
 } from "../mods/argus-pull-requests/board.js";
 
@@ -215,6 +218,14 @@ test("scopeTitle names Show, and In when it is not all repos", () => {
   assert.equal(scopeTitle({ show: "mine", where: "project", key: project.key }, board, null), "Mine · example-org/example-repo");
 });
 
+test("scopeWhereTitle names only the In part", () => {
+  const board = assembleBoard(input());
+  assert.equal(scopeWhereTitle({ show: "mine", where: "all" }, board, null), "All repos");
+  assert.equal(scopeWhereTitle({ show: "mine", where: "follow" }, board, project.key), "example-org/example-repo");
+  assert.equal(scopeWhereTitle({ show: "all", where: "follow" }, board, null), "Follow space");
+  assert.equal(scopeWhereTitle({ show: "mine", where: "project", key: "gitlab.example.com/example-group/example-project" }, board, null), "example-group/example-project");
+});
+
 test("matchesFilter", () => {
   const p = pr();
   assert.equal(matchesFilter(p, ""), true);
@@ -374,4 +385,20 @@ test("emptyMessage: only a failed read in the scope counts", () => {
   assert.equal(emptyMessage(failedGl), "No pull requests could be read. See the messages above.");
   // A cut list never counts.
   assert.equal(emptyMessage({ ...board, notes: ["Showing the first 100 pull requests of example-org/example-repo."] }, gh), "No pull requests here");
+});
+
+test("scopeProjects: the projects a scope shows", () => {
+  const lab = { ...project, key: "gitlab.example.com/example-group/example-project", provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project" };
+  const board = assembleBoard(input({ projects: [project, lab] }));
+  assert.deepEqual(scopeProjects(board, { show: "all", where: "all" }, null).map((p) => p.key), [project.key, lab.key]);
+  assert.deepEqual(scopeProjects(board, { show: "all", where: "project", key: lab.key }, null).map((p) => p.key), [lab.key]);
+  assert.deepEqual(scopeProjects(board, { show: "mine", where: "follow" }, project.key).map((p) => p.key), [project.key]);
+  assert.deepEqual(scopeProjects(board, { show: "all", where: "follow" }, null), []);
+});
+
+test("openBranches: the head branches of a repo's open pull requests", () => {
+  const board = assembleBoard(input({}));
+  const pr = (number, headRef, state, repo = project.repo) => ({ ...board.prs[0], provider: project.provider, host: project.host, repo, number, headRef, state });
+  const withPrs = { ...board, prs: [pr(1, "feat/a", "open"), pr(2, "feat/b", "merged"), pr(3, "feat/c", "open", "example-org/other-repo")] };
+  assert.deepEqual([...openBranches(withPrs, project)], ["feat/a"]);
 });

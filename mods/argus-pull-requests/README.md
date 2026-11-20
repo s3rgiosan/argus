@@ -94,6 +94,31 @@ When there are extra instructions, Argus adds them after the prompt, under the l
 { "pullRequests": { "review": { "instructions": "Use the <name> skill.", "promptFile": "~/prompts/pr-review.md" } } }
 ```
 
+## Merged worktrees
+
+Settings > Worktrees > "Remove merged worktrees…" opens this view. It lists worktrees whose pull request is merged, so you can remove them in one step.
+
+- It reads the repos of the board's scope that have a local checkout. With two clones of one repo, it reads the worktrees of the first only. A repo with no local checkout is not listed ("No repo with a local checkout in this scope.").
+- It lists linked worktrees on a branch, whoever made them (New worktree, Check out, Review with agent, tsk). Detached worktrees, the main checkout and the default branch are not listed.
+- The default branch comes from `origin/HEAD`, else from GitHub or GitLab.
+- Merged means GitHub or GitLab says the pull request of that branch is merged into the default branch. A review worktree (`argus/review-<n>-…`) matches by its number. Pull requests from forks are ignored.
+- Each worktree that may go is ticked. These stay greyed, with the first reason that applies:
+  - "locked": `git worktree lock` holds it.
+  - "has changes": uncommitted or untracked files.
+  - "has submodules".
+  - "has unsaved commits": commits that no branch, remote or tag reaches.
+  - "open in a space": a Herdr space works in it.
+  - "has an open pull request": the board's last read has an open pull request for the branch.
+  - "merged into <base>": the pull request merged into another branch.
+  - "not at the merged commit": the branch has commits the merged pull request did not have.
+- A worktree with ignored files (for example `docs/` or `node_modules/`) shows "has ignored files" and starts unticked, because Remove deletes them too. Its tooltip names them. Tick it to remove it anyway.
+- The refresh button ("Read again") reads the list again. It works only while the list shows.
+- Remove runs `git worktree remove` on each ticked worktree, never with `--force`. Just before each removal it checks again for changes, ignored files and open spaces. Then it deletes the local branch only when its last commit is still the merged one. A review branch uses `git branch -d`. No remote branch is touched.
+- Each row ends with one result: "removed", "removed, branch kept: …", "has changes", "ignored files changed", "open in a space", or a git error. The row being removed shows "removing…".
+- Results stay until you press Done. Back keeps them, also while a removal runs.
+- Keys: Escape goes back to the board (a running removal goes on). Enter removes the ticked worktrees while the list shows.
+- A repo whose worktrees or pull requests cannot be read is left out, with a note.
+
 ## Settings
 
 Gear icon in the header:
@@ -102,6 +127,7 @@ Gear icon in the header:
 - glab command: empty uses `glab` from PATH, else the usual install folders. A set command that fails falls back the same way.
 - Refresh every: 1, 3, 5, 10 or 15 minutes.
 - Conversation: Oldest first (the default) or Newest first, for the comments in the pull request pane.
+- Worktrees: "Remove merged worktrees…" opens Merged worktrees.
 
 Tested on `gh` 2.104.0 and `glab` 1.131.0, signed in. You need `gh`, `glab` or both.
 

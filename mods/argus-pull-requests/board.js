@@ -287,6 +287,27 @@ export function scopeTitle(scope, board, followed) {
   }
 }
 
+/**
+ * The In part of the scope: All repos, the followed or picked repo, or Follow space.
+ * @param {Scope} scope
+ * @param {Board} board
+ * @param {?string} followed
+ * @returns {string}
+ */
+export function scopeWhereTitle(scope, board, followed) {
+  const repoOf = (key) => board.projects.find((p) => p.key === key)?.repo ?? null;
+  switch (scope.where) {
+    case "follow": {
+      const repo = followed === null ? null : repoOf(followed);
+      return repo ?? "Follow space";
+    }
+    case "project":
+      return repoOf(scope.key) ?? scope.key.split("/").slice(1).join("/");
+    default:
+      return "All repos";
+  }
+}
+
 // Groups
 
 /**
@@ -462,6 +483,34 @@ export function withFolders(board, folders) {
 }
 
 /**
+ * The projects a scope shows: all of them, one project, or the followed space's project.
+ * @param {Board} board
+ * @param {Scope} scope
+ * @param {?string} followed Project key of the followed space.
+ * @returns {Project[]}
+ */
+export function scopeProjects(board, scope, followed) {
+  const where = whereKey(scope, followed);
+  if (where === undefined) return [];
+  return where === null ? board.projects : board.projects.filter((project) => project.key === where);
+}
+
+/**
+ * The head branches of the open pull requests of a project's repo.
+ * @param {Board} board
+ * @param {Project} project
+ * @returns {Set<string>}
+ */
+export function openBranches(board, project) {
+  const branches = new Set();
+  for (const pr of board.prs) {
+    if (pr.state !== "open" || pr.provider !== project.provider || pr.host !== project.host || pr.repo !== project.repo) continue;
+    branches.add(pr.headRef);
+  }
+  return branches;
+}
+
+/**
  * The provider and host of each repo that `scope` shows: every project for All repos, the
  * followed or picked project otherwise. Empty when the scope has no known repo.
  * @param {Board} board
@@ -470,9 +519,7 @@ export function withFolders(board, folders) {
  * @returns {Array<{provider: string, host: string}>}
  */
 export function scopeRepos(board, scope, followed) {
-  const where = whereKey(scope, followed);
-  if (where === undefined) return [];
-  const projects = where === null ? board.projects : board.projects.filter((project) => project.key === where);
+  const projects = scopeProjects(board, scope, followed);
   const seen = new Set();
   /** @type {Array<{provider: string, host: string}>} */
   const repos = [];

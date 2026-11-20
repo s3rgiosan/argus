@@ -281,25 +281,37 @@ export function templateRefusal(template) {
 const REVIEW_BRANCH = /^argus\/review-(\d+)-./;
 
 /**
- * The linked worktrees in `git worktree list --porcelain` output, with their lock and prune
- * flags. The first block is the main worktree, which is never a review run.
- * @param {string} porcelain
- * @returns {Array<{path: string, branch: string|null, locked: boolean, prunable: boolean}>}
+ * The pull request number of a review branch (`argus/review-<number>-…`), else null.
+ * @param {string|null} branch
+ * @returns {number|null}
  */
-function linkedWorktrees(porcelain) {
+export function reviewNumber(branch) {
+  const match = branch === null ? null : REVIEW_BRANCH.exec(branch);
+  return match === null ? null : Number(match[1]);
+}
+
+/**
+ * The linked worktrees in `git worktree list --porcelain` output, with their head commit and
+ * their lock and prune flags. The first block is the main worktree, which is left out.
+ * @param {string} porcelain
+ * @returns {Array<{path: string, branch: string|null, head: string|null, locked: boolean, prunable: boolean}>}
+ */
+export function linkedWorktrees(porcelain) {
   const blocks = String(porcelain).split(/\r?\n\r?\n/).filter((block) => block.trim() !== "");
   return blocks.slice(1).flatMap((block) => {
     let path = null;
     let branch = null;
+    let head = null;
     let locked = false;
     let prunable = false;
     for (const line of block.split(/\r?\n/)) {
       if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
+      else if (line.startsWith("HEAD ")) head = line.slice("HEAD ".length);
       else if (line.startsWith("branch ")) branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
       else if (line === "locked" || line.startsWith("locked ")) locked = true;
       else if (line === "prunable" || line.startsWith("prunable ")) prunable = true;
     }
-    return path === null ? [] : [{ path, branch, locked, prunable }];
+    return path === null ? [] : [{ path, branch, head, locked, prunable }];
   });
 }
 
@@ -315,9 +327,9 @@ export function reviewRuns(listings, now) {
   const runs = {};
   for (const { project, porcelain } of listings) {
     for (const worktree of linkedWorktrees(porcelain)) {
-      const match = worktree.branch === null ? null : REVIEW_BRANCH.exec(worktree.branch);
-      if (!match) continue;
-      const key = `${project.host}/${project.repo}#${Number(match[1])}`.toLowerCase();
+      const number = reviewNumber(worktree.branch);
+      if (number === null) continue;
+      const key = `${project.host}/${project.repo}#${number}`.toLowerCase();
       (runs[key] ??= []).push({ path: worktree.path, branch: worktree.branch, locked: worktree.locked, prunable: worktree.prunable, seenAt: now });
     }
   }

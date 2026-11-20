@@ -5,6 +5,18 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-11-20
+
+### Added
+
+- The `argus-pull-requests` panel has Merged worktrees, opened from Settings under Worktrees. It lists the worktrees of the repos in scope whose pull request is merged and ticks those that may go. It greys the rest with a reason: locked, changes, submodules, unsaved commits, open in a space, an open pull request, a merge into another branch, or newer commits. A worktree with ignored files starts unticked, with the files in its tooltip.
+- Remove checks each worktree again just before it goes, removes it without force, and deletes the local branch only when its last commit is the one the pull request merged. The row being removed shows "removing…", and each row ends with its result in a colour. The results stay until Done.
+- Merged worktrees takes keyboard focus when it opens. Escape goes back to the board, and Enter removes the ticked worktrees.
+
+### Changed
+
+- The shared `row` block in `lib/ui.js` takes a `hover` option, which is on by default.
+
 ## [1.8.0] - 2026-11-20
 
 ### Added
@@ -191,7 +203,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.8.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.9.0...HEAD
+[1.9.0]: https://github.com/s3rgiosan/argus/compare/1.8.0...1.9.0
 [1.8.0]: https://github.com/s3rgiosan/argus/compare/1.7.0...1.8.0
 [1.7.0]: https://github.com/s3rgiosan/argus/compare/1.6.0...1.7.0
 [1.6.0]: https://github.com/s3rgiosan/argus/compare/1.5.0...1.6.0
