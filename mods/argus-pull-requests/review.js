@@ -12,7 +12,7 @@ import { fetchRef } from "./forge.js";
 /**
  * @typedef {{key: string, name: string, icon: string|null, tint: boolean, agent: boolean, installed: boolean, run: string[]}} KnownAgent
  * @typedef {{id: string, label: string, argv: string[], model: boolean, icon: string|null, tint: boolean, folder: string|null}} Choice
- * @typedef {{instructions: string|null, promptFile: string|null}} AccountSettings
+ * @typedef {{key: string, instructions: string|null, promptFile: string|null}} AccountSettings
  */
 
 /** The agents that take `--model <name>`. Only Claude Code is checked live. */
@@ -132,8 +132,9 @@ export function reviewPlan({ localPath, root, branch }) {
  * The review settings from the text of `argus.json`: `pullRequests.review.instructions`, text
  * added to every review prompt, `pullRequests.review.promptFile`, a file whose text replaces
  * the built-in prompt, and `pullRequests.review.accounts`, the same two settings per Claude Code
- * account folder. `accounts` is keyed by the folder with `~` expanded. A missing file or key gives
- * none and no error.
+ * account folder. `accounts` is keyed by the folder with `~` expanded and has no prototype; each entry
+ * keeps its key as written. A key must be non-empty and expand to an absolute folder, and no two keys
+ * may expand to the same folder. A missing file or key gives none and no error.
  * @param {string|null} text
  * @param {string} [home]
  * @returns {{instructions: string|null, promptFile: string|null, accounts: Record<string, AccountSettings>, error: string|null}}
@@ -160,18 +161,26 @@ export function reviewInstructions(text, home = "") {
   if (instructions.error) return { ...none, error: instructions.error };
   const promptFile = read(review, "promptFile", "pullRequests.review.promptFile");
   if (promptFile.error) return { ...none, error: promptFile.error };
-  const accounts = {};
+  const accounts = Object.create(null);
   const raw = review?.accounts;
   if (raw !== undefined && raw !== null) {
     if (typeof raw !== "object" || Array.isArray(raw)) return { ...none, error: "pullRequests.review.accounts is not an object" };
+    /** @type {Map<string, string>} */
+    const named = new Map();
     for (const [key, entry] of Object.entries(raw)) {
       const name = `pullRequests.review.accounts[${JSON.stringify(key)}]`;
+      const folder = expandHome(key, home);
+      if (key.trim() === "") return { ...none, error: "pullRequests.review.accounts has an empty key." };
+      if (key === "__proto__") return { ...none, error: `${name} is not a valid key.` };
+      if (!folder.startsWith("/")) return { ...none, error: `${name} must be an absolute or ~/ folder.` };
+      if (named.has(folder)) return { ...none, error: `${named.get(folder)} and ${name} name the same account folder.` };
+      named.set(folder, name);
       if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return { ...none, error: `${name} is not an object` };
       const text = read(entry, "instructions", `${name}.instructions`);
       if (text.error) return { ...none, error: text.error };
       const file = read(entry, "promptFile", `${name}.promptFile`);
       if (file.error) return { ...none, error: file.error };
-      accounts[expandHome(key, home)] = { instructions: text.value, promptFile: file.value };
+      accounts[folder] = { key, instructions: text.value, promptFile: file.value };
     }
   }
   return { instructions: instructions.value, promptFile: promptFile.value, accounts, error: null };
@@ -187,6 +196,38 @@ export function accountSettings(accounts, folder) {
   if (!accounts || typeof folder !== "string" || folder === "") return null;
   const key = folder.length > 1 ? folder.replace(/\/+$/, "") : folder;
   return Object.hasOwn(accounts, key) ? accounts[key] : null;
+}
+
+/**
+ * The prompt file to use for a review, and the setting that holds it. The account's file wins over
+ * the global one.
+ * @param {{promptFile: string|null, accounts: Record<string, AccountSettings>}} configured The result of `reviewInstructions`.
+ * @param {string|null} folder The Claude Code account folder, or null for another agent.
+ * @returns {{path: string|null, source: string}}
+ */
+export function promptFileFor(configured, folder) {
+  const account = accountSettings(configured.accounts, folder);
+  if (account !== null && account.promptFile !== null) {
+    return { path: account.promptFile, source: `pullRequests.review.accounts[${JSON.stringify(account.key)}].promptFile` };
+  }
+  return { path: configured.promptFile, source: "pullRequests.review.promptFile" };
+}
+
+/**
+ * The Claude Code account folder an agent command runs in: the `CLAUDE_CONFIG_DIR` of an `env`
+ * prefix, the default `~/.claude` for a plain Claude Code command, else null.
+ * @param {string[]} argv
+ * @param {string} home
+ * @returns {string|null}
+ */
+export function accountFolderOf(argv, home) {
+  const prefix = "CLAUDE_CONFIG_DIR=";
+  if (argv[0] === "env" && typeof argv[1] === "string" && argv[1].startsWith(prefix)) {
+    const folder = expandHome(argv[1].slice(prefix.length), home);
+    return folder === "" ? null : folder;
+  }
+  const command = String(argv[0] ?? "").split("/").pop();
+  return command === "claude" ? expandHome("~/.claude", home) : null;
 }
 
 /**
@@ -299,11 +340,22 @@ const MAX_TEMPLATE = 100000;
 /**
  * The reason a prompt file path cannot be used, or null: it must be absolute or start with `~/`.
  * @param {string} path
+ * @param {string} [source] The setting that holds the path.
  * @returns {string|null}
  */
-export function promptFileRefusal(path) {
+export function promptFileRefusal(path, source = "pullRequests.review.promptFile") {
   const text = String(path ?? "");
-  return text.startsWith("/") || text.startsWith("~/") ? null : "Set pullRequests.review.promptFile to an absolute or ~/ path.";
+  return text.startsWith("/") || text.startsWith("~/") ? null : `Set ${source} to an absolute or ~/ path.`;
+}
+
+/**
+ * The error for a prompt file that cannot be read.
+ * @param {string} path
+ * @param {string} source The setting that holds the path.
+ * @returns {string}
+ */
+export function promptFileReadError(path, source) {
+  return `Could not read the prompt file ${path} from ${source}.`;
 }
 
 /**

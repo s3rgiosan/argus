@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Review with agent in `argus-pull-requests` takes settings for each Claude Code account under `pullRequests.review.accounts` in `argus.json`, keyed by the account folder, such as `~/.claude-work`.
 - The `instructions` of an account pre-fill the Extra instructions field when the dialog opens and when you pick another agent. The field changes only while it is empty or still holds the last pre-filled text, so text you typed stays.
-- The `promptFile` of an account replaces the global `promptFile` for reviews started with that account.
+- The `promptFile` of an account replaces the global `promptFile` for reviews started with that account. An error about a prompt file names the setting that holds it.
+- An account key that is empty, not an absolute or `~/` folder, `__proto__`, or the same folder as another key stops the pre-fill, and Start fails with an error that names the key.
 
 ## [1.11.0] - 2026-11-20
 
