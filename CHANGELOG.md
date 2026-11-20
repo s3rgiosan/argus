@@ -19,15 +19,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The built-in review prompt lets the agent create its own report files in the review worktree. It still forbids changing or deleting the repository's files, commits, pushes and any write to GitHub or GitLab.
+- The built-in review prompt lets the agent create new files for its report, but not in folders whose names start with a dot, and the agent must not run the files it creates. It still forbids editing or deleting the repository's files, commits, pushes, comments, approvals, requests for changes and merges.
 - The pane leads with a verdict in the board's words (Ready to merge, Needs work, Waiting on review, Draft, or Merged and Closed) and the reasons in one line.
 - The pane's checks, reviews, review agent, description and conversation are folding sections. Sections that need you open by themselves, and your choice stays per pull request.
 - A footer holds Review with agent, Merge ▾ and a ⋯ menu with Comment, Approve, Request changes, Check out in a worktree and Open in browser.
 - Every review shows in the conversation with its state, also an approval without text. A comment review with no text and no file comments of its own is left out, because its replies show in their threads.
 - GitLab merge requests read their discussions in place of their notes.
 
+- The verdict names a draft and a merge state that is not known yet, uses display names, counts one check in the singular, and gives a line of its own when a group other than Ready to merge has no reason. A reviewer's open request for changes moves a pull request that is not a draft to Needs work.
+- The Reviews summary counts reviewers who only commented.
+- A section you folded opens again when its default changes, for example when a check fails after you closed Checks while all checks passed.
+- The area above the pane footer is at most 260 px tall and scrolls, and the footer stays in view.
+- A name in the pane is cut short when it is long, and its tooltip shows the login. Markdown ids follow the content, not the list position.
+- A link in a comment or the description opens in the browser.
+- The panel's empty-list message points to the notes only when a failed read belongs to the scope you look at.
+- Start refuses a repo or host with characters that the review prompt cannot put in a shell command. A prompt file without `{{base}}` skips the base branch check, and `promptFile` must be an absolute or `~/` path, without a NUL character and at most 100000 characters.
+- Placeholder names in a prompt file are case-sensitive, and `{{head_sha}}` or `{{base-branch}}` are refused as unknown.
+- A check link with whitespace is dropped, and a GitLab check link keeps the origin of the merge request's own web URL.
+
 ### Fixed
 
+- A login such as `constructor` or `__proto__` keeps its display name and no longer returns an Object property.
+- The ⋯ menu closes after Open in browser, and an earlier error clears at once.
+- The Review agent summary and its default state ignore a run that you removed.
+- The folder watch runs its git probes four at a time, and the board read keeps folders that the watch added while it ran.
+- The review dialog message for a stuck start points to the Review agent section.
 - An empty pull request list after a failed read says "No pull requests could be read. See the messages above." in place of "No pull requests here".
 - With Follow space, a new space shows "Reading this space…" until the board knows its folder, in place of "This space is not a GitHub or GitLab repo." while its pull requests load.
 

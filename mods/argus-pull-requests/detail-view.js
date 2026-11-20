@@ -40,9 +40,37 @@ function muted(t, text) {
   return div().text_color(t.muted).whitespace_normal().child(text);
 }
 
-/** Markdown from a comment or a description, as Herdr's TextView draws it. */
-function markdown(t, id, text) {
-  return div().text_color(t.foreground).child(TextView.markdown(id, text).selectable(true));
+/** Markdown from a comment or a description, as Herdr's TextView draws it. A link goes to `on.openLink`. */
+function markdown(t, id, text, on) {
+  return div().text_color(t.foreground).child(TextView.markdown(id, text).selectable(true).on_link_click((url, cx) => on.openLink(url, cx)));
+}
+
+/** A name with the login as its tooltip, so a display name cannot stand in for another login. */
+function nameView(t, id, view, login) {
+  let el = div().id(id).min_w(0).truncate().child(view.nameOf(login));
+  if (login !== "") el = el.tooltip(`@${login}`);
+  return el;
+}
+
+/** The keys made unique: a repeated key gets `~2`, `~3` and so on, in order. */
+function uniqueKeys(keys) {
+  const seen = new Map();
+  return keys.map((key) => {
+    const count = (seen.get(key) ?? 0) + 1;
+    seen.set(key, count);
+    return count === 1 ? key : `${key}~${count}`;
+  });
+}
+
+/** A key for a conversation item that does not depend on its place in the list. */
+function itemKey(item) {
+  if (item.entry !== null) return item.entry.id ?? `${item.kind}:${item.at}:${item.entry.author}`;
+  return `thread:${threadKey(item.threads[0])}`;
+}
+
+/** A key for a thread from its file, line and first comment time. */
+function threadKey(thread) {
+  return `${thread.path}:${thread.line ?? ""}:${thread.comments[0]?.at ?? ""}`;
 }
 
 /** A small tinted label, as Herdr's "Needs you" chip. */
@@ -66,7 +94,7 @@ export function iconAction(t, id, path, onClick, { enabled = true, tooltip = nul
  *   `position` (`positionIn` or null), `hasCheckout`, `checkingOut`, `error`, `now`, `age(at, now)`,
  *   `icon(name)` (a path), `agentRows` (elements), `bottom` (an element: the area under the scroll).
  * @param {object} on Handlers, each given the click's `cx` last: `toggle(section, cx)`, `togglePassed(cx)`,
- *   `prev(cx)`, `next(cx)`, `openBrowser(cx)`, `openCheck(url, cx)`, `checkOut(cx)`.
+ *   `prev(cx)`, `next(cx)`, `openBrowser(cx)`, `openCheck(url, cx)`, `openLink(url, cx)` (a link in Markdown text), `checkOut(cx)`.
  */
 export function prPane(t, view, on) {
   const { detail, verdict, position } = view;
@@ -93,7 +121,7 @@ export function prPane(t, view, on) {
         .child(iconAction(t, "pr-checkout", view.icon("git-branch"), (_e, cx) => on.checkOut(cx), { enabled: view.hasCheckout && !view.checkingOut, tooltip: "Check out in a worktree" })),
     )
     .child(div().text_size(16).font_semibold().whitespace_normal().child(pr.title))
-    .child(div().text_size(12).text_color(t.dim).whitespace_normal().child(`${pr.headRef} → ${pr.baseRef}`))
+    .child(div().min_w(0).text_size(12).text_color(t.dim).whitespace_normal().child(`${pr.headRef} → ${pr.baseRef}`))
     .child(
       v_flex()
         .id("verdict")
@@ -181,20 +209,21 @@ function sectionBody(t, id, view, on) {
         h_flex()
           .id(`reviewer-${index}`)
           .gap(8)
-          .child(div().flex_1().min_w(0).truncate().child(view.nameOf(reviewer.name)))
+          .child(nameView(t, `reviewer-name-${index}`, view, reviewer.name).flex_1())
           .child(div().flex_none().text_color(reviewer.state === "changes_requested" ? t.blocked : reviewer.state === "approved" ? t.done : t.muted).child(REVIEWER_WORDS[reviewer.state] ?? reviewer.state)),
       );
     case "agent":
       if (!view.hasCheckout) return [muted(t, "No local checkout, so no review agent can start here.")];
       return view.agentRows.length > 0 ? view.agentRows : [muted(t, "No review agent yet. Review with agent starts one.")];
     case "description":
-      return [detail.body.trim() === "" ? muted(t, "No description") : markdown(t, "md-description", detail.body)];
+      return [detail.body.trim() === "" ? muted(t, "No description") : markdown(t, "md-description", detail.body, on)];
     default: {
       const rows = [];
       if (detail.threadsError) rows.push(div().text_size(11.5).text_color(t.blocked).whitespace_normal().child(`File comments could not be read: ${detail.threadsError}`));
       if (detail.threadsNote) rows.push(div().text_size(11.5).text_color(t.muted).child(detail.threadsNote));
       if (view.items.length === 0) rows.push(muted(t, "No comments"));
-      view.items.forEach((item, index) => rows.push(itemView(t, view, item, index)));
+      const keys = uniqueKeys(view.items.map(itemKey));
+      view.items.forEach((item, index) => rows.push(itemView(t, view, on, item, keys[index])));
       return rows;
     }
   }
@@ -220,7 +249,7 @@ function checkRow(t, view, on, id, check) {
  * One conversation item: a header line (name, chip, age) and a balloon with the text and, for a
  * review, its file threads. An item with nothing to put in the balloon shows the header only.
  */
-function itemView(t, view, item, index) {
+function itemView(t, view, on, item, key) {
   const entry = item.entry;
   // A thread with no listed review stands for itself: its first comment gives the header.
   const first = item.threads[0]?.comments[0] ?? null;
@@ -228,28 +257,30 @@ function itemView(t, view, item, index) {
   const label = entry === null ? "commented" : entry.kind === "review" ? (REVIEW_CHIPS[entry.state] ?? "reviewed") : "commented";
   const color = entry?.state === "changes_requested" ? t.blocked : entry?.state === "approved" ? t.done : t.muted;
   const parts = [];
-  if (entry !== null && entry.body.trim() !== "") parts.push(div().p(10).child(markdown(t, `md-item-${index}`, entry.body)));
-  item.threads.forEach((thread, n) => parts.push(threadSection(t, view, thread, `${index}-${n}`, author, parts.length > 0)));
+  if (entry !== null && entry.body.trim() !== "") parts.push(div().p(10).child(markdown(t, `md-item-${key}`, entry.body, on)));
+  const threadKeys = uniqueKeys(item.threads.map(threadKey));
+  item.threads.forEach((thread, n) => parts.push(threadSection(t, view, on, thread, `${key}|${threadKeys[n]}`, author, parts.length > 0)));
   return v_flex()
-    .id(`item-${index}`)
+    .id(`item-${key}`)
     .gap(6)
     .child(
       h_flex()
         .gap(6)
         .items_center()
-        .child(div().flex_none().font_semibold().child(view.nameOf(author)))
-        .child(chip(t, `item-state-${index}`, label, color))
+        .child(nameView(t, `item-name-${key}`, view, author).font_semibold())
+        .child(chip(t, `item-state-${key}`, label, color))
         .child(div().flex_1())
         .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(item.at, view.now))),
     )
-    .when(parts.length > 0, (el) => el.child(v_flex().id(`balloon-${index}`).rounded(8).border_1().border_color(t.border).overflow_hidden().children(parts)));
+    .when(parts.length > 0, (el) => el.child(v_flex().id(`balloon-${key}`).rounded(8).border_1().border_color(t.border).overflow_hidden().children(parts)));
 }
 
 /**
  * A file thread inside a balloon: a bar with the file, line and open or resolved, then its
  * comments. A comment by the balloon's author shows no name line, so a name never shows twice.
  */
-function threadSection(t, view, thread, key, author, divided) {
+function threadSection(t, view, on, thread, key, author, divided) {
+  const commentKeys = uniqueKeys(thread.comments.map((comment) => `${comment.at}:${comment.author}`));
   const place = thread.line === null ? thread.path : `${thread.path}:${thread.line}`;
   return v_flex()
     .id(`thread-${key}`)
@@ -272,7 +303,7 @@ function threadSection(t, view, thread, key, author, divided) {
         .children(
           thread.comments.map((comment, n) =>
             v_flex()
-              .id(`thread-${key}-${n}`)
+              .id(`thread-${key}|${commentKeys[n]}`)
               .gap(2)
               .when(comment.author !== author, (el) =>
                 el.child(
@@ -280,12 +311,12 @@ function threadSection(t, view, thread, key, author, divided) {
                     .gap(6)
                     .items_center()
                     .text_size(12)
-                    .child(div().flex_none().font_semibold().child(view.nameOf(comment.author)))
+                    .child(nameView(t, `thread-name-${key}|${commentKeys[n]}`, view, comment.author).font_semibold())
                     .child(div().flex_1())
                     .child(div().flex_none().text_size(11.5).text_color(t.dim).child(view.age(comment.at, view.now))),
                 ),
               )
-              .child(markdown(t, `md-thread-${key}-${n}`, comment.body)),
+              .when(comment.body.trim() !== "", (el) => el.child(markdown(t, `md-thread-${key}|${commentKeys[n]}`, comment.body, on))),
           ),
         ),
     );
