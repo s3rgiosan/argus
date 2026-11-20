@@ -33,6 +33,15 @@ GitHub pull requests and GitLab merge requests in Herdr. Board in a panel on the
     ```json
     { "pullRequests": { "review": { "instructions": "Use the <name> skill.", "promptFile": "~/prompts/pr-review.md" } } }
     ```
+  - For each Claude Code account, `pullRequests.review.accounts` is keyed by the account folder (`~/.claude`, `~/.claude-<name>` or an absolute path). Each entry takes `instructions` and `promptFile`:
+    - `instructions`: pre-fills Extra instructions when you pick that account. The field is set when the dialog opens and when you pick another account, but only while it is empty or still holds the text Argus pre-filled. Text you typed stays, and a space or other change to the pre-filled text counts as typed. An account with no entry clears an untouched pre-fill. The text is sent only through the field, so it is never sent twice.
+    - `promptFile`: replaces the global `promptFile` for that account, with the same checks. Other agents use the global setting.
+    ```json
+    { "pullRequests": { "review": { "accounts": {
+      "~/.claude": { "instructions": "Use the example-skill skill." },
+      "~/.claude-work": { "instructions": "Use the other-skill skill. Brief: ", "promptFile": "~/prompts/work-review.md" }
+    } } } }
+    ```
   - Review agent section in the pane: each review run with Open space and Remove worktree. Remove asks first; a worktree with changes asks again before it removes it with `--force`. Then it deletes the branch, unless the branch has commits: a toast says so. A locked run cannot be removed here, and a run whose folder is gone can only be removed. With two separate clones of one repo, only the runs of one clone show.
 - Live: the board reads when it opens, every 3 minutes by default, and within about 5 seconds after a space with a new project opens. One open copy reads at a time.
 - Notes in the panel: `gh` or `glab` missing, signed out or rate limited. The refresh icon reads again. An empty list points to the notes only when a failed read belongs to the scope you look at (a GitLab host that failed does not explain an empty GitHub list).
@@ -92,6 +101,15 @@ When there are extra instructions, Argus adds them after the prompt, under the l
 
 ```json
 { "pullRequests": { "review": { "instructions": "Use the <name> skill.", "promptFile": "~/prompts/pr-review.md" } } }
+```
+
+- To change it for one Claude Code account: set `promptFile` under `pullRequests.review.accounts["<folder>"]`. It replaces the global `promptFile` when that account starts the review. Instructions under the same entry pre-fill the dialog's Extra instructions.
+
+```json
+{ "pullRequests": { "review": { "accounts": {
+  "~/.claude": { "instructions": "Use the example-skill skill." },
+  "~/.claude-work": { "instructions": "Use the other-skill skill. Brief: ", "promptFile": "~/prompts/work-review.md" }
+} } } }
 ```
 
 ## New worktree
