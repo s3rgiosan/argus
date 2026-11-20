@@ -65,3 +65,10 @@ test("detail reads ask for the head sha", () => {
   assert.ok(GH_VIEW_FIELDS.split(",").includes("headRefOid"));
   assert.match(GL_DETAIL_QUERY, /diffHeadSha squashOnMerge/);
 });
+
+test("GL_DETAIL_QUERY reads discussions and the squash lock, not notes", () => {
+  assert.match(GL_DETAIL_QUERY, /discussions\(first: 100\)/);
+  assert.match(GL_DETAIL_QUERY, /squashReadOnly/);
+  assert.match(GL_DETAIL_QUERY, /position \{ filePath newLine oldLine \}/);
+  assert.doesNotMatch(GL_DETAIL_QUERY, /notes\(first: 100\) \{ nodes \{ author/);
+});

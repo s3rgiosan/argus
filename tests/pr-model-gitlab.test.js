@@ -55,8 +55,23 @@ test("parseGlabDetail builds the detail view", () => {
   ]);
   assert.deepEqual(detail.reviewers, [{ name: "review-user", state: "changes_requested" }]);
   assert.deepEqual(detail.conversation, [
-    { author: "review-user", body: "Example note.", at: "2026-11-12T09:00:00Z", kind: "comment" },
+    { author: "review-user", body: "Example note.", at: "2026-11-12T09:00:00Z", kind: "comment", state: null, id: null },
   ]);
+  assert.deepEqual(detail.threads, [
+    {
+      path: "src/Example.php",
+      line: 12,
+      resolved: false,
+      reviewId: null,
+      comments: [
+        { author: "review-user", body: "Rename this.", at: "2026-11-12T09:20:00Z" },
+        { author: "octo-user", body: "Done.", at: "2026-11-12T09:30:00Z" },
+      ],
+    },
+  ]);
+  assert.equal(detail.squashLocked, true);
+  assert.equal(detail.threadsNote, null);
+  assert.equal(detail.threadsError, null);
   assert.deepEqual(detail.merge, { state: "conflicting", reason: "Indicates a reviewer has requested changes." });
 });
 
@@ -144,4 +159,11 @@ test("parseGlabDetail reads squash only when it is true", () => {
   const d = parseGlabDetail(JSON.stringify(raw), host);
   assert.equal(d.squash, false);
   assert.equal(d.headSha, null);
+});
+
+test("parseGlabDetail notes a thread list that reached its limit", () => {
+  const raw = JSON.parse(fixture("pr-glab-detail.json"));
+  const thread = raw.data.project.mergeRequest.discussions.nodes[1];
+  raw.data.project.mergeRequest.discussions.nodes = Array.from({ length: 100 }, () => thread);
+  assert.equal(parseGlabDetail(JSON.stringify(raw), "gitlab.example.com").threadsNote, "Showing the first 100 file comment threads.");
 });

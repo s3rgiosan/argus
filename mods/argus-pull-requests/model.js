@@ -5,8 +5,14 @@
 /** @typedef {{provider: Provider, host: string, repo: string, number: number, title: string, url: string, author: string, headRef: string, baseRef: string, isDraft: boolean, state: "open"|"closed"|"merged", reviewDecision: "approved"|"changes_requested"|"review_required"|null, checks: Checks, mergeable: "mergeable"|"conflicting"|"blocked"|"unknown", updatedAt: string, localPath: string|null}} Pr */
 /** @typedef {{name: string, state: "passed"|"failed"|"running"}} Check */
 /** @typedef {{name: string, state: "approved"|"changes_requested"|"commented"|"dismissed"|"pending"|"requested"}} Reviewer */
-/** @typedef {{author: string, body: string, at: string, kind: "comment"|"review"}} Entry */
-/** @typedef {{pr: Pr, body: string, headSha: string|null, squash: boolean, checks: Check[], reviewers: Reviewer[], merge: {state: Pr["mergeable"], reason: string|null}, conversation: Entry[]}} Detail */
+/**
+ * @typedef {{author: string, body: string, at: string, kind: "comment"|"review", state: "approved"|"changes_requested"|"commented"|"dismissed"|null, id: string|null}} Entry
+ *   `state` and `id` belong to reviews; `id` is the GitHub review id, null on GitLab.
+ * @typedef {{author: string, body: string, at: string}} ThreadComment
+ * @typedef {{path: string, line: number|null, resolved: boolean, reviewId: string|null, comments: ThreadComment[]}} Thread
+ *   A file comment thread; `reviewId` links it to its GitHub review, null on GitLab.
+ */
+/** @typedef {{pr: Pr, body: string, headSha: string|null, squash: boolean, checks: Check[], reviewers: Reviewer[], merge: {state: Pr["mergeable"], reason: string|null}, conversation: Entry[], threads: Thread[], threadsError: string|null, threadsNote: string|null, squashLocked: boolean}} Detail */
 
 const GH_HOST = "github.com";
 
@@ -212,12 +218,14 @@ function ghConversation(raw) {
   for (const comment of Array.isArray(raw.comments) ? raw.comments : []) {
     const body = String(comment?.body ?? "");
     if (body === "") continue;
-    entries.push({ author: String(comment?.author?.login ?? ""), body, at: String(comment?.createdAt ?? ""), kind: "comment" });
+    entries.push({ author: String(comment?.author?.login ?? ""), body, at: String(comment?.createdAt ?? ""), kind: "comment", state: null, id: null });
   }
+  // Every submitted review is an entry, also without a body (most approvals), so its file threads have a place.
   for (const review of Array.isArray(raw.reviews) ? raw.reviews : []) {
-    const body = String(review?.body ?? "");
-    if (body === "") continue;
-    entries.push({ author: String(review?.author?.login ?? ""), body, at: String(review?.submittedAt ?? ""), kind: "review" });
+    const state = GH_REVIEW_STATES[review?.state];
+    if (!state || state === "pending") continue;
+    const id = typeof review?.id === "string" && review.id !== "" ? review.id : null;
+    entries.push({ author: String(review?.author?.login ?? ""), body: String(review?.body ?? ""), at: String(review?.submittedAt ?? ""), kind: "review", state, id });
   }
   return entries.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }
@@ -240,6 +248,10 @@ export function parseGhDetail(text, repo) {
     reviewers: ghReviewers(raw),
     merge: { state: pr.mergeable, reason: GH_MERGE_REASONS[raw.mergeStateStatus] ?? null },
     conversation: ghConversation(raw),
+    threads: [],
+    threadsError: null,
+    threadsNote: null,
+    squashLocked: false,
   };
 }
 
@@ -450,17 +462,55 @@ function glReviewers(node) {
   return reviewers;
 }
 
-function glConversation(node) {
-  const nodes = node.notes?.nodes;
+/** The text that says a thread list stopped at its limit. */
+export const THREADS_LIMIT_NOTE = "Showing the first 100 file comment threads.";
+
+/** The most threads one read returns. */
+const THREAD_LIMIT = 100;
+
+/**
+ * The human notes of a GitLab discussion, oldest first, without system notes.
+ * @returns {Array<{author: string, body: string, at: string, position: unknown}>}
+ */
+function glNotes(discussion) {
+  const nodes = discussion?.notes?.nodes;
   if (!Array.isArray(nodes)) return [];
-  const entries = [];
-  for (const note of nodes) {
-    if (!isObject(note) || note.system === true) continue;
-    const body = String(note.body ?? "");
-    if (body === "") continue;
-    entries.push({ author: String(note.author?.username ?? ""), body, at: String(note.createdAt ?? ""), kind: "comment" });
+  return nodes
+    .filter((note) => isObject(note) && note.system !== true && String(note.body ?? "") !== "")
+    .map((note) => ({ author: String(note.author?.username ?? ""), body: String(note.body), at: String(note.createdAt ?? ""), position: note.position }))
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+}
+
+/**
+ * The conversation and the file threads of a GitLab merge request. A discussion whose
+ * first note has a file position is a thread; the notes of every other discussion are entries.
+ * @returns {{conversation: Entry[], threads: Thread[], threadsNote: string|null}}
+ */
+function glDiscussions(node) {
+  const nodes = node.discussions?.nodes;
+  if (!Array.isArray(nodes)) return { conversation: [], threads: [], threadsNote: null };
+  const conversation = [];
+  const threads = [];
+  for (const discussion of nodes) {
+    if (!isObject(discussion)) continue;
+    const notes = glNotes(discussion);
+    if (notes.length === 0) continue;
+    const position = notes[0].position;
+    if (isObject(position) && typeof position.filePath === "string") {
+      const line = Number.isInteger(position.newLine) ? position.newLine : Number.isInteger(position.oldLine) ? position.oldLine : null;
+      threads.push({
+        path: position.filePath,
+        line,
+        resolved: discussion.resolved === true,
+        reviewId: null,
+        comments: notes.map(({ author, body, at }) => ({ author, body, at })),
+      });
+      continue;
+    }
+    for (const { author, body, at } of notes) conversation.push({ author, body, at, kind: "comment", state: null, id: null });
   }
-  return entries.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  conversation.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  return { conversation, threads, threadsNote: nodes.length >= THREAD_LIMIT ? THREADS_LIMIT_NOTE : null };
 }
 
 /**
@@ -483,7 +533,9 @@ export function parseGlabDetail(text, host) {
     checks: glJobChecks(node),
     reviewers: glReviewers(node),
     merge: { state: pr.mergeable, reason: glReason(node.detailedMergeStatus) },
-    conversation: glConversation(node),
+    ...glDiscussions(node),
+    threadsError: null,
+    squashLocked: node.targetProject?.squashReadOnly === true,
   };
 }
 

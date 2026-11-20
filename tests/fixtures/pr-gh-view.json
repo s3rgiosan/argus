@@ -52,7 +52,8 @@
       },
       "state": "CHANGES_REQUESTED",
       "body": "Please fix the build.",
-      "submittedAt": "2026-11-12T09:00:00Z"
+      "submittedAt": "2026-11-12T09:00:00Z",
+      "id": "PRR_example0"
     },
     {
       "author": {
@@ -60,7 +61,26 @@
       },
       "state": "COMMENTED",
       "body": "",
-      "submittedAt": "2026-11-12T09:05:00Z"
+      "submittedAt": "2026-11-12T09:05:00Z",
+      "id": "PRR_example2"
+    },
+    {
+      "id": "PRR_example1",
+      "author": {
+        "login": "octo-reviewer"
+      },
+      "state": "APPROVED",
+      "body": "",
+      "submittedAt": "2026-11-12T09:10:00Z"
+    },
+    {
+      "id": "PRR_pending",
+      "author": {
+        "login": "octo-reviewer"
+      },
+      "state": "PENDING",
+      "body": "draft text",
+      "submittedAt": "2026-11-12T09:11:00Z"
     }
   ],
   "comments": [

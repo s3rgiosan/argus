@@ -100,9 +100,12 @@ test("parseGhDetail builds reviewers, conversation and merge", () => {
     { name: "example-team", state: "requested" },
   ]);
   assert.deepEqual(d.conversation, [
-    { author: "octo-user", body: "Example comment.", at: "2026-11-12T08:30:00Z", kind: "comment" },
-    { author: "review-user", body: "Please fix the build.", at: "2026-11-12T09:00:00Z", kind: "review" },
+    { author: "octo-user", body: "Example comment.", at: "2026-11-12T08:30:00Z", kind: "comment", state: null, id: null },
+    { author: "review-user", body: "Please fix the build.", at: "2026-11-12T09:00:00Z", kind: "review", state: "changes_requested", id: "PRR_example0" },
+    { author: "review-user", body: "", at: "2026-11-12T09:05:00Z", kind: "review", state: "commented", id: "PRR_example2" },
+    { author: "octo-reviewer", body: "", at: "2026-11-12T09:10:00Z", kind: "review", state: "approved", id: "PRR_example1" },
   ]);
+  assert.deepEqual([d.threads, d.threadsError, d.threadsNote, d.squashLocked], [[], null, null, false]);
   assert.deepEqual(d.merge, { state: "blocked", reason: "Blocked by branch protection: required reviews or checks." });
 });
 
