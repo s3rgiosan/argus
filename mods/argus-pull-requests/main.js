@@ -24,7 +24,7 @@ import { discover, expandHome, readFirst } from "./accounts.js";
 import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, row as listRow, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -96,7 +96,8 @@ export default class PullRequests extends View {
     this.boxKey = null;
     // Worktree path -> {confirm: null|"plain"|"dirty", running, error} for Remove worktree in the Agent section.
     this.removals = new Map();
-    // The Merged worktrees view: {phase, scope, notes, groups, ticked, results}, or null before it opens.
+    // The Merged worktrees view: {phase, scope, notes, groups, ticked, results, current}, or null before it opens.
+    // `current` is the path being removed now, else null.
     this.cleanup = null;
     // The Review with agent dialog: the pull request it was opened for, the agents (null while they load), the picked one.
     this.review = this.view === "review" ? { pr: props()?.pr ?? null, owner: props()?.owner ?? null, choices: null, picked: 0, error: null, starting: false, startId: null, handled: null } : null;
@@ -585,8 +586,7 @@ export default class PullRequests extends View {
       { busy: this.reading },
     );
     const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx));
-    const cleanup = iconButton(t, "cleanup", ICON("trash-2"), (_e, cx) => this.openCleanup(cx), { tooltip: "Remove merged worktrees" });
-    const head = header(t, "Pull requests", [scopeButton, cleanup, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
+    const head = header(t, "Pull requests", [scopeButton, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
 
     const parts = board.notes.map((message, index) => errorLine(t, message).id(`note-${index}`));
     if (following === "pending") {
@@ -962,6 +962,7 @@ export default class PullRequests extends View {
   /** Opens the Merged worktrees view. It reads only before the first list; finished results stay until Done. */
   openCleanup(cx) {
     this.view = "cleanup";
+    this.handle.focus();
     if (readsOnOpen(this.cleanup)) this.readCleanup(cx);
     cx.notify();
   }
@@ -973,7 +974,7 @@ export default class PullRequests extends View {
     const board = readBoard();
     const scope = readScope();
     const followed = followedOf(board);
-    this.cleanup = { phase: "loading", scope: scopeWhereTitle(scope, board, followed), notes: [], groups: [], ticked: new Set(), results: {} };
+    this.cleanup = { phase: "loading", scope: scopeWhereTitle(scope, board, followed), notes: [], groups: [], ticked: new Set(), results: {}, current: null };
     cx.notify();
     const projects = scopeProjects(board, scope, followed).filter((project) => project.localPath);
     cx.spawn(async (cx) => {
@@ -1084,7 +1085,7 @@ export default class PullRequests extends View {
   removeCleanup(cx) {
     const state = this.cleanup;
     if (state === null || state.phase !== "list" || state.ticked.size === 0) return;
-    this.cleanup = { ...state, phase: "removing", results: {} };
+    this.cleanup = { ...state, phase: "removing", results: {}, current: null };
     cx.notify();
     cx.spawn(async (cx) => {
       await cx.sleep(0);
@@ -1097,10 +1098,12 @@ export default class PullRequests extends View {
           if (rows.length === 0) continue;
           let anyGone = false;
           for (const row of rows) {
+            this.cleanup = { ...this.cleanup, current: row.path };
+            cx.notify();
             const outcome = await this.removeMerged(row, cwd);
             results[row.path] = outcome.text;
             if (outcome.gone) anyGone = true;
-            this.cleanup = { ...this.cleanup, results: { ...results } };
+            this.cleanup = { ...this.cleanup, results: { ...results }, current: null };
             cx.notify();
           }
           if (!anyGone) continue;
@@ -1114,7 +1117,7 @@ export default class PullRequests extends View {
       } catch (caught) {
         notes.push(caught?.message ?? String(caught));
       }
-      this.cleanup = { ...this.cleanup, phase: "done", results, notes };
+      this.cleanup = { ...this.cleanup, phase: "done", results, notes, current: null };
       cx.notify();
     });
   }
@@ -1162,7 +1165,7 @@ export default class PullRequests extends View {
       cx.notify();
     };
     const phase = state?.phase ?? "loading";
-    const refresh = iconButton(t, "cleanup-refresh", icon("refresh-cw"), (_e, cx) => this.readCleanup(cx), { busy: phase === "loading", enabled: phase === "list", tooltip: "Read again" });
+    const refresh = iconButton(t, "cleanup-refresh", ICON("refresh-cw"), (_e, cx) => this.readCleanup(cx), { busy: phase === "loading", enabled: phase === "list", tooltip: "Read again" });
     const head = subHeader(t, back, "Merged worktrees", icon("chevron-left")).child(div().flex_1()).child(refresh);
 
     const parts = [];
@@ -1174,7 +1177,7 @@ export default class PullRequests extends View {
       parts.push(note(t, "No merged worktrees here"));
     } else {
       for (const group of state.groups) {
-        parts.push(sectionTitle(t, group.project.repo));
+        parts.push(sectionTitle(t, `${group.project.repo} · ${group.rows.length}`));
         for (const row of group.rows) parts.push(this.cleanupRow(t, icon, row, state, now));
       }
     }
@@ -1196,6 +1199,17 @@ export default class PullRequests extends View {
     }
 
     return frame(t, "argus-pull-requests-cleanup")
+      .track_focus(this.handle)
+      .on_key_down((e, cx) => {
+        // Escape goes back and leaves a running removal alone; Enter removes the ticked rows.
+        if (e.key === "escape") {
+          cx.stop_propagation();
+          back(e, cx);
+        } else if (e.key === "enter" && phase === "list" && count > 0) {
+          cx.stop_propagation();
+          this.removeCleanup(cx);
+        }
+      })
       .child(head)
       .child(scrollArea("argus-pull-requests-cleanup-list", parts, { padding: 6 }))
       .child(footer(t).child(h_flex().w_full().gap(8).items_center().justify_end().children(actions)));
@@ -1206,6 +1220,7 @@ export default class PullRequests extends View {
     const removable = row.reason === null;
     const ticked = removable && state.ticked.has(row.path);
     const result = Object.hasOwn(state.results, row.path) ? state.results[row.path] : null;
+    const removing = result === null && state.phase === "removing" && state.current === row.path;
     const box = div()
       .flex_none()
       .size(14)
@@ -1216,39 +1231,39 @@ export default class PullRequests extends View {
       .flex()
       .items_center()
       .justify_center();
-    const tick = ticked ? box.child(svg(icon("check")).size(10).text_color(t.background)) : box;
-    const status = result ?? row.reason ?? (row.ignored.length > 0 ? "has ignored files" : row.mergedAt === null ? "merged" : `merged ${ageText(row.mergedAt, now)}`);
-    const statusColor = result !== null ? (result.startsWith("removed") ? t.done : t.blocked) : row.reason !== null ? t.dim : row.ignored.length > 0 ? t.working : t.muted;
-    let line = h_flex()
-      .id(`cleanup-${row.path}`)
-      .h(28)
-      .px(8)
-      .gap(8)
-      .items_center()
-      .rounded(7)
-      // A row that must stay has no tick box, only its space.
-      .child(removable ? tick : div().flex_none().size(14))
-      .child(div().flex_1().min_w(0).truncate().text_color(removable ? t.foreground : t.dim).child(row.branch))
-      .child(div().flex_none().text_size(11).text_color(t.dim).child(`#${row.number}`))
-      .child(div().flex_none().max_w(170).truncate().text_size(11).text_color(statusColor).child(status));
-    if (row.reason === null && state.phase === "list") {
-      line = line
-        .cursor_pointer()
-        .hover((s) => s.bg(t.hover))
-        .on_click((_e, cx) => {
-          if (state.ticked.has(row.path)) state.ticked.delete(row.path);
-          else state.ticked.add(row.path);
-          cx.notify();
-        });
+    const tick = ticked ? box.child(svg(icon("check")).size(10).text_color(t.accent_foreground)) : box;
+    let status = row.reason ?? (row.ignored.length > 0 ? "has ignored files" : row.mergedAt === null ? "merged" : `merged ${ageText(row.mergedAt, now)}`);
+    let statusColor = row.reason !== null ? t.dim : row.ignored.length > 0 ? t.working : t.dim;
+    if (removing) {
+      status = "removing…";
+      statusColor = t.muted;
+    } else if (result !== null) {
+      status = result;
+      statusColor = result === "removed" ? t.done : result.startsWith("removed, branch kept") ? t.working : t.blocked;
     }
-    if (result !== null && result !== "removed") line = line.tooltip(result);
-    // Remove deletes ignored files too, so the tooltip names them; such a row starts unticked.
-    else if (result === null && row.reason === null && row.ignored.length > 0) {
+    const clickable = removable && state.phase === "list";
+    let line = listRow(t, `cleanup-${row.path}`, { hover: clickable })
+      // A row with a result or a reason has no tick box, only its space.
+      .child(removable && result === null ? tick : div().flex_none().size(14))
+      .child(div().flex_1().min_w(0).truncate().text_color(removable ? t.foreground : t.dim).child(row.branch))
+      .child(div().flex_none().text_size(12).text_color(t.muted).child(`#${row.number}`))
+      .child(div().flex_none().max_w(170).truncate().text_size(11).text_color(statusColor).child(status));
+    if (clickable) {
+      line = line.cursor_pointer().on_click((_e, cx) => {
+        if (state.ticked.has(row.path)) state.ticked.delete(row.path);
+        else state.ticked.add(row.path);
+        cx.notify();
+      });
+    }
+    // One tooltip per row: the result, else the ignored files, else the full branch name.
+    if (result !== null && result !== "removed") return line.tooltip(result);
+    if (result === null && removable && row.ignored.length > 0) {
+      // Remove deletes ignored files too, so the tooltip names them; such a row starts unticked.
       const shown = row.ignored.slice(0, 5).join(", ");
       const more = row.ignored.length > 5 ? ` and ${row.ignored.length - 5} more` : "";
-      line = line.tooltip(`Remove deletes these ignored files: ${shown}${more}`);
+      return line.tooltip(`Remove deletes these ignored files: ${shown}${more}`);
     }
-    return line;
+    return line.tooltip(row.branch);
   }
 
   renderSettings(t) {
@@ -1294,6 +1309,8 @@ export default class PullRequests extends View {
             (order) => setShared(SETTINGS_KEY, { ...readSettings(), conversation: order }),
           ),
         ),
+      sectionTitle(t, "Worktrees"),
+      h_flex().px(8).py(4).child(button(t, "cleanup-open", "Remove merged worktrees…", (_e, cx) => this.openCleanup(cx))),
     ];
     return frame(t, "argus-pull-requests-settings")
       .child(subHeader(t, back, "Settings", icon("chevron-left")))

@@ -123,8 +123,8 @@ export function errorLine(t, text) {
   return div().px(8).py(6).text_size(12).text_color(t.blocked).whitespace_normal().child(text);
 }
 
-/** A 28 px list row, on `selected` when `selected` is true. */
-export function row(t, id, { selected = false } = {}) {
+/** A 28 px list row, on `selected` when `selected` is true. `hover: false` leaves out the hover fill. */
+export function row(t, id, { selected = false, hover = true } = {}) {
   return h_flex()
     .id(id)
     .h(28)
@@ -134,7 +134,7 @@ export function row(t, id, { selected = false } = {}) {
     .items_center()
     .rounded(7)
     .when(selected, (el) => el.bg(t.selected))
-    .hover((s) => s.bg(t.hover));
+    .when(hover, (el) => el.hover((s) => s.bg(t.hover)));
 }
 
 /** A scrolling area that fills the space left, with Herdr's scrollbar. */
