@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentArgv, agentChoices } from "../mods/argus-pull-requests/review.js";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewPlan, reviewPrefix, titleSlug } from "../mods/argus-pull-requests/review.js";
 
 const known = [
   { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true, agent: true, installed: true, run: ["claude"] },
@@ -46,4 +46,35 @@ test("agentArgv: --model only for agents that take it, and only when set", () =>
   assert.deepEqual(agentArgv(claude, " sonnet "), ["claude", "--model", "sonnet"]);
   assert.deepEqual(agentArgv(claude, ""), ["claude"]);
   assert.deepEqual(agentArgv(codex, "o3"), ["codex"]);
+});
+
+test("reviewBranch: number, title slug and hash", () => {
+  assert.equal(reviewBranch({ number: 12, title: "Add a Published date to Report heroes" }, "0f59ec2c"), "argus/review-12-add-a-published-date-to-report-heroes-0f59ec2c");
+  assert.equal(reviewPrefix(12), "argus/review-12-");
+});
+
+test("titleSlug: no ASCII letters or digits gives no slug segment", () => {
+  assert.equal(titleSlug("✨ — ✨"), "");
+  assert.equal(reviewBranch({ number: 12, title: "✨" }, "0f59ec2c"), "argus/review-12-0f59ec2c");
+  assert.equal(titleSlug("x".repeat(60)).length, 40);
+  assert.equal(titleSlug("Fix: the  parser!"), "fix-the-parser");
+  assert.equal(titleSlug(`${"a".repeat(39)} b`), "a".repeat(39));
+});
+
+test("branchRefusal: the prefix links the run to its PR, and git rules apply", () => {
+  assert.equal(branchRefusal("argus/review-12-fix-0f59ec2c", 12), null);
+  assert.match(branchRefusal("review-12-fix", 12), /argus\/review-12-/);
+  assert.match(branchRefusal("argus/review-13-fix", 12), /argus\/review-12-/);
+  assert.match(branchRefusal("argus/review-12-has space", 12), /space/);
+  assert.match(branchRefusal("argus/review-12-", 12), /after/);
+  assert.equal(branchRefusal("  argus/review-12-fix  ", 12), null);
+});
+
+test("reviewPlan: a worktree on a new branch from the main checkout HEAD", () => {
+  assert.deepEqual(reviewPlan({ localPath: "/home/test/code/example-repo/", root: "/home/test/.herdr/worktrees", branch: "argus/review-12-fix-0f59ec2c" }), {
+    path: "/home/test/.herdr/worktrees/example-repo/argus-review-12-fix-0f59ec2c",
+    cwd: "/home/test/code/example-repo/",
+    check: ["check-ref-format", "--branch", "argus/review-12-fix-0f59ec2c"],
+    add: ["worktree", "add", "-b", "argus/review-12-fix-0f59ec2c", "/home/test/.herdr/worktrees/example-repo/argus-review-12-fix-0f59ec2c", "HEAD"],
+  });
 });
