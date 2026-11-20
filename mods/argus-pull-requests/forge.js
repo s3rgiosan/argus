@@ -57,6 +57,21 @@ export function ghViewArgs(repo, number) {
   return ["pr", "view", String(number), "--repo", repo, "--json", GH_VIEW_FIELDS];
 }
 
+/** The review threads of one pull request: file, line, resolved, and comments with their review. */
+export const GH_THREADS_QUERY =
+  "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved path line originalLine comments(first: 50) { nodes { author { login } body createdAt pullRequestReview { id } } } } } } } }";
+
+/**
+ * The `gh api graphql` arguments for the review threads of pull request `number` in `repo` (`owner/name`).
+ * @param {string} repo
+ * @param {number} number
+ * @returns {string[]}
+ */
+export function ghThreadsArgs(repo, number) {
+  const [owner, name] = repo.split("/");
+  return ["api", "graphql", "-f", `query=${GH_THREADS_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${number}`];
+}
+
 /**
  * @param {string} host
  * @param {string} query

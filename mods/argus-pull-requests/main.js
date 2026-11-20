@@ -11,8 +11,8 @@ import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs, orderConversation } from "./locate.js";
 import { NO_METHOD, OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, pickMergeMethod, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
-import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
-import { parseGhSearch, parseGhList, parseGhDetail, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
+import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
+import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, prKey } from "./model.js";
 import { assembleBoard, normalizeBoard, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
@@ -1008,9 +1008,24 @@ export default class PullRequests extends View {
       : ghViewArgs(selected.repo, selected.number);
     // The pane needs the GitHub login to turn off the review buttons on your own pull request.
     if (!gitLab) await this.ghLogin(command, [], true);
-    const reply = await exec(command, args, { timeout: CLI_TIMEOUT });
+    if (gitLab) {
+      const reply = await exec(command, args, { timeout: CLI_TIMEOUT });
+      if (reply.code !== 0) throw new Error(cliError(name, reply));
+      return parseGlabDetail(reply.stdout, selected.host);
+    }
+    // The review threads come from a second read beside the detail. Its failure leaves the pane working without them.
+    const [reply, threads] = await Promise.all([
+      exec(command, args, { timeout: CLI_TIMEOUT }),
+      exec(command, ghThreadsArgs(selected.repo, selected.number), { timeout: CLI_TIMEOUT }).catch((error) => ({ code: -1, stdout: "", stderr: error?.message ?? String(error) })),
+    ]);
     if (reply.code !== 0) throw new Error(cliError(name, reply));
-    return gitLab ? parseGlabDetail(reply.stdout, selected.host) : parseGhDetail(reply.stdout, selected.repo);
+    const detail = parseGhDetail(reply.stdout, selected.repo);
+    if (threads.code !== 0) return mergeThreads(detail, null, cliError(name, threads));
+    try {
+      return mergeThreads(detail, parseGhThreads(threads.stdout), null);
+    } catch (error) {
+      return mergeThreads(detail, null, error?.message ?? String(error));
+    }
   }
 
   openInBrowser(cx, pr) {

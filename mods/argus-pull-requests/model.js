@@ -231,6 +231,52 @@ function ghConversation(raw) {
 }
 
 /**
+ * The review threads from `gh api graphql` output for `GH_THREADS_QUERY`. Comments are sorted
+ * by time; a thread belongs to the review of its first comment. `truncated` is true when the
+ * list reached its limit of 100.
+ * @param {string} text
+ * @returns {{threads: Thread[], truncated: boolean}}
+ */
+export function parseGhThreads(text) {
+  const raw = parseJson(text);
+  if (!isObject(raw)) throw unexpected();
+  if (Array.isArray(raw.errors) && raw.errors.length > 0) throw new Error(String(raw.errors[0]?.message ?? "unexpected gh output"));
+  const nodes = raw.data?.repository?.pullRequest?.reviewThreads?.nodes;
+  if (!Array.isArray(nodes)) throw unexpected();
+  const threads = [];
+  for (const node of nodes) {
+    if (!isObject(node) || typeof node.path !== "string") continue;
+    const comments = (Array.isArray(node.comments?.nodes) ? node.comments.nodes : [])
+      .filter(isObject)
+      .map((comment) => ({ author: String(comment.author?.login ?? ""), body: String(comment.body ?? ""), at: String(comment.createdAt ?? ""), review: comment.pullRequestReview?.id }))
+      .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+    const line = Number.isInteger(node.line) ? node.line : Number.isInteger(node.originalLine) ? node.originalLine : null;
+    const first = comments[0]?.review;
+    threads.push({
+      path: node.path,
+      line,
+      resolved: node.isResolved === true,
+      reviewId: typeof first === "string" && first !== "" ? first : null,
+      comments: comments.map(({ author, body, at }) => ({ author, body, at })),
+    });
+  }
+  return { threads, truncated: nodes.length >= THREAD_LIMIT };
+}
+
+/**
+ * The detail with the result of the thread read: its threads and limit note, or the read's error.
+ * A failed thread read leaves the rest of the detail as it is.
+ * @param {Detail} detail
+ * @param {{threads: Thread[], truncated: boolean}|null} read
+ * @param {string|null} error
+ * @returns {Detail}
+ */
+export function mergeThreads(detail, read, error) {
+  if (read === null) return { ...detail, threads: [], threadsNote: null, threadsError: error };
+  return { ...detail, threads: read.threads, threadsNote: read.truncated ? THREADS_LIMIT_NOTE : null, threadsError: null };
+}
+
+/**
  * @param {string} text `gh pr view --json` output.
  * @param {string} repo
  * @returns {Detail}

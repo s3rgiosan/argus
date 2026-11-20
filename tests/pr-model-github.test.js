@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { ghCheckList, parseGhDetail, parseGhList, parseGhSearch, parsePrUrl, prKey, summarize } from "../mods/argus-pull-requests/model.js";
+import { THREADS_LIMIT_NOTE, ghCheckList, mergeThreads, parseGhDetail, parseGhList, parseGhSearch, parseGhThreads, parsePrUrl, prKey, summarize } from "../mods/argus-pull-requests/model.js";
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 const repo = "example-org/example-repo";
@@ -132,4 +132,44 @@ test("parseGhDetail reads an empty headRefOid as null", () => {
   const raw = JSON.parse(fixture("pr-gh-view.json"));
   raw.headRefOid = "";
   assert.equal(parseGhDetail(JSON.stringify(raw), repo).headSha, null);
+});
+
+test("parseGhThreads: path, line, resolved, comments by time, and the review of the first comment", () => {
+  const read = parseGhThreads(fixture("pr-gh-threads.json"));
+  assert.equal(read.truncated, false);
+  assert.deepEqual(read.threads, [
+    { path: "src/old.js", line: 7, resolved: true, reviewId: "PRR_example0", comments: [{ author: "review-user", body: "Old remark.", at: "2026-11-12T09:01:00Z" }] },
+    {
+      path: "src/example.js",
+      line: 12,
+      resolved: false,
+      reviewId: "PRR_example1",
+      comments: [
+        { author: "octo-reviewer", body: "Rename this.", at: "2026-11-12T09:10:00Z" },
+        { author: "octo-user", body: "Fixed.", at: "2026-11-12T09:20:00Z" },
+      ],
+    },
+  ]);
+});
+
+test("parseGhThreads throws on bad output and GraphQL errors", () => {
+  assert.throws(() => parseGhThreads("not json"), /unexpected gh output/);
+  assert.throws(() => parseGhThreads('{"errors":[{"message":"x"}]}'));
+});
+
+test("parseGhThreads marks a list of 100 threads as cut", () => {
+  const one = JSON.parse(fixture("pr-gh-threads.json")).data.repository.pullRequest.reviewThreads.nodes[1];
+  const raw = { data: { repository: { pullRequest: { reviewThreads: { nodes: Array.from({ length: 100 }, () => one) } } } } };
+  assert.equal(parseGhThreads(JSON.stringify(raw)).truncated, true);
+});
+
+test("mergeThreads: threads, the limit note, or the read error", () => {
+  const d = parseGhDetail(fixture("pr-gh-view.json"), repo);
+  const failed = mergeThreads(d, null, "gh: rate limited");
+  assert.deepEqual([failed.threads, failed.threadsError, failed.threadsNote], [[], "gh: rate limited", null]);
+  assert.equal(failed.body, d.body);
+  const cut = mergeThreads(d, { threads: [], truncated: true }, null);
+  assert.deepEqual([cut.threadsNote, cut.threadsError], [THREADS_LIMIT_NOTE, null]);
+  const read = parseGhThreads(fixture("pr-gh-threads.json"));
+  assert.equal(mergeThreads(d, read, null).threads.length, 2);
 });
