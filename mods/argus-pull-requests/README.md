@@ -20,9 +20,9 @@ GitHub pull requests and GitLab merge requests in Herdr. Board in a panel on the
   - Agents start with your own permission settings: no flag restricts them. The prompt tells the agent to stay read-only (no edits, commits, pushes, comments, approvals or merges), to check the pull request number, branches and head commit with `gh` or `glab`, to read the changes at that commit, and to report findings by severity.
   - Claude Code asks once per new worktree whether you trust the folder; the review prompt arrives after you answer.
   - The pull request title, author and branches go into the prompt as quoted data, before the rules.
-  - While Start runs, Cancel is off and a click beside the dialog does not close it. If Herdr's Esc closes it anyway, the worktree may stay without its space: it shows in the Agent section, where you can open or remove it.
+  - Start hands the run to the pull request pane, so closing the dialog does not stop it. The dialog closes when the agent's space opens, or shows the error; a failed start also shows a toast. Start refuses a pull request that is no longer open and a base branch whose name has characters other than letters, digits, `.`, `_`, `/` and `-`.
   - Extra instructions for every review: `pullRequests.review.instructions` in `~/.config/herdr-app/argus.json` (text). They come before the dialog's extra instructions, under a line that says the read-only rules still apply.
-  - Agent section in the pane: each review run with Open space and Remove worktree. Remove asks first; a worktree with changes asks again before it removes it with `--force`. Then it deletes the branch, unless the branch has commits.
+  - Agent section in the pane: each review run with Open space and Remove worktree. Remove asks first; a worktree with changes asks again before it removes it with `--force`. Then it deletes the branch, unless the branch has commits: a toast says so. A locked run cannot be removed here, and a run whose folder is gone can only be removed. With two separate clones of one repo, only the runs of one clone show.
 - Live: the board reads when it opens, every 3 minutes by default, and within about 5 seconds after a space with a new project opens. One open copy reads at a time.
 - Notes in the panel: `gh` or `glab` missing, signed out or rate limited. The refresh icon reads again.
 

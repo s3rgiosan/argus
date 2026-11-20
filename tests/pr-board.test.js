@@ -307,3 +307,8 @@ test("assembleBoard and normalizeBoard keep the review runs", () => {
   assert.deepEqual(normalizeBoard({ ...board, reviews: 5 }).reviews, {});
   assert.deepEqual(assembleBoard(input()).reviews, {});
 });
+
+test("normalizeBoard drops review runs with a malformed run", () => {
+  const board = assembleBoard(input({ reviews: { "x#1": [{ path: 1, branch: "argus/review-1-a" }] } }));
+  assert.deepEqual(normalizeBoard(board).reviews, {});
+});

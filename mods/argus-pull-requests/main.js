@@ -5,7 +5,7 @@
 
 import { div, svg, image, View } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
-import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents } from "herdr";
+import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
 import { readdir, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
@@ -18,7 +18,7 @@ import { followFolder } from "./follow.js";
 import { worktreeRoot, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
-import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal } from "./review.js";
+import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor } from "./review.js";
 import { discover, readFirst } from "./accounts.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
@@ -35,6 +35,13 @@ const RUNNING_KEY = "argus-pull-requests.running";
 const TITLE_KEY = "argus-pull-requests.paneTitle";
 // The argus-claude-usage settings: account names and hidden accounts, read only.
 const USAGE_SETTINGS_KEY = "argus-claude-usage.settings";
+// A Start request from a Review with agent dialog, run by the pull request pane that opened it:
+// {id, owner, pr, argv, branch, extra}. The pane keeps running it when the dialog closes.
+const REVIEW_START_KEY = "argus-pull-requests.reviewStart";
+// The state of the last Start request: {id, state: "running"|"done", error}.
+const REVIEW_RESULT_KEY = "argus-pull-requests.reviewResult";
+// How long a dialog waits for its pane to take a Start request.
+const REVIEW_TAKE_MS = 5_000;
 const REVIEW_WIDTH = 460;
 const REVIEW_HEIGHT = 600;
 const MOD = "argus-pull-requests";
@@ -84,7 +91,9 @@ export default class PullRequests extends View {
     // Worktree path -> {confirm: null|"plain"|"dirty", running, error} for Remove worktree in the Agent section.
     this.removals = new Map();
     // The Review with agent dialog: the pull request it was opened for, the agents (null while they load), the picked one.
-    this.review = this.view === "review" ? { pr: props()?.pr ?? null, choices: null, picked: 0, error: null, starting: false } : null;
+    this.review = this.view === "review" ? { pr: props()?.pr ?? null, owner: props()?.owner ?? null, choices: null, picked: 0, error: null, starting: false, startId: null, handled: null } : null;
+    // The id of the last Start request this pane copy took.
+    this.takenReview = null;
 
     const settings = readSettings();
     // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
@@ -292,20 +301,29 @@ export default class PullRequests extends View {
     }
 
     const reviews = await this.readReviews(projects);
+    this.renewLock();
     return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews });
   }
 
-  /** The review agent worktrees of the projects with a local checkout. A failed git call gives no runs for that project. */
+  /**
+   * The review agent worktrees of the projects with a local checkout. A project whose git call
+   * fails keeps the runs of the last read.
+   */
   async readReviews(projects) {
-    const listings = await mapPool(projects.filter((project) => project.localPath), CLI_CONCURRENCY, async (project) => {
+    const local = projects.filter((project) => project.localPath);
+    const listings = await mapPool(local, CLI_CONCURRENCY, async (project) => {
+      let listing = null;
       try {
         const reply = await exec("git", ["worktree", "list", "--porcelain"], { cwd: project.localPath, timeout: GIT_TIMEOUT });
-        return reply.code === 0 ? { project, porcelain: reply.stdout } : null;
+        listing = reply.code === 0 ? { project, porcelain: reply.stdout } : null;
       } catch {
-        return null;
+        listing = null;
       }
+      this.renewLock();
+      return listing;
     });
-    return reviewRuns(listings.filter((listing) => listing !== null));
+    const failed = local.filter((_project, index) => listings[index] === null);
+    return keepRuns(reviewRuns(listings.filter((listing) => listing !== null)), readBoard().reviews, failed);
   }
 
   /** Caches what `folder` is: a repository entry, or null. A rejected probe caches nothing. */
@@ -505,7 +523,7 @@ export default class PullRequests extends View {
       case "pr":
         return this.renderPr(t, cx);
       case "review":
-        return this.renderReview(t);
+        return this.renderReview(t, cx);
       case "settings":
         return this.renderSettings(t);
       default:
@@ -648,7 +666,10 @@ export default class PullRequests extends View {
     });
   }
 
-  /** Checks the dialog's fields, then makes the worktree and starts the agent in a new space. */
+  /**
+   * Checks the dialog's fields, then hands a Start request to the pull request pane that
+   * opened the dialog. The pane runs it, so closing the dialog does not stop the run.
+   */
   startReview(cx) {
     const review = this.review;
     if (!review?.pr || review.starting || !review.choices || review.choices.length === 0) return;
@@ -661,33 +682,41 @@ export default class PullRequests extends View {
       return;
     }
     const model = choice.model ? this.modelInput.value() : "";
-    const extra = this.extraInput.value();
-    this.review = { ...review, starting: true, error: null };
+    const id = randomUUID();
+    this.review = { ...review, starting: true, error: null, startId: id };
+    setShared(REVIEW_START_KEY, { id, owner: review.owner, pr: review.pr, argv: agentArgv(choice, model), branch, extra: this.extraInput.value() });
+    cx.timer.after(REVIEW_TAKE_MS, (cx) => {
+      if (this.review?.startId !== id || resultFor(shared(REVIEW_RESULT_KEY), id) !== null) return;
+      this.review = { ...this.review, starting: false, error: "The pull request pane is not open. Open it, then start again." };
+      cx.notify();
+    });
     cx.notify();
+  }
+
+  /** Runs a Start request in this pane copy, shares its state, and shows a toast when it fails. */
+  runRequest(cx, request) {
     cx.spawn(async (cx) => {
       await cx.sleep(0);
+      setShared(REVIEW_RESULT_KEY, { id: request.id, state: "running", error: null });
       let error;
       try {
-        error = await this.runReview(review.pr, choice, branch, model, extra);
+        error = await this.runReview(request.pr, request.argv, request.branch, request.extra);
       } catch (caught) {
         error = caught?.message ?? String(caught);
       }
-      if (error === null) {
-        closeOverlay(props()?.overlay);
-        return;
-      }
-      this.review = { ...this.review, starting: false, error };
+      setShared(REVIEW_RESULT_KEY, { id: request.id, state: "done", error });
+      if (error !== null) notify({ title: "Review with agent did not start", body: error, level: "warning" });
       cx.notify();
     });
   }
 
   /** Runs a review: reads the settings and the pull request, adds the worktree, opens the space. Gives an error text, or null. */
-  async runReview(pr, choice, branch, model, extra) {
+  async runReview(pr, argv, branch, extra) {
     const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
     if ("error" in resolved) return resolved.error;
     const configured = reviewInstructions(await readTextFile(`${appHome()}/argus.json`));
     if (configured.error !== null) return configured.error;
-    // The prompt names the head commit, so the pull request is read again now.
+    // The prompt names the head commit, so the pull request is read again now. A gh or glab error throws.
     const detail = await this.readDetail(pr);
     const refusal = startRefusal(detail);
     if (refusal !== null) return refusal;
@@ -699,7 +728,7 @@ export default class PullRequests extends View {
     run("space.new", {
       name: `PR #${pr.number} · ${pr.title}`,
       folder: plan.path,
-      argv: agentArgv(choice, model),
+      argv,
       task: reviewPrompt({ detail, configured: configured.instructions, extra }),
     });
     setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
@@ -707,7 +736,19 @@ export default class PullRequests extends View {
   }
 
   /** The Review with agent dialog: the pull request, the agents, Model, Branch and Extra instructions. */
-  renderReview(t) {
+  renderReview(t, cx) {
+    // The pane shares the outcome of this dialog's request. A success closes the dialog after this
+    // render; an error shows in it.
+    const outcome = this.review?.startId ? resultFor(shared(REVIEW_RESULT_KEY), this.review.startId) : null;
+    if (outcome?.state === "done" && this.review.handled !== this.review.startId) {
+      this.review = { ...this.review, handled: this.review.startId, starting: outcome.error !== null ? false : this.review.starting, error: outcome.error };
+      if (outcome.error === null) {
+        cx.spawn(async (cx) => {
+          await cx.sleep(0);
+          closeOverlay(props()?.overlay);
+        });
+      }
+    }
     const review = this.review;
     const pr = review?.pr ?? null;
     const close = () => closeOverlay(props()?.overlay);
@@ -751,7 +792,6 @@ export default class PullRequests extends View {
     if (choice?.model) body.push(label("Model"), row(field(t, "model", this.modelInput, this.focused === "model")));
     body.push(label("Branch"), row(field(t, "branch", this.branchInput, this.focused === "branch")));
     body.push(label("Extra instructions"), textBox(t, "extra", this.extraInput, this.focused === "extra"));
-    if (review?.error) body.push(div().text_size(11).text_color(t.blocked).whitespace_normal().child(review.error));
     return v_flex()
       .id("argus-pull-requests-review")
       .track_focus(this.handle)
@@ -762,8 +802,8 @@ export default class PullRequests extends View {
       .text_color(t.foreground)
       .text_size(12.8)
       .on_key_down((e, cx) => {
-        // A running Start keeps the dialog: closing it would stop the run between git and the new space.
-        if (e.key !== "escape" || starting) return;
+        // The pane runs a started review, so closing the dialog never stops it.
+        if (e.key !== "escape") return;
         cx.stop_propagation();
         close();
       })
@@ -773,12 +813,14 @@ export default class PullRequests extends View {
       )
       // The fields scroll, so Cancel and Start stay in view with many agents.
       .child(scrollArea("argus-pull-requests-review-body", body, { padding: 0, gap: 10 }))
+      // The error stays in view below the fields.
+      .when(Boolean(this.review?.error), (el) => el.child(div().flex_none().text_size(11).text_color(t.blocked).whitespace_normal().child(this.review?.error ?? "")))
       .child(
         h_flex()
           .flex_none()
           .gap(8)
           .justify_end()
-          .child(button(t, "review-cancel", "Cancel", close, { enabled: !starting }))
+          .child(button(t, "review-cancel", starting ? "Close" : "Cancel", close))
           .child(button(t, "review-start", starting ? "Starting…" : "Start", (_e, cx) => this.startReview(cx), { primary: true, enabled: canStart })),
       );
   }
@@ -786,6 +828,8 @@ export default class PullRequests extends View {
   /** One review run in the Agent section: its branch, Open space and Remove worktree, with the remove confirm. */
   reviewRunRow(t, index, reviewRun, localPath) {
     const state = this.removals.get(reviewRun.path) ?? { confirm: null, running: false, error: null };
+    // A removed run stays on the board until the next read; its row goes at once.
+    if (state.removed) return null;
     const set = (patch, cx) => {
       this.removals.set(reviewRun.path, { ...state, ...patch });
       cx.notify();
@@ -799,9 +843,11 @@ export default class PullRequests extends View {
       .child(
         h_flex()
           .gap(8)
-          .child(button(t, `run-open-${index}`, "Open space", () => openRun(reviewRun)))
-          .child(button(t, `run-remove-${index}`, "Remove worktree", (_e, cx) => set({ confirm: "plain", error: null }, cx), { enabled: !state.running && state.confirm === null })),
-      );
+          .child(button(t, `run-open-${index}`, "Open space", () => openRun(reviewRun), { enabled: !reviewRun.prunable }))
+          .child(button(t, `run-remove-${index}`, "Remove worktree", (_e, cx) => set({ confirm: "plain", error: null }, cx), { enabled: !state.running && state.confirm === null && !reviewRun.locked })),
+      )
+      .when(Boolean(reviewRun.locked), (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Locked. Run git worktree unlock on it to remove it.")))
+      .when(Boolean(reviewRun.prunable), (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Its folder is gone. Remove worktree clears it.")));
     if (state.confirm !== null) {
       const dirty = state.confirm === "dirty";
       row = row.child(div().text_size(12).whitespace_normal().child(dirty ? "The worktree has changes. Remove it and lose them?" : `Remove ${reviewRun.branch}?`)).child(
@@ -816,30 +862,42 @@ export default class PullRequests extends View {
   }
 
   /**
-   * Removes a review worktree, then its branch (`-d` keeps a branch with commits). A worktree with
-   * changes turns the confirm into a second one that removes it with `--force`.
+   * Removes a review worktree, then its branch (`-d` keeps a branch with commits; a toast says so).
+   * A worktree with changes turns the confirm into a second one that removes it with `--force`.
+   * A worktree that is already gone counts as removed.
    */
   removeRun(cx, reviewRun, localPath, force) {
     const key = reviewRun.path;
+    if (this.removals.get(key)?.running) return;
     this.removals.set(key, { ...(this.removals.get(key) ?? { confirm: null, error: null }), running: true, error: null });
     cx.notify();
     cx.spawn(async (cx) => {
       await cx.sleep(0);
-      let next = null;
+      let next;
       try {
         const removed = await exec("git", removePlan(reviewRun, force), { cwd: localPath, timeout: GIT_TIMEOUT });
-        if (removed.code !== 0) {
-          next = !force && dirtyRefusal(removed.stderr) ? { confirm: "dirty", running: false, error: null } : { confirm: null, running: false, error: gitError(removed) };
+        if (removed.code === 0 || goneRefusal(removed.stderr)) {
+          next = { removed: true };
+        } else if (!force && dirtyRefusal(removed.stderr)) {
+          next = { confirm: "dirty", running: false, error: null };
         } else {
-          await exec("git", branchDelete(reviewRun.branch), { cwd: localPath, timeout: GIT_TIMEOUT });
-          setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
+          next = { confirm: null, running: false, error: gitError(removed) };
         }
       } catch (caught) {
         next = { confirm: null, running: false, error: caught?.message ?? String(caught) };
       }
-      if (next === null) this.removals.delete(key);
-      else this.removals.set(key, next);
+      this.removals.set(key, next);
       cx.notify();
+      if (!next.removed) return;
+      setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
+      let kept = null;
+      try {
+        const deleted = await exec("git", branchDelete(reviewRun.branch), { cwd: localPath, timeout: GIT_TIMEOUT });
+        if (deleted.code !== 0) kept = gitError(deleted);
+      } catch (caught) {
+        kept = caught?.message ?? String(caught);
+      }
+      if (kept !== null) notify({ title: `The worktree is removed. The branch ${reviewRun.branch} stays.`, body: kept, level: "info" });
     });
   }
 
@@ -1166,6 +1224,12 @@ export default class PullRequests extends View {
 
   /** The pull request pane: header, actions and the five sections. */
   renderPr(t, cx) {
+    // A Start request from the Review with agent dialog this pane opened runs here.
+    const request = shared(REVIEW_START_KEY);
+    if (!checking() && takesRequest(request, this.owner, this.takenReview)) {
+      this.takenReview = request.id;
+      this.runRequest(cx, request);
+    }
     const selected = readSelected();
     // A new selection arrives as a re-render; the read runs as a task.
     if (selected && this.shown?.key !== selected.key && !checking()) this.loadPr(cx, selected);
@@ -1224,7 +1288,7 @@ export default class PullRequests extends View {
               enabled: localPath !== null && !checkout.running,
             }),
           )
-          .child(button(t, "review-agent", "Review with agent", () => openReview(pr, localPath ?? ""), { enabled: localPath !== null && canAct(pr) })),
+          .child(button(t, "review-agent", "Review with agent", () => openReview(pr, localPath ?? "", this.owner), { enabled: localPath !== null && canAct(pr) })),
       )
       .when(checkout.running, (el) => el.child(div().text_size(11).text_color(t.muted).child("Checking out…")))
       .when(Boolean(error), (el) => el.child(div().text_size(11).text_color(t.blocked).whitespace_normal().child(error ?? "")))
@@ -1266,7 +1330,10 @@ export default class PullRequests extends View {
     const runs = readBoard().reviews[shown.key] ?? [];
     if (runs.length > 0 && localPath !== null) {
       parts.push(sectionTitle(t, "Agent"));
-      runs.forEach((reviewRun, index) => parts.push(this.reviewRunRow(t, index, reviewRun, localPath)));
+      runs.forEach((reviewRun, index) => {
+        const row = this.reviewRunRow(t, index, reviewRun, localPath);
+        if (row !== null) parts.push(row);
+      });
     }
     parts.push(sectionTitle(t, "Description"));
     const body = detail.body.trim();
@@ -1365,8 +1432,7 @@ function prState(pr) {
   return pr.isDraft ? "Draft" : "Open";
 }
 
-/** A 44 px board row, two lines. Click opens the pull request pane. */
-/** One board row. `reviewed` adds a dot when a review agent worktree exists for the pull request. */
+/** A 44 px board row, two lines. Click opens the pull request pane. `reviewed` adds a dot when a review agent worktree exists. */
 function prRow(t, id, pr, selected, now, reviewed) {
   const checks = checksText(pr.checks);
   let checksColor = t.muted;
@@ -1406,11 +1472,14 @@ function prRow(t, id, pr, selected, now, reviewed) {
     );
 }
 
-/** Opens the Review with agent dialog for a pull request; the dialog gets what it needs in its props. */
-function openReview(pr, localPath) {
+/**
+ * Opens the Review with agent dialog for a pull request. The dialog gets what it needs in its
+ * props, and `owner` names the pane copy that runs its Start request.
+ */
+function openReview(pr, localPath, owner) {
   const target = { key: prKey(pr), provider: pr.provider, host: pr.host, repo: pr.repo, number: pr.number, title: pr.title, localPath };
   // A click beside the dialog does not close it, so a running Start is not cut off by a stray click.
-  openOverlay({ mod: MOD, props: { view: "review", pr: target }, kind: "dialog", modal: true, width: REVIEW_WIDTH, height: REVIEW_HEIGHT });
+  openOverlay({ mod: MOD, props: { view: "review", pr: target, owner }, kind: "dialog", modal: true, width: REVIEW_WIDTH, height: REVIEW_HEIGHT });
 }
 
 /** Shows a review run's space: the one that holds its worktree, else a new one there. */

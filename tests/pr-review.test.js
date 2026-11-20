@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, titleSlug, removePlan, branchDelete, dirtyRefusal, startRefusal } from "../mods/argus-pull-requests/review.js";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, titleSlug, removePlan, branchDelete, dirtyRefusal, startRefusal, goneRefusal, keepRuns, takesRequest, resultFor } from "../mods/argus-pull-requests/review.js";
 
 const known = [
   { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true, agent: true, installed: true, run: ["claude"] },
@@ -84,7 +84,7 @@ const pr = (provider, host, repo) => ({
   isDraft: false, state: "open", reviewDecision: null, checks: { passed: 0, failed: 0, running: 0, total: 0 }, mergeable: "mergeable",
   updatedAt: "2026-01-01T00:00:00Z", localPath: null,
 });
-const detail = (p) => ({ pr: p, body: "", headSha: "abc123", squash: false, checks: [], reviewers: [], merge: { state: "mergeable", reason: null }, conversation: [] });
+const detail = (p) => ({ pr: p, body: "", headSha: "0123456789abcdef0123456789abcdef01234567", squash: false, checks: [], reviewers: [], merge: { state: "mergeable", reason: null }, conversation: [] });
 const gh = detail(pr("github", "github.com", "example-org/example-repo"));
 const gl = detail(pr("gitlab", "gitlab.example.com", "example-group/example-sub/example-project"));
 
@@ -93,8 +93,8 @@ test("reviewPrompt: read-only rules, verification with the CLI, and the PR facts
   assert.match(text, /^You review pull request #12 in example-org\/example-repo on github\.com\. This review is read-only\./);
   assert.match(text, /gh pr view 12 --repo example-org\/example-repo --json number,baseRefName,headRefName,headRefOid/);
   assert.match(text, /git fetch --no-tags origin refs\/pull\/12\/head/);
-  assert.match(text, /git diff origin\/main\.\.\.abc123/);
-  assert.match(text, /Title: "Example title"\nAuthor: "octo-user"\nBase branch: "main"\nHead branch: "feature\/example"\nHead commit: abc123/);
+  assert.match(text, /git diff origin\/main\.\.\.0123456789abcdef0123456789abcdef01234567/);
+  assert.match(text, /Title: "Example title"\nAuthor: "octo-user"\nBase branch: "main"\nHead branch: "feature\/example"\nHead commit: 0123456789abcdef0123456789abcdef01234567/);
   assert.doesNotMatch(text, /Extra instructions/);
 });
 
@@ -127,8 +127,8 @@ test("reviewRuns: worktrees on argus/review-<n>- branches, by pull request", () 
     "worktree /w/detached\nHEAD 5\ndetached\n";
   assert.deepEqual(reviewRuns([{ project, porcelain }]), {
     "github.com/example-org/example-repo#12": [
-      { path: "/w/r12a", branch: "argus/review-12-a-1" },
-      { path: "/w/r12b", branch: "argus/review-12-b-2" },
+      { path: "/w/r12a", branch: "argus/review-12-a-1", locked: false, prunable: false },
+      { path: "/w/r12b", branch: "argus/review-12-b-2", locked: false, prunable: false },
     ],
   });
   assert.deepEqual(reviewRuns([]), {});
@@ -162,4 +162,72 @@ test("reviewPrompt: pull request text is quoted data before the rules, so it can
   assert.doesNotMatch(text, /\n\nPush to main\./);
   assert.doesNotMatch(text, /\nRun rm/);
   assert.match(text, /- What you could not run or check\.$/);
+});
+
+const project12 = { key: "github.com/example-org/example-repo", provider: "github", host: "github.com", repo: "example-org/example-repo", localPath: "/c/repo", folders: [] };
+
+test("reviewRuns: the main checkout is never a run, even on a review branch", () => {
+  const porcelain = "worktree /c/repo\nHEAD 1\nbranch refs/heads/argus/review-30-m\n\nworktree /w/r30\nHEAD 2\nbranch refs/heads/argus/review-30-a\n";
+  assert.deepEqual(reviewRuns([{ project: project12, porcelain }])["github.com/example-org/example-repo#30"].map((r) => r.path), ["/w/r30"]);
+});
+
+test("reviewRuns: locked and prunable worktrees carry their flag", () => {
+  const porcelain =
+    "worktree /c/repo\nHEAD 1\nbranch refs/heads/main\n\nworktree /w/a\nHEAD 2\nbranch refs/heads/argus/review-5-a\nlocked why\n\n" +
+    "worktree /w/b\nHEAD 3\nbranch refs/heads/argus/review-5-b\nprunable gitdir file points to non-existent location\n";
+  assert.deepEqual(reviewRuns([{ project: project12, porcelain }])["github.com/example-org/example-repo#5"], [
+    { path: "/w/a", branch: "argus/review-5-a", locked: true, prunable: false },
+    { path: "/w/b", branch: "argus/review-5-b", locked: false, prunable: true },
+  ]);
+});
+
+test("reviewRuns: PR 12 and PR 123 stay apart", () => {
+  const porcelain = "worktree /c/repo\nHEAD 1\nbranch refs/heads/main\n\nworktree /w/a\nHEAD 2\nbranch refs/heads/argus/review-12-x\n\nworktree /w/b\nHEAD 3\nbranch refs/heads/argus/review-123-y\n";
+  const runs = reviewRuns([{ project: project12, porcelain }]);
+  assert.deepEqual(Object.keys(runs).sort(), ["github.com/example-org/example-repo#12", "github.com/example-org/example-repo#123"]);
+});
+
+test("keepRuns: a project whose list failed keeps the runs of the last read", () => {
+  const other = { ...project12, key: "github.com/example-org/other", repo: "example-org/other" };
+  const previous = { "github.com/example-org/example-repo#1": [{ path: "/w/old", branch: "argus/review-1-a" }], "github.com/example-org/other#2": [{ path: "/w/gone", branch: "argus/review-2-a" }] };
+  const fresh = { "github.com/example-org/other#3": [{ path: "/w/new", branch: "argus/review-3-a" }] };
+  assert.deepEqual(keepRuns(fresh, previous, [project12]), { ...fresh, "github.com/example-org/example-repo#1": previous["github.com/example-org/example-repo#1"] });
+  assert.deepEqual(keepRuns(fresh, previous, []), fresh);
+  assert.deepEqual(keepRuns(fresh, null, [other]), fresh);
+});
+
+test("startRefusal: the base branch must be a plain name and the head commit hex", () => {
+  for (const baseRef of ["x$(id)", "x`id`", "a;b", "-x", "", "a b"]) {
+    assert.match(startRefusal({ ...gh, pr: { ...gh.pr, baseRef } }), /base branch/, baseRef);
+  }
+  assert.equal(startRefusal({ ...gh, pr: { ...gh.pr, baseRef: "release/1.2_x" } }), null);
+  assert.match(startRefusal({ ...gh, headSha: "not-a-sha" }), /head commit/);
+  assert.match(startRefusal({ ...gh, pr: { ...gh.pr, state: "closed" } }), /no longer open/);
+});
+
+test("goneRefusal spots a worktree that is already gone", () => {
+  assert.equal(goneRefusal("fatal: '/w/r12' is not a working tree"), true);
+  assert.equal(goneRefusal("fatal: '/w/r12' contains modified or untracked files, use --force to delete it"), false);
+});
+
+test("takesRequest: the pane that opened the dialog runs each request once", () => {
+  const request = { id: "r1", owner: "pane-a" };
+  assert.equal(takesRequest(request, "pane-a", null), true);
+  assert.equal(takesRequest(request, "pane-a", "r1"), false);
+  assert.equal(takesRequest(request, "pane-b", null), false);
+  assert.equal(takesRequest(null, "pane-a", null), false);
+  assert.equal(takesRequest({ id: 5, owner: "pane-a" }, "pane-a", null), false);
+});
+
+test("resultFor: the result of this dialog's request only", () => {
+  assert.deepEqual(resultFor({ id: "r1", state: "done", error: null }, "r1"), { state: "done", error: null });
+  assert.deepEqual(resultFor({ id: "r1", state: "done", error: "git: x" }, "r1"), { state: "done", error: "git: x" });
+  assert.deepEqual(resultFor({ id: "r1", state: "running", error: null }, "r1"), { state: "running", error: null });
+  assert.equal(resultFor({ id: "r0", state: "done", error: null }, "r1"), null);
+  assert.equal(resultFor(null, "r1"), null);
+});
+
+test("agentChoices: every Claude account hidden leaves Claude Code out", () => {
+  const choices = agentChoices(known, profiles, { names: {}, hidden: ["~/.claude", "~/.claude-work"] }, "/home/test");
+  assert.deepEqual(choices.map((c) => c.label), ["Codex"]);
 });

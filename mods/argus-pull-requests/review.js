@@ -2,13 +2,13 @@
 // worktree, the read-only prompt, the review runs on the board, and their removal.
 
 import { tildePath, visibleProfiles } from "./accounts.js";
-import { branchSlug, parseWorktrees } from "./worktree.js";
+import { branchSlug } from "./worktree.js";
 import { fetchRef } from "./forge.js";
 
 /** @typedef {import("./accounts.js").Profile} Profile */
 /** @typedef {import("./model.js").Detail} Detail */
 /** @typedef {import("./remote.js").Project} Project */
-/** @typedef {{path: string, branch: string}} Run */
+/** @typedef {{path: string, branch: string, locked: boolean, prunable: boolean}} Run */
 /**
  * @typedef {{key: string, name: string, icon: string|null, tint: boolean, agent: boolean, installed: boolean, run: string[]}} KnownAgent
  * @typedef {{id: string, label: string, argv: string[], model: boolean, icon: string|null, tint: boolean}} Choice
@@ -33,6 +33,8 @@ export function agentChoices(known, profiles, settings, home) {
     if (!agent.agent || !agent.installed || !Array.isArray(agent.run) || agent.run.length === 0) continue;
     const base = { model: MODEL_AGENTS.has(agent.key), icon: agent.icon ?? null, tint: Boolean(agent.tint) };
     const accounts = agent.key === "claude" ? visibleProfiles(profiles, settings.hidden, home) : [];
+    // Accounts found but all hidden in the Usage panel: Claude Code is left out.
+    if (agent.key === "claude" && profiles.length > 0 && accounts.length === 0) continue;
     if (accounts.length === 0) {
       choices.push({ ...base, id: agent.key, label: agent.name, argv: [...agent.run] });
       continue;
@@ -195,7 +197,30 @@ export function reviewPrompt({ detail, configured, extra }) {
 const REVIEW_BRANCH = /^argus\/review-(\d+)-./;
 
 /**
- * The review runs of each pull request, keyed like `prKey`: the worktrees of each
+ * The linked worktrees in `git worktree list --porcelain` output, with their lock and prune
+ * flags. The first block is the main worktree, which is never a review run.
+ * @param {string} porcelain
+ * @returns {Array<{path: string, branch: string|null, locked: boolean, prunable: boolean}>}
+ */
+function linkedWorktrees(porcelain) {
+  const blocks = String(porcelain).split(/\r?\n\r?\n/).filter((block) => block.trim() !== "");
+  return blocks.slice(1).flatMap((block) => {
+    let path = null;
+    let branch = null;
+    let locked = false;
+    let prunable = false;
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
+      else if (line.startsWith("branch ")) branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+      else if (line === "locked" || line.startsWith("locked ")) locked = true;
+      else if (line === "prunable" || line.startsWith("prunable ")) prunable = true;
+    }
+    return path === null ? [] : [{ path, branch, locked, prunable }];
+  });
+}
+
+/**
+ * The review runs of each pull request, keyed like `prKey`: the linked worktrees of each
  * project whose branch starts `argus/review-<number>-`, sorted by branch.
  * @param {{project: Project, porcelain: string}[]} listings `git worktree list --porcelain` per project.
  * @returns {Record<string, Run[]>}
@@ -204,15 +229,33 @@ export function reviewRuns(listings) {
   /** @type {Record<string, Run[]>} */
   const runs = {};
   for (const { project, porcelain } of listings) {
-    for (const worktree of parseWorktrees(porcelain)) {
+    for (const worktree of linkedWorktrees(porcelain)) {
       const match = worktree.branch === null ? null : REVIEW_BRANCH.exec(worktree.branch);
       if (!match) continue;
       const key = `${project.host}/${project.repo}#${Number(match[1])}`.toLowerCase();
-      (runs[key] ??= []).push({ path: worktree.path, branch: worktree.branch });
+      (runs[key] ??= []).push({ path: worktree.path, branch: worktree.branch, locked: worktree.locked, prunable: worktree.prunable });
     }
   }
   for (const list of Object.values(runs)) list.sort((a, b) => (a.branch < b.branch ? -1 : a.branch > b.branch ? 1 : 0));
   return runs;
+}
+
+/**
+ * The runs of a read, with the runs of the last read kept for each project whose
+ * worktree list failed, so one slow git call does not hide them until the next read.
+ * @param {Record<string, Run[]>} fresh
+ * @param {Record<string, Run[]>|null} previous
+ * @param {Project[]} failed
+ * @returns {Record<string, Run[]>}
+ */
+export function keepRuns(fresh, previous, failed) {
+  const out = { ...fresh };
+  if (!previous) return out;
+  const prefixes = failed.map((project) => `${project.host}/${project.repo}#`.toLowerCase());
+  for (const [key, list] of Object.entries(previous)) {
+    if (prefixes.some((prefix) => key.startsWith(prefix))) out[key] = list;
+  }
+  return out;
 }
 
 /**
@@ -244,13 +287,58 @@ export function dirtyRefusal(stderr) {
 }
 
 /**
+ * True when git refused to remove a worktree because it is already gone.
+ * @param {string} stderr
+ * @returns {boolean}
+ */
+export function goneRefusal(stderr) {
+  return String(stderr ?? "").includes("is not a working tree");
+}
+
+/**
+ * Whether the pane copy `owner` runs a Start request from its dialog: the request names
+ * that copy, and the copy has not taken this request yet.
+ * @param {unknown} request The shared request: {id, owner, ...}.
+ * @param {string} owner
+ * @param {string|null} taken The id of the last request this copy took.
+ * @returns {boolean}
+ */
+export function takesRequest(request, owner, taken) {
+  if (!request || typeof request !== "object") return false;
+  const { id, owner: by } = /** @type {Record<string, unknown>} */ (request);
+  return typeof id === "string" && by === owner && id !== taken;
+}
+
+/**
+ * The state of the dialog's Start request in the shared result, or null when the result is for another request.
+ * @param {unknown} result The shared result: {id, state: "running"|"done", error}.
+ * @param {string} id
+ * @returns {{state: string, error: string|null}|null}
+ */
+export function resultFor(result, id) {
+  if (!result || typeof result !== "object") return null;
+  const r = /** @type {Record<string, unknown>} */ (result);
+  if (r.id !== id || typeof r.state !== "string") return null;
+  return { state: r.state, error: typeof r.error === "string" ? r.error : null };
+}
+
+/**
  * The reason a review cannot start for the pull request as read now, or null. The
- * prompt names the head commit, and a closed or merged pull request has nothing to review.
+ * prompt names the head commit and puts the base branch in commands, and a closed or
+ * merged pull request has nothing to review.
  * @param {Detail} detail
  * @returns {string|null}
  */
 export function startRefusal(detail) {
-  if (typeof detail.headSha !== "string" || detail.headSha === "") return "The head commit of this pull request is not known. Read it again, then retry.";
+  if (typeof detail.headSha !== "string" || !HEX_SHA.test(detail.headSha)) return "The head commit of this pull request is not known. Read it again, then retry.";
   if (detail.pr.state !== "open") return "This pull request is no longer open.";
+  // The prompt puts the base branch in shell commands, so only plain names go through.
+  if (!PLAIN_BRANCH.test(detail.pr.baseRef)) return "The base branch name has characters that the review prompt cannot use in a command.";
   return null;
 }
+
+/** A commit hash as gh and glab print it. */
+const HEX_SHA = /^[0-9a-f]{7,64}$/i;
+
+/** A branch name with letters, digits, `.`, `_`, `/` and `-` only, not starting with `-`. */
+const PLAIN_BRANCH = /^[A-Za-z0-9._/][A-Za-z0-9._/-]*$/;
