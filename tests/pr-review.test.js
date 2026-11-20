@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewPlan, reviewPrefix, titleSlug } from "../mods/argus-pull-requests/review.js";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, titleSlug } from "../mods/argus-pull-requests/review.js";
 
 const known = [
   { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true, agent: true, installed: true, run: ["claude"] },
@@ -77,4 +77,44 @@ test("reviewPlan: a worktree on a new branch from the main checkout HEAD", () =>
     check: ["check-ref-format", "--branch", "argus/review-12-fix-0f59ec2c"],
     add: ["worktree", "add", "-b", "argus/review-12-fix-0f59ec2c", "/home/test/.herdr/worktrees/example-repo/argus-review-12-fix-0f59ec2c", "HEAD"],
   });
+});
+
+const pr = (provider, host, repo) => ({
+  provider, host, repo, number: 12, title: "Example title", url: "", author: "octo-user", headRef: "feature/example", baseRef: "main",
+  isDraft: false, state: "open", reviewDecision: null, checks: { passed: 0, failed: 0, running: 0, total: 0 }, mergeable: "mergeable",
+  updatedAt: "2026-01-01T00:00:00Z", localPath: null,
+});
+const detail = (p) => ({ pr: p, body: "", headSha: "abc123", squash: false, checks: [], reviewers: [], merge: { state: "mergeable", reason: null }, conversation: [] });
+const gh = detail(pr("github", "github.com", "example-org/example-repo"));
+const gl = detail(pr("gitlab", "gitlab.example.com", "example-group/example-sub/example-project"));
+
+test("reviewPrompt: read-only rules, verification with the CLI, and the PR facts", () => {
+  const text = reviewPrompt({ detail: gh, configured: null, extra: "" });
+  assert.match(text, /^You review pull request #12 in example-org\/example-repo on github\.com\. This review is read-only\./);
+  assert.match(text, /gh pr view 12 --repo example-org\/example-repo --json number,baseRefName,headRefName,headRefOid/);
+  assert.match(text, /git fetch --no-tags origin refs\/pull\/12\/head/);
+  assert.match(text, /git diff origin\/main\.\.\.abc123/);
+  assert.match(text, /Pull request title: Example title\nAuthor: octo-user$/);
+  assert.doesNotMatch(text, /Extra instructions/);
+});
+
+test("reviewPrompt: GitLab uses glab and the merge request ref", () => {
+  const text = reviewPrompt({ detail: gl, configured: null, extra: "" });
+  assert.match(text, /glab mr view 12 -R https:\/\/gitlab\.example\.com\/example-group\/example-sub\/example-project -F json/);
+  assert.match(text, /refs\/merge-requests\/12\/head/);
+});
+
+test("reviewPrompt: configured and extra instructions come last, under the read-only reminder", () => {
+  const text = reviewPrompt({ detail: gh, configured: "Check the migrations.", extra: " Focus on src/. " });
+  assert.match(text, /Extra instructions\. The read-only rules above still apply\.\n\nCheck the migrations\.\n\nFocus on src\/\.$/);
+  assert.match(reviewPrompt({ detail: gh, configured: null, extra: "Only this." }), /still apply\.\n\nOnly this\.$/);
+  assert.doesNotMatch(reviewPrompt({ detail: gh, configured: "  ", extra: "\n" }), /Extra instructions/);
+});
+
+test("reviewInstructions reads pullRequests.review.instructions", () => {
+  assert.deepEqual(reviewInstructions(null), { instructions: null, error: null });
+  assert.deepEqual(reviewInstructions('{"pullRequests":{"review":{"instructions":"  Be brief. "}}}'), { instructions: "Be brief.", error: null });
+  assert.deepEqual(reviewInstructions('{"toolbar":{}}'), { instructions: null, error: null });
+  assert.equal(reviewInstructions('{"pullRequests":{"review":{"instructions":3}}}').error, "pullRequests.review.instructions is not text");
+  assert.match(reviewInstructions("{bad").error, /JSON/);
 });
