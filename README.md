@@ -11,6 +11,7 @@ Not affiliated with Herdr or Anthropic.
 | [`argus-claude-usage`](mods/argus-claude-usage/README.md) | Claude plan usage for every Claude Code account on this computer: session, weekly and per-model limits with pace, usage by surface, extra usage, and a toast near a limit. |
 | [`argus-tsk`](mods/argus-tsk/README.md) | The [tsk](https://gettsk.sh) task board: a Tasks panel with sections and a scope picker that combines a place with a thread and an assignee, quick capture, and a task pane with status, steps, block and review cards. |
 | [`argus-pull-requests`](mods/argus-pull-requests/README.md) | GitHub and GitLab pull requests: a Pull requests panel with scopes, groups and a filter, and a pane with checks, reviews, merge state and conversation, where you approve, request changes, comment and merge, or start a review by a coding agent that changes no code and posts nothing. |
+| [`argus-issues`](mods/argus-issues/README.md) | GitHub and GitLab issues: an Issues panel with scopes (assigned to you, created by you, mentioning you, all open), groups by repo and a filter, and a pane with the description, labels, assignees and comments. It only reads. |
 | [`argus-stay-awake`](mods/argus-stay-awake/README.md) | A coffee-cup button at the right end of the tab row that keeps the display awake. Right-click keeps it awake until no agent is working. |
 | [`argus-toolbar`](mods/argus-toolbar/README.md) | Buttons beside Herdr's tab bar that open this repo's panel mods in a panel on the right. |
 
@@ -22,6 +23,7 @@ Not affiliated with Herdr or Anthropic.
 - `argus-stay-awake`: macOS only, because it runs `caffeinate`.
 - `argus-tsk`: [tsk](https://gettsk.sh) 0.13.0 or later; 0.14.0 or later to show and rename project titles.
 - `argus-pull-requests`: `gh`, `glab` or both, signed in (tested on `gh` 2.104.0 and `glab` 1.131.0).
+- `argus-issues`: `gh`, `glab` or both, signed in (reads checked with `gh` 2.105.0 and `glab` 1.131.0).
 
 ## Install
 
@@ -43,7 +45,7 @@ Herdr places mods only through layouts, and it replaces its own layouts on every
 - a coffee-cup button at the right end of the tab bar, from `argus-stay-awake`, that keeps the display awake;
 - a toolbar beside the tab bar, with one button per installed mod that declares a panel. The buttons sort A to Z by label, or in the order set in `argus.json`;
 - a panel column on the right, hidden until a button opens it. It takes its width and drag limits from Herdr's own `panel` block in `main.json` (368 px, 280 to 900 px today);
-- the pane headers use `argus-pane`, a copy of Herdr's `pane` header that the script writes again from Herdr's header on every run. A pull request or task pane shows the item it holds, for example "T12 · Fix the parser", in place of the mod name. Terminal panes look as before. When the copy cannot be made (Herdr's header changed, the patched copy does not parse, or its folder cannot be written), the script says so and the layout keeps Herdr's header. It never writes into an `argus-pane` folder that it did not create, and it refuses a folder that is a symbolic link;
+- the pane headers use `argus-pane`, a copy of Herdr's `pane` header that the script writes again from Herdr's header on every run. A pull request, issue or task pane shows the item it holds, for example "T12 · Fix the parser", in place of the mod name. Terminal panes look as before. When the copy cannot be made (Herdr's header changed, the patched copy does not parse, or its folder cannot be written), the script says so and the layout keeps Herdr's header. It never writes into an `argus-pane` folder that it did not create, and it refuses a folder that is a symbolic link;
 - the sidebar uses `argus-spaces`, a copy of Herdr's `spaces` sidebar made the same way, with the same folder rules. A space row shows no repo or branch text after its name; the ahead and behind counts stay. Space colors carry over, because Herdr keeps them in shared state.
 
 `build-layout.mjs` writes its files atomically. It needs `argus-toolbar` installed first and stops with "install the toolbar first: sh scripts/install.sh argus-toolbar" when it is not. `--name <Name>` writes the layout under another name (letters, digits, `_` and `-` only; `main`, `terminals` and `win98` are refused), and the script does not overwrite a file of that name that it did not write.
@@ -82,7 +84,7 @@ Run `build-layout.mjs` again after a Herdr update too: it rebuilds from Herdr's 
 ```sh
 herdr-app do layout.switch '{"name":"main"}'
 rm ~/.config/herdr-app/layouts/Argus.json ~/.config/herdr-app/layouts/Argus.svg
-rm -r ~/.config/herdr-app/mods/argus-pane ~/.config/herdr-app/mods/argus-spaces ~/.config/herdr-app/mods/argus-stay-awake ~/.config/herdr-app/mods/argus-claude-usage ~/.config/herdr-app/mods/argus-toolbar ~/.config/herdr-app/mods/argus-tsk ~/.config/herdr-app/mods/argus-pull-requests
+rm -r ~/.config/herdr-app/mods/argus-pane ~/.config/herdr-app/mods/argus-spaces ~/.config/herdr-app/mods/argus-stay-awake ~/.config/herdr-app/mods/argus-claude-usage ~/.config/herdr-app/mods/argus-toolbar ~/.config/herdr-app/mods/argus-tsk ~/.config/herdr-app/mods/argus-pull-requests ~/.config/herdr-app/mods/argus-issues
 ```
 
 ## Development

@@ -1,0 +1,262 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  assembleBoard,
+  normalizeBoard,
+  normalizeScope,
+  issuesInScope,
+  scopeItems,
+  scopeTitle,
+  scopeRepos,
+  mentionsNote,
+  followStatus,
+  withFolders,
+  buildGroups,
+  shownOrder,
+  matchesFilter,
+  ageText,
+  rowDetail,
+  assigneesText,
+  emptyMessage,
+  issuePaneTitle,
+} from "../mods/argus-issues/board.js";
+import { stateText, namesOf, displayName, openedLine, commentItems, sectionSummaries, positionIn, hiddenText } from "../mods/argus-issues/detail.js";
+
+function issue(overrides = {}) {
+  return {
+    provider: "github",
+    host: "github.com",
+    repo: "example-org/example-repo",
+    number: 1,
+    title: "Example title",
+    url: "https://github.com/example-org/example-repo/issues/1",
+    author: "octo-user",
+    authorName: "",
+    assignees: [],
+    labels: [],
+    state: "open",
+    stateReason: null,
+    confidential: false,
+    comments: null,
+    milestone: null,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+const github = { key: "github.com/example-org/example-repo", provider: "github", host: "github.com", repo: "example-org/example-repo", localPath: "/home/test/repo", folders: ["/home/test/repo"] };
+const gitlab = { key: "gitlab.example.com/example-group/example-project", provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project", localPath: "/home/test/project", folders: ["/home/test/project"] };
+
+const mine = issue({ number: 1, updatedAt: "2026-01-02T00:00:00Z" });
+const other = issue({ number: 2, updatedAt: "2026-01-03T00:00:00Z" });
+const elsewhere = issue({ repo: "example-org/another-repo", number: 3 });
+const gl = issue({ provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project", number: 4 });
+
+function board() {
+  return assembleBoard({
+    projects: [github, gitlab],
+    folders: ["/home/test/repo", "/home/test/project"],
+    assigned: [mine, elsewhere, gl],
+    created: [other],
+    mentions: [mine],
+    projectIssues: { [github.key]: [mine, other], [gitlab.key]: [gl] },
+    notes: [],
+    readAt: 5,
+  });
+}
+
+test("assembleBoard keeps one copy of each issue and the keys of each list", () => {
+  const b = board();
+  assert.equal(b.issues.length, 4);
+  assert.deepEqual(b.scopes.assigned, ["github.com/example-org/example-repo#1", "github.com/example-org/another-repo#3", "gitlab.example.com/example-group/example-project#4"]);
+  assert.deepEqual(b.scopes.projects[github.key], ["github.com/example-org/example-repo#1", "github.com/example-org/example-repo#2"]);
+});
+
+test("normalizeBoard keeps a valid board and drops anything else", () => {
+  const b = board();
+  assert.equal(normalizeBoard(b), b);
+  assert.equal(normalizeBoard({ ...b, readAt: "x" }).readAt, 0);
+  assert.deepEqual(normalizeBoard(null).issues, []);
+});
+
+test("normalizeScope defaults to Assigned to me in All repos", () => {
+  assert.deepEqual(normalizeScope(undefined), { show: "assigned", where: "all" });
+  assert.deepEqual(normalizeScope({ show: "mentions", where: "follow" }), { show: "mentions", where: "follow" });
+  assert.deepEqual(normalizeScope({ show: "x", where: "project", key: "" }), { show: "assigned", where: "all" });
+  assert.deepEqual(normalizeScope({ show: "all", where: "project", key: github.key }), { show: "all", where: "project", key: github.key });
+});
+
+test("issuesInScope combines Show and In", () => {
+  const b = board();
+  const numbers = (scope, followed = null) => issuesInScope(b, scope, followed).map((i) => i.number);
+  assert.deepEqual(numbers({ show: "assigned", where: "all" }), [1, 3, 4]);
+  assert.deepEqual(numbers({ show: "assigned", where: "project", key: github.key }), [1]);
+  assert.deepEqual(numbers({ show: "all", where: "all" }), [1, 3, 4, 2]);
+  assert.deepEqual(numbers({ show: "all", where: "project", key: github.key }), [1, 2]);
+  assert.deepEqual(numbers({ show: "created", where: "follow" }, github.key), [2]);
+  assert.deepEqual(numbers({ show: "created", where: "follow" }, null), []);
+});
+
+test("scopeItems counts each row with the other choice kept, and keeps a picked project that left", () => {
+  const b = board();
+  const items = scopeItems(b, github.key, { show: "assigned", where: "project", key: "github.com/example-org/gone" });
+  assert.deepEqual(items.show.map((i) => [i.key, i.count, i.current]), [
+    ["assigned", 0, true],
+    ["created", 0, false],
+    ["mentions", 0, false],
+    ["all", 0, false],
+  ]);
+  assert.deepEqual(items.where.map((i) => [i.key, i.count]), [
+    ["follow", 1],
+    ["all", 3],
+  ]);
+  assert.deepEqual(items.projects.map((i) => [i.label, i.current]), [
+    ["example-group/example-project", false],
+    ["example-org/example-repo", false],
+    ["example-org/gone", true],
+  ]);
+});
+
+test("scopeTitle names the Show choice and the repo", () => {
+  const b = board();
+  assert.equal(scopeTitle({ show: "assigned", where: "all" }, b, null), "Assigned to me");
+  assert.equal(scopeTitle({ show: "mentions", where: "follow" }, b, github.key), "Mentions me · example-org/example-repo");
+  assert.equal(scopeTitle({ show: "all", where: "follow" }, b, null), "All open · Follow space");
+  assert.equal(scopeTitle({ show: "created", where: "project", key: "github.com/example-org/gone" }, b, null), "Created by me · example-org/gone");
+});
+
+test("scopeRepos lists each provider and host once", () => {
+  assert.deepEqual(scopeRepos(board(), { show: "all", where: "all" }, null), [
+    { provider: "github", host: "github.com" },
+    { provider: "gitlab", host: "gitlab.example.com" },
+  ]);
+});
+
+test("mentionsNote speaks only for Mentions me with a GitLab project in scope", () => {
+  const b = board();
+  assert.match(mentionsNote(b, { show: "mentions", where: "all" }, null) ?? "", /GitLab has no search for mentions/);
+  assert.equal(mentionsNote(b, { show: "mentions", where: "project", key: github.key }, null), null);
+  assert.equal(mentionsNote(b, { show: "assigned", where: "all" }, null), null);
+});
+
+test("followStatus waits for a folder the board has not read", () => {
+  const b = board();
+  assert.equal(followStatus(b, "/home/test/repo", github.key), "followed");
+  assert.equal(followStatus(b, "/home/test/new", null), "pending");
+  assert.equal(followStatus(withFolders(b, ["/home/test/new"]), "/home/test/new", null), "none");
+  assert.equal(followStatus(b, null, null), "none");
+  assert.equal(withFolders(b, ["/home/test/repo"]), b);
+});
+
+test("buildGroups makes one group per repo, A to Z, newest first inside", () => {
+  const groups = buildGroups([mine, elsewhere, other, gl]);
+  assert.deepEqual(groups.map((g) => [g.title, g.issues.map((i) => i.number)]), [
+    ["example-group/example-project", [4]],
+    ["example-org/another-repo", [3]],
+    ["example-org/example-repo", [2, 1]],
+  ]);
+  assert.deepEqual(shownOrder(board(), { show: "all", where: "project", key: github.key }, null), ["github.com/example-org/example-repo#2", "github.com/example-org/example-repo#1"]);
+});
+
+test("matchesFilter looks at title, number, author, labels and assignees", () => {
+  const i = issue({ number: 42, title: "Fix the parser", labels: ["bug"], assignees: [{ login: "other-user", name: "Other Person" }] });
+  assert.ok(matchesFilter(i, ""));
+  assert.ok(matchesFilter(i, "PARSER"));
+  assert.ok(matchesFilter(i, "#4"));
+  assert.ok(matchesFilter(i, "42"));
+  assert.ok(matchesFilter(i, "octo"));
+  assert.ok(matchesFilter(i, "bug"));
+  assert.ok(matchesFilter(i, "other-user"));
+  assert.ok(matchesFilter(i, "person"));
+  assert.ok(!matchesFilter(i, "#5"));
+  assert.ok(!matchesFilter(i, "nothing"));
+});
+
+test("ageText gives a short age", () => {
+  const now = Date.parse("2026-02-01T00:00:00Z");
+  assert.equal(ageText("2026-02-01T00:00:00Z", now), "now");
+  assert.equal(ageText("2026-01-31T23:30:00Z", now), "30m");
+  assert.equal(ageText("2026-01-31T00:00:00Z", now), "1d");
+  assert.equal(ageText("bad", now), "");
+});
+
+test("row text shows the author, the labels and the assignees", () => {
+  assert.equal(rowDetail(issue({ labels: ["bug", "docs"] })), "by octo-user · bug, docs");
+  assert.equal(rowDetail(issue({ author: "" })), "");
+  assert.equal(assigneesText(issue()), "");
+  assert.equal(assigneesText(issue({ assignees: [{ login: "a", name: "" }] })), "a");
+  assert.equal(assigneesText(issue({ assignees: [{ login: "a", name: "" }, { login: "b", name: "" }, { login: "c", name: "" }] })), "a +2");
+});
+
+test("emptyMessage points to failed reads of the scope only", () => {
+  const b = board();
+  assert.equal(emptyMessage({ ...b, readAt: 0 }), "Loading…");
+  assert.equal(emptyMessage(b, [{ provider: "github", host: "github.com" }]), "No open issues here");
+  const failed = { ...b, notes: ["glab (gitlab.example.com): Example error", "Showing the first 100 issues of a/b."] };
+  assert.equal(emptyMessage(failed, [{ provider: "github", host: "github.com" }]), "No open issues here");
+  assert.equal(emptyMessage(failed, [{ provider: "gitlab", host: "gitlab.example.com" }]), "No issues could be read. See the messages above.");
+  assert.equal(emptyMessage(failed, []), "No issues could be read. See the messages above.");
+});
+
+test("issuePaneTitle shows the number and title", () => {
+  assert.equal(issuePaneTitle(null), "Issues");
+  assert.equal(issuePaneTitle({ number: 3, title: "" }), "#3");
+  assert.equal(issuePaneTitle({ number: 3, title: "Example title" }), "#3 · Example title");
+});
+
+function detail(overrides = {}) {
+  return {
+    issue: issue({ authorName: "Octo User", assignees: [{ login: "other-user", name: "Other Person" }] }),
+    body: "",
+    closedAt: null,
+    comments: [
+      { author: "third-user", name: "Third Person", body: "A", at: "2026-01-02T00:00:00Z", hidden: null, internal: false },
+      { author: "other-user", name: "", body: "B", at: "2026-01-03T00:00:00Z", hidden: null, internal: false },
+    ],
+    commentsNote: null,
+    ...overrides,
+  };
+}
+
+test("stateText names the closed reason", () => {
+  assert.deepEqual(stateText(issue()), { text: "Open", open: true });
+  assert.deepEqual(stateText(issue({ state: "closed", stateReason: "not_planned" })), { text: "Closed as not planned", open: false });
+  assert.deepEqual(stateText(issue({ state: "closed", stateReason: "constructor" })), { text: "Closed", open: false });
+});
+
+test("namesOf and displayName use the forge's names and strip app/", () => {
+  const names = namesOf(detail());
+  assert.deepEqual(names, { "octo-user": "Octo User", "other-user": "Other Person", "third-user": "Third Person" });
+  assert.equal(displayName("other-user", names), "Other Person");
+  assert.equal(displayName("app/example-bot", names), "example-bot");
+  assert.equal(displayName("__proto__", namesOf(detail({ comments: [{ author: "__proto__", name: "Odd", body: "x", at: "", hidden: null, internal: false }] }))), "Odd");
+});
+
+test("openedLine says who opened it and when it changed", () => {
+  const now = Date.parse("2026-01-04T00:00:00Z");
+  const i = issue({ createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-03T00:00:00Z" });
+  assert.equal(openedLine(i, { "octo-user": "Octo User" }, now), "Octo User opened 3d ago · updated 1d ago");
+  assert.equal(openedLine({ ...i, createdAt: "", updatedAt: "" }, {}, now), "opened by octo-user");
+});
+
+test("commentItems follows the order setting", () => {
+  assert.deepEqual(commentItems(detail(), "oldest").map((c) => c.body), ["A", "B"]);
+  assert.deepEqual(commentItems(detail(), "newest").map((c) => c.body), ["B", "A"]);
+});
+
+test("sectionSummaries counts the comments", () => {
+  assert.deepEqual(sectionSummaries(detail()), { description: "None", comments: "2 comments" });
+  assert.equal(sectionSummaries(detail({ comments: [detail().comments[0]], body: "x" })).comments, "1 comment");
+});
+
+test("positionIn gives the place and the neighbours", () => {
+  assert.deepEqual(positionIn(["a", "b", "c"], "b"), { index: 2, total: 3, prev: "a", next: "c" });
+  assert.deepEqual(positionIn(["a"], "a"), { index: 1, total: 1, prev: null, next: null });
+  assert.equal(positionIn(["a"], "x"), null);
+});
+
+test("hiddenText names the reason when there is one", () => {
+  assert.equal(hiddenText(""), "Hidden by GitHub.");
+  assert.equal(hiddenText("spam"), "Hidden by GitHub as spam.");
+});

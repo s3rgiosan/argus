@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A new mod, `argus-issues`, shows GitHub and GitLab issues in an Issues panel. It reads through `gh` and `glab` and writes nothing to GitHub or GitLab.
+- The scope button has two choices. Show picks Assigned to me, Created by me, Mentions me or All open. In picks Follow space, All repos or one project of your open spaces.
+- Issues show in one group per repo, newest update first, and the filter field matches the title, number, author, labels and assignees.
+- Mentions me is GitHub only, because GitLab has no search for mentions. A line says so when the scope holds a GitLab project.
+- A click on a row opens the issue in a pane beside the terminals. The pane shows the state, who opened it and when, the assignees, labels and milestone, and folding Description and Comments sections rendered as Markdown.
+- Comments that GitHub hid show without their text, and GitLab internal notes get an "internal" chip. Links open in the browser only for http and https.
+- The pane header shows the issue's place in the list, with arrows for the previous and next issue, and Open in browser.
+
 ### Changed
 
 - The built-in review prompt of `argus-pull-requests` puts the title, author and branches between `<<<pull-request>>>` and `<<</pull-request>>>` lines. The quoted values also write `<`, `>` and some invisible and control Unicode characters as `\uXXXX`.
