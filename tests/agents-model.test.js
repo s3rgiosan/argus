@@ -135,6 +135,48 @@ test("advance drops agents gone for more than 7 days and keeps newer ones", () =
   assert.deepEqual(Object.keys(next.track), ["recent"]);
 });
 
+test("an agent unchanged for 8 days but seen now keeps its entry when missing for one tick", () => {
+  let track = { t1: { s: "finished", at: NOW - 8 * DAY, gen: 3, turn: null } };
+  track = advance(track, [item({ status: "idle" })], NOW).track;
+  assert.equal(track.t1.s, "finished");
+  const gone = advance(track, [], NOW + 1000);
+  assert.equal(gone.track.t1.s, "finished");
+  assert.equal(gone.track.t1.gen, 3);
+});
+
+test("advance drops an entry 7 days after the agent was last seen, not after its last change", () => {
+  let track = advance({}, [item({ status: "done" })], NOW).track;
+  for (let t = 1; t <= 10; t++) track = advance(track, [item({ status: "idle" })], NOW + t * DAY).track;
+  assert.equal(advance(track, [], NOW + 16 * DAY).track.t1 !== undefined, true);
+  assert.equal(advance(track, [], NOW + 10 * DAY + 7 * DAY + HOUR + 1).track.t1, undefined);
+});
+
+test("advance moves the last-seen time at most once an hour, so a steady agent does not write each tick", () => {
+  const track = advance({}, [item({ status: "blocked" })], NOW).track;
+  assert.equal(advance(track, [item({ status: "blocked" })], NOW + 30 * MIN).changed, false);
+  const later = advance(track, [item({ status: "blocked" })], NOW + HOUR + MIN);
+  assert.equal(later.changed, true);
+  assert.equal(later.track.t1.seen, NOW + HOUR + MIN);
+  assert.equal(advance(later.track, [item({ status: "blocked" })], NOW + HOUR + 2 * MIN).changed, false);
+});
+
+test("normalizeTrack keeps a numeric seen field", () => {
+  assert.deepEqual(normalizeTrack({ a: { s: "idle", at: 5, gen: 0, turn: null, seen: 9 }, b: { s: "idle", at: 5, gen: 0, turn: null, seen: "x" } }), {
+    a: { s: "idle", at: 5, gen: 0, turn: null, seen: 9 },
+    b: { s: "idle", at: 5, gen: 0, turn: null },
+  });
+});
+
+test("a raised turn after finished is a new finish: idle while watched, else finished", () => {
+  const finished = { t1: { s: "finished", at: NOW, gen: 1, turn: 3 } };
+  const watched = advance(finished, [item({ status: "idle", turn: 4, focused: true })], NOW + MIN).track;
+  assert.equal(watched.t1.s, "idle");
+  const away = advance(finished, [item({ status: "idle", turn: 4, focused: false })], NOW + MIN);
+  assert.equal(away.track.t1.s, "finished");
+  assert.equal(away.track.t1.gen, 2);
+  assert.equal(advance(finished, [item({ status: "idle", turn: 3, focused: true })], NOW + MIN).track.t1.s, "finished");
+});
+
 test("normalizeTrack and normalizeHolds keep only well-formed entries", () => {
   assert.deepEqual(normalizeTrack(null), {});
   assert.deepEqual(normalizeTrack([1]), {});
@@ -145,6 +187,12 @@ test("normalizeTrack and normalizeHolds keep only well-formed entries", () => {
     a: { until: null, gen: 1 },
     b: { until: 9, gen: 0 },
   });
+});
+
+test("tomorrow morning is 09:00 today before 09:00, else 09:00 the next day", () => {
+  assert.equal(snoozeUntil("tomorrow", new Date(2030, 0, 2, 0, 30).getTime()), new Date(2030, 0, 2, 9, 0).getTime());
+  assert.equal(snoozeUntil("tomorrow", new Date(2030, 0, 2, 8, 59).getTime()), new Date(2030, 0, 2, 9, 0).getTime());
+  assert.equal(snoozeUntil("tomorrow", new Date(2030, 0, 2, 9, 0).getTime()), new Date(2030, 0, 3, 9, 0).getTime());
 });
 
 test("snoozeUntil gives the preset times", () => {

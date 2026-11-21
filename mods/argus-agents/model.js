@@ -6,8 +6,15 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** Tracker entries of agents that are gone are dropped after this time. */
+/** Tracker entries of agents that are gone are dropped this long after the agent was last seen. */
 export const KEEP_GONE_MS = 7 * DAY;
+
+/**
+ * An entry's `seen` time moves only when it is older than this, so a steady
+ * agent causes one tracker write an hour and not one a tick. A gone agent is
+ * dropped up to this much later than `KEEP_GONE_MS`.
+ */
+const SEEN_STEP_MS = HOUR;
 
 /** A finished row older than this moves from Finished to the Older fold. */
 export const OLDER_MS = HOUR;
@@ -15,7 +22,7 @@ export const OLDER_MS = HOUR;
 /** The categories the tracker stores. */
 const KINDS = new Set(["waiting", "failed", "finished", "working", "idle"]);
 
-/** The hour a "Tomorrow morning" snooze ends. */
+/** The hour a "Tomorrow morning" snooze ends (today when it is earlier than this hour). */
 const MORNING_HOUR = 9;
 
 /** The snooze choices, in menu order. */
@@ -140,8 +147,8 @@ function kindOf(row, prev) {
       // Herdr says "done" only when you were not looking, also when another app is in front.
       return "finished";
     case "idle": {
-      if (prev?.s === "finished") return "finished";
       if (prev?.s === "working" || turnWentUp(row, prev)) return row.focused ? "idle" : "finished";
+      if (prev?.s === "finished") return "finished";
       return "idle";
     }
     default:
@@ -154,9 +161,11 @@ function turnWentUp(row, prev) {
 }
 
 /**
- * The tracker after one look at `rows`. An entry is `{ s, at, gen, turn }`:
- * `s` the category, `at` when it last changed, `gen` a count of changes and
- * `turn` the terminal's turn count. A raised turn outside working counts as
+ * The tracker after one look at `rows`. An entry is `{ s, at, gen, turn, seen? }`:
+ * `s` the category, `at` when it last changed, `gen` a count of changes,
+ * `turn` the terminal's turn count and `seen` when the agent was last seen
+ * (kept to the hour; `at` when absent). An entry of a missing agent is
+ * dropped `KEEP_GONE_MS` after it was last seen. A raised turn outside working counts as
  * a change too, because a whole working phase came and went.
  *
  * @param {Record<string, object>} track
@@ -178,13 +187,16 @@ export function advance(track, rows, now) {
     } else if (prev.s !== s || (s !== "working" && turnWentUp(row, prev))) {
       next[row.address] = { s, at: now, gen: prev.gen + 1, turn: row.turn };
       changed = true;
-    } else if (row.turn !== null && row.turn !== prev.turn) {
-      next[row.address] = { ...prev, turn: row.turn };
-      changed = true;
+    } else {
+      const turnMoved = row.turn !== null && row.turn !== prev.turn;
+      if (turnMoved || now - (prev.seen ?? prev.at) >= SEEN_STEP_MS) {
+        next[row.address] = { ...prev, turn: turnMoved ? row.turn : prev.turn, seen: now };
+        changed = true;
+      }
     }
   }
   for (const [address, entry] of Object.entries(track)) {
-    if (seen.has(address) || now - entry.at <= KEEP_GONE_MS) continue;
+    if (seen.has(address) || now - (entry.seen ?? entry.at) <= KEEP_GONE_MS) continue;
     delete next[address];
     changed = true;
   }
@@ -201,6 +213,7 @@ export function normalizeTrack(value) {
   for (const [address, entry] of Object.entries(value)) {
     if (!own(entry) || !KINDS.has(entry.s) || typeof entry.at !== "number" || !count(entry.gen)) continue;
     track[address] = { s: entry.s, at: entry.at, gen: entry.gen, turn: typeof entry.turn === "number" ? entry.turn : null };
+    if (typeof entry.seen === "number") track[address].seen = entry.seen;
   }
   return track;
 }
@@ -232,7 +245,7 @@ export function snoozeUntil(id, now) {
       return now + 3 * HOUR;
     case "tomorrow": {
       const date = new Date(now);
-      date.setDate(date.getDate() + 1);
+      if (date.getHours() >= MORNING_HOUR) date.setDate(date.getDate() + 1);
       date.setHours(MORNING_HOUR, 0, 0, 0);
       return date.getTime();
     }

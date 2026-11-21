@@ -11,7 +11,7 @@ Herdr's own Agents list shows every agent with its status, pins and next agent. 
 - A finished row older than 1 hour moves from Finished to Older. Snooze and Reopen work on it as before.
 - Rows: the agent's icon, its space and its tab name (or its title, when the tab has no name), and how long it has been in that state. Pinned agents come first, then the newest change. The focused agent's row is highlighted.
 - Click a row: Herdr shows the agent's pane. A failed helper without a pane opens in a peek.
-- Snooze: the clock button on a row (shown on hover) opens a menu: 1 hour, 3 hours, Tomorrow morning (09:00) or Until it changes. Up and Down move, Enter picks, Esc closes. A snooze ends at its time, or sooner when the agent's state changes (for example, a waiting agent gets an answer and works again).
+- Snooze: the clock button on a row (shown on hover) opens a menu: 1 hour, 3 hours, Tomorrow morning (09:00 today before 09:00, else the next day) or Until it changes. Up and Down move, Enter picks, Esc closes. A snooze ends at its time, or sooner when the agent's state changes (for example, a waiting agent gets an answer and works again).
 - Snoozed: snoozed rows go to the Snoozed list at the bottom. Each row shows when its snooze ends. The Reopen button (on hover) puts the row back in its section. Working and Idle rows have no snooze.
 - Live: the board looks at Herdr's agents every second. Snoozes and the remembered states are kept in Herdr's shared state, so they survive a restart and every open copy shows the same.
 
