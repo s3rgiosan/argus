@@ -76,7 +76,7 @@ export default class Tasks extends View {
     this.renaming = null;
     this.reload = debounce(
       (cx) => {
-        cx.spawn(async (cx) => this.sync(cx));
+        this.startSync(cx);
         if (this.view === "task") this.loadTask(cx, readSelected());
       },
       DEBOUNCE,
@@ -131,12 +131,12 @@ export default class Tasks extends View {
     }
 
     this.startWatch(cx);
-    cx.spawn(async (cx) => this.sync(cx));
+    this.startSync(cx);
     if (this.view === "task") this.loadTask(cx, readSelected());
     cx.timer.every(POLL, (cx) => {
       if (!this.polling) return;
       this.since = Math.max(this.since, Date.now() - POLL / 2);
-      cx.spawn(async (cx) => this.sync(cx));
+      this.startSync(cx);
     });
   }
 
@@ -253,6 +253,7 @@ export default class Tasks extends View {
     this.watch?.cancel();
     this.watch = null;
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       const dir = await this.storePath();
       let stamp = await this.storeStamp(dir);
       // What the last batch asks for, checked once the next watch is in place
@@ -297,8 +298,16 @@ export default class Tasks extends View {
   refresh(cx) {
     this.force = true;
     this.since = Date.now();
-    cx.spawn(async (cx) => this.sync(cx));
+    this.startSync(cx);
     cx.notify();
+  }
+
+  /** Starts a sync in a task. */
+  startSync(cx) {
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      await this.sync(cx);
+    });
   }
 
   /**
@@ -316,7 +325,7 @@ export default class Tasks extends View {
       const fetch = shouldFetch({ now: startedAt, fetchedAt: board.readAt, lock: shared(LOCK_KEY), intervalMs: Infinity, owner: this.owner, force: due });
       if (!fetch) {
         // Another copy is reading; check again once it is done.
-        if (due) cx.timer.after(LOCK_RETRY, (cx) => cx.spawn(async (cx) => this.sync(cx)));
+        if (due) cx.timer.after(LOCK_RETRY, (cx) => this.startSync(cx));
         return;
       }
 
@@ -335,7 +344,7 @@ export default class Tasks extends View {
       this.releaseLock();
       const again = this.gate.finish();
       if (read) cx.notify();
-      if (again) cx.spawn(async (cx) => this.sync(cx));
+      if (again) this.startSync(cx);
     }
   }
 
@@ -363,6 +372,7 @@ export default class Tasks extends View {
     this.captureError = null;
     cx.notify();
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       try {
         const scope = effectiveScope(readScope(), followedOf(readBoard().rows));
         const reply = await this.runTsk(addArgs({ title, ...captureTarget(scope) }));
@@ -466,6 +476,7 @@ export default class Tasks extends View {
     rename.error = null;
     cx.notify();
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       try {
         await this.tskWrite(projectTitleArgs(rename.project, change.title));
         if (this.renaming === rename) this.cancelRename(cx);
@@ -630,6 +641,7 @@ export default class Tasks extends View {
     }
     cx.notify();
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       try {
         await this.tskWrite(args);
         done?.(cx);
@@ -743,6 +755,7 @@ export default class Tasks extends View {
     this.flowError = null;
     cx.notify();
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       try {
         const result = task.status === "blocked" ? await answerBlock(this.flowApi(), task, text) : await sendBack(this.flowApi(), task, text);
         this.finishFlow(number, result, false);
@@ -762,6 +775,7 @@ export default class Tasks extends View {
     this.busy = true;
     cx.notify();
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       try {
         this.finishFlow(task.number, await retryStatus(this.flowApi(), task), true);
       } finally {
