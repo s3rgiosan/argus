@@ -253,6 +253,17 @@ export function normalizeScope(value) {
  * @returns {SidebarModel}
  */
 export function sidebarModel(allRows, followed = null, scope = follow()) {
+  const key = JSON.stringify([followed, scope]);
+  if (sidebarMemo !== null && sidebarMemo.rows === allRows && sidebarMemo.key === key) return sidebarMemo.model;
+  const model = buildSidebarModel(allRows, followed, scope);
+  sidebarMemo = { rows: allRows, key, model };
+  return model;
+}
+
+/** The last `sidebarModel` result, reused while its rows, followed project and scope are the same. */
+let sidebarMemo = null;
+
+function buildSidebarModel(allRows, followed, scope) {
   const filters = { thread: scope.thread, assignee: scope.assignee };
   const item = (key, label, next, current) => ({ key, label, scope: next, count: rowsInScope(allRows, next, followed).length, current });
   const labels = projectLabelsOf(allRows);
@@ -436,6 +447,17 @@ export function titleChange(item, value) {
   if (next === prefill) return null;
   if (next === "") return item.title === null ? null : { title: null };
   return { title: next };
+}
+
+/**
+ * Why tsk would refuse a project title, or null when it is fine. tsk reads a title
+ * that starts with "-" as an option.
+ * @param {?string} title null clears the title
+ * @returns {?string}
+ */
+export function titleError(title) {
+  if (title !== null && title.startsWith("-")) return "A title cannot start with a dash.";
+  return null;
 }
 
 /** Each titled project's title, keyed by path. Rows read before tsk 0.14 have none. */

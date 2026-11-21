@@ -20,6 +20,7 @@ import {
   sidebarModel,
   sortByProject,
   titleChange,
+  titleError,
 } from "../mods/argus-tsk/board.js";
 
 /** A scope with no thread or assignee unless `over` names one. */
@@ -514,4 +515,20 @@ test("taskPaneTitle: the number and title of the shown task, else the panel name
   assert.equal(taskPaneTitle(12, null), "T12");
   assert.equal(taskPaneTitle(12, ""), "T12");
   assert.equal(taskPaneTitle(null, null), "Tasks");
+});
+
+test("titleError refuses a title that starts with a dash", () => {
+  assert.equal(titleError("-x"), "A title cannot start with a dash.");
+  assert.equal(titleError("--clear"), "A title cannot start with a dash.");
+  assert.equal(titleError("Site -A"), null);
+  assert.equal(titleError(null), null);
+});
+
+test("sidebarModel reuses its result for the same rows and scope", () => {
+  const rows = [];
+  const scope = { where: "desk", thread: null, assignee: null };
+  const a = sidebarModel(rows, null, scope);
+  assert.equal(sidebarModel(rows, null, { ...scope }), a);
+  assert.notEqual(sidebarModel(rows, "/p", scope), a);
+  assert.notEqual(sidebarModel([], "/p", scope), a);
 });

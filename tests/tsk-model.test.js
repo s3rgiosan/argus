@@ -103,10 +103,11 @@ test("unknown fields are ignored", () => {
   assert.equal("new_field" in parsed[0], false);
 });
 
-test("garbage input gives [] and null", () => {
-  assert.deepEqual(parseRows("not json"), []);
-  assert.deepEqual(parseRows(""), []);
-  assert.deepEqual(parseRows('{"a":1}'), []);
+test("garbage input gives null rows and a null task", () => {
+  assert.equal(parseRows("not json"), null);
+  assert.equal(parseRows(""), null);
+  assert.equal(parseRows('{"a":1}'), null);
+  assert.deepEqual(parseRows("[]"), []);
   assert.equal(parseTask("not json"), null);
   assert.equal(parseTask("[]"), null);
 });

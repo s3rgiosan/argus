@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
 import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
 import { parseRows, parseError } from "./model.js";
-import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, taskPaneTitle, titleChange } from "./board.js";
+import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, taskPaneTitle, titleChange, titleError } from "./board.js";
 import { answerBlock, applyOptimistic, flowOutcome, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, blockChange, changeFor, CHECK_LABELS, detailState, fieldSave, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
@@ -206,6 +206,7 @@ export default class Tasks extends View {
     const setting = readSettings().tsk;
     if (this.located?.setting === setting) return this.located.result;
     const result = (async () => {
+      let old = null;
       for (const command of commandCandidates(setting, home())) {
         let reply;
         try {
@@ -216,8 +217,10 @@ export default class Tasks extends View {
         if (reply.code !== 0) continue;
         const version = reply.stdout.trim();
         if (versionOk(version)) return { ok: true, command, version };
-        return { ok: false, error: { kind: "old", message: `${version || command} is too old. This board needs tsk ${MIN_VERSION} or newer.` } };
+        // Keep the first old version and try the later candidates.
+        old ??= { ok: false, error: { kind: "old", message: `${version || command} is too old. This board needs tsk ${MIN_VERSION} or newer.` } };
       }
+      if (old !== null) return old;
       return { ok: false, error: { kind: "missing", message: `tsk not found. Install tsk ${MIN_VERSION} or newer, or set the tsk command in settings.` } };
     })();
     this.located = { setting, result };
@@ -360,7 +363,12 @@ export default class Tasks extends View {
     try {
       const reply = await this.runTsk(listArgs({ kind: "all" }, LIVE));
       if (reply.code !== 0) return { ...readBoard(), readAt: startedAt, error: parseError(reply.stderr, reply.code) };
-      return { rows: parseRows(reply.stdout), readAt: startedAt, error: null };
+      const rows = parseRows(reply.stdout);
+      if (rows === null) {
+        const error = { kind: "unexpected", exit: reply.code, message: "tsk printed output that is not a JSON task list." };
+        return { ...readBoard(), readAt: startedAt, error };
+      }
+      return { rows, readAt: startedAt, error: null };
     } catch (error) {
       return { ...readBoard(), readAt: startedAt, error };
     }
@@ -465,6 +473,12 @@ export default class Tasks extends View {
     const change = titleChange(rename.item, clear ? "" : rename.state.value());
     if (change === null) {
       this.cancelRename(cx);
+      return;
+    }
+    const refusal = titleError(change.title);
+    if (refusal !== null) {
+      rename.error = refusal;
+      cx.notify();
       return;
     }
     rename.saving = true;
