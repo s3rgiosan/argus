@@ -15,6 +15,7 @@ import {
   glReply,
   glabArgs,
   glabAuthArgs,
+  glabLoginState,
   glabLoginNote,
   isObject,
   isStringArray,
@@ -179,4 +180,12 @@ test("issuesOffList gives an empty list for a repo with issues turned off, else 
   const reply = (stderr, code = 1) => ({ code, stdout: "", stderr });
   assert.deepEqual(issuesOffList(reply("the 'example-org/example-repo' repository has disabled issues")), []);
   assert.equal(issuesOffList(reply("HTTP 401: Bad credentials")), null);
+});
+
+test("glabLoginState reads a glab auth status reply", () => {
+  const reply = (code, stderr) => ({ code, stdout: "", stderr });
+  assert.equal(glabLoginState(reply(0, "git.example.com\n  ✓ Logged in to git.example.com as octo-user (keyring)")), "signed-in");
+  assert.equal(glabLoginState(reply(1, "git.example.com\n  x git.example.com has not been authenticated with glab; run `glab auth login --hostname git.example.com` to authenticate.")), "signed-out");
+  assert.equal(glabLoginState(reply(1, 'git.example.com\n  x git.example.com: API call failed: Get "https://git.example.com/api/v4/user": dial tcp: i/o timeout')), "failed");
+  assert.equal(glabLoginState(reply(1, "")), "failed");
 });

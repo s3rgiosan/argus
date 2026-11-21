@@ -167,6 +167,18 @@ export function glabAuthArgs(host) {
 }
 
 /**
+ * What a `glabAuthArgs` reply says. glab exits with 1 both when it has no login for the host and
+ * when its API call to the host fails, so only the "has not been authenticated" text means
+ * "signed-out". Any other failure is "failed": the check gave no answer.
+ * @param {{code: number, stderr: string}} reply
+ * @returns {"signed-in"|"signed-out"|"failed"}
+ */
+export function glabLoginState(reply) {
+  if (reply.code === 0) return "signed-in";
+  return /has not been authenticated with glab/.test(String(reply.stderr ?? "")) ? "signed-out" : "failed";
+}
+
+/**
  * The board note for a host that glab is not signed in to.
  * @param {string} host
  * @returns {string}

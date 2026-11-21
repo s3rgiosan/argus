@@ -85,8 +85,11 @@ test("attempt takes the value that recover gives for a failed reply, with no not
   assert.deepEqual(notes, ["gh: HTTP 401"]);
 });
 
-test("signedInGitLab keeps gitlab.com and the hosts glab is signed in to, with one note per other host", async () => {
-  const { forge, calls } = runner((_command, args) => (args.includes("git.example.com") ? ok() : fail("not logged in")));
+const SIGNED_OUT = "x code.example.org has not been authenticated with glab; run `glab auth login --hostname code.example.org` to authenticate.";
+const API_FAILED = 'x git.example.com: API call failed: Get "https://git.example.com/api/v4/user": dial tcp: i/o timeout';
+
+test("signedInGitLab keeps gitlab.com and the hosts glab is signed in to, with one note per signed-out host", async () => {
+  const { forge, calls } = runner((_command, args) => (args.includes("git.example.com") ? ok() : fail(`code.example.org\n  ${SIGNED_OUT}`)));
   const projects = [
     { key: "gitlab.com/example-group/a", host: "gitlab.com" },
     { key: "git.example.com/example-group/b", host: "git.example.com" },
@@ -98,21 +101,39 @@ test("signedInGitLab keeps gitlab.com and the hosts glab is signed in to, with o
   assert.deepEqual(kept.map((project) => project.key), ["gitlab.com/example-group/a", "git.example.com/example-group/b"]);
   assert.deepEqual(notes, ["code.example.org: no glab login for this host"]);
   assert.equal(calls.length, 2);
+  // The signed-in host is kept; the signed-out host is checked again on the next read.
   await forge.signedInGitLab("glab", projects, []);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[2].args, ["auth", "status", "--hostname", "code.example.org"]);
+});
+
+test("signedInGitLab keeps the projects of a host whose check failed, with no note, and checks again", async () => {
+  let answers = [fail(`git.example.com\n  ${API_FAILED}`), ok()];
+  const { forge, calls } = runner(() => answers.shift());
+  const projects = [{ key: "git.example.com/example-group/b", host: "git.example.com" }];
+  const notes = [];
+  assert.deepEqual(await forge.signedInGitLab("glab", projects, notes), projects);
+  assert.deepEqual(notes, []);
+  assert.deepEqual(await forge.signedInGitLab("glab", projects, notes), projects);
+  assert.equal(calls.length, 2);
+  await forge.signedInGitLab("glab", projects, notes);
   assert.equal(calls.length, 2);
 });
 
-test("glabLogin does not keep a check that could not start", async () => {
-  let starts = 0;
-  const { forge } = runner(() => {
-    starts += 1;
-    if (starts === 1) throw new Error("spawn failed");
-    return ok();
+test("glabLogin gives signed-in, signed-out or failed, and keeps only signed-in", async () => {
+  let answers = [];
+  const { forge, calls } = runner(() => {
+    const next = answers.shift();
+    if (next instanceof Error) throw next;
+    return next;
   });
-  assert.equal(await forge.glabLogin("glab", "git.example.com"), false);
-  assert.equal(await forge.glabLogin("glab", "git.example.com"), true);
-  assert.equal(await forge.glabLogin("glab", "git.example.com"), true);
-  assert.equal(starts, 2);
+  answers = [new Error("spawn failed"), fail(SIGNED_OUT), fail(API_FAILED), ok()];
+  assert.equal(await forge.glabLogin("glab", "git.example.com"), "failed");
+  assert.equal(await forge.glabLogin("glab", "git.example.com"), "signed-out");
+  assert.equal(await forge.glabLogin("glab", "git.example.com"), "failed");
+  assert.equal(await forge.glabLogin("glab", "git.example.com"), "signed-in");
+  assert.equal(await forge.glabLogin("glab", "git.example.com"), "signed-in");
+  assert.equal(calls.length, 4);
 });
 
 test("glUsername keeps a username per command and host, and not a failed read", async () => {

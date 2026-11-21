@@ -7,7 +7,7 @@
 // a parameter, so Node can test the runner.
 
 import { mapPool } from "./pool.js";
-import { GL_USERNAME_QUERY, cliError, commandCandidates, glabArgs, glabAuthArgs, glabLoginNote, parseGlUsername } from "./forge-cli.js";
+import { GL_USERNAME_QUERY, cliError, commandCandidates, glabArgs, glabAuthArgs, glabLoginNote, glabLoginState, parseGlUsername } from "./forge-cli.js";
 import { mergeProjects, needsGlabLogin, needsProbe, parseRevParse, remoteArgs, revParseArgs } from "./remote.js";
 
 /** How many git, gh or glab calls a board read runs at once. */
@@ -33,7 +33,7 @@ export const GIT_TIMEOUT = 15_000;
 export function createForgeRunner({ exec, home, settings, now = Date.now }) {
   /** @type {Record<"gh"|"glab", {setting: string, result: Promise<?string>}|null>} */
   let located = { gh: null, glab: null };
-  // glab command and host -> Promise<boolean>: whether glab is signed in to the host.
+  // glab command and host -> the check that runs now, or the "signed-in" answer of an earlier one.
   const glabHosts = new Map();
   // glab command and host -> the signed-in username.
   const glUsers = new Map();
@@ -105,11 +105,12 @@ export function createForgeRunner({ exec, home, settings, now = Date.now }) {
   }
 
   /**
-   * Whether glab is signed in to `host`, kept per glab command and host until `clear()`.
-   * A check that cannot start gives false and is not kept, so the next read checks again.
+   * Whether glab is signed in to `host` (`glabLoginState`). A check that cannot start or that
+   * times out is "failed". Only "signed-in" is kept, per glab command and host until `clear()`,
+   * so a signed-out host or a failed check is checked again on the next read.
    * @param {string} glab
    * @param {string} host
-   * @returns {Promise<boolean>}
+   * @returns {Promise<"signed-in"|"signed-out"|"failed">}
    */
   function glabLogin(glab, host) {
     const key = `${glab} ${host}`;
@@ -117,21 +118,24 @@ export function createForgeRunner({ exec, home, settings, now = Date.now }) {
     if (cached) return cached;
     const result = (async () => {
       await null;
+      let state;
       try {
-        const reply = await exec(glab, glabAuthArgs(host), { timeout: CLI_TIMEOUT });
-        return reply.code === 0;
+        state = glabLoginState(await exec(glab, glabAuthArgs(host), { timeout: CLI_TIMEOUT }));
       } catch {
-        if (glabHosts.get(key) === result) glabHosts.delete(key);
-        return false;
+        state = "failed";
       }
+      if (state !== "signed-in" && glabHosts.get(key) === result) glabHosts.delete(key);
+      return state;
     })();
     glabHosts.set(key, result);
     return result;
   }
 
   /**
-   * The GitLab projects that glab can read: every gitlab.com project, and the projects on hosts
-   * that glab is signed in to. Each other host adds one note and gets no further glab call.
+   * The GitLab projects that glab can read: every gitlab.com project, the projects on hosts that
+   * glab is signed in to, and the projects on hosts whose check failed, so their own reads report
+   * what fails. Each signed-out host adds one note and leaves the board until a read finds it
+   * signed in.
    * @template {{host: string}} P
    * @param {string} glab
    * @param {P[]} projects
@@ -140,14 +144,14 @@ export function createForgeRunner({ exec, home, settings, now = Date.now }) {
    */
   async function signedInGitLab(glab, projects, notes) {
     const hosts = [...new Set(projects.map((project) => project.host))].filter(needsGlabLogin);
-    const signedIn = new Set();
+    const readable = new Set();
     await Promise.all(
       hosts.map(async (host) => {
-        if (await glabLogin(glab, host)) signedIn.add(host);
-        else notes.push(glabLoginNote(host));
+        if ((await glabLogin(glab, host)) === "signed-out") notes.push(glabLoginNote(host));
+        else readable.add(host);
       }),
     );
-    return projects.filter((project) => !needsGlabLogin(project.host) || signedIn.has(project.host));
+    return projects.filter((project) => !needsGlabLogin(project.host) || readable.has(project.host));
   }
 
   /**

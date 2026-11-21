@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The merged worktree count of `argus-pull-requests` reuses its merged pull request list for up to 15 minutes while the set of worktrees stays the same. The refresh button reads it again.
 - The Merged worktrees view of `argus-pull-requests` runs at most 4 commands at once and makes fewer forge calls, because the merged list of the project answers where it can.
 - A folder that was not a repo, or had no remote, is probed again on each scheduled read of `argus-pull-requests`. A repo is probed again after 10 minutes. A probe that timed out is tried again once each refresh interval.
-- A GitLab host other than `gitlab.com` needs a glab login in `argus-pull-requests`. Without it, the note "<host>: no glab login for this host" shows, the repos of that host leave the board, and glab makes no more calls for it until the refresh button is pressed.
+- A GitLab host other than `gitlab.com` needs a glab login in `argus-pull-requests`. Without it, the note "<host>: no glab login for this host" shows, the repos of that host leave the board until a read finds a login.
 - A GitHub remote needs exactly `owner/repo` in `argus-pull-requests`. A host or a path part that starts with `-` is not a project.
 - The GitLab discussion limit note in `argus-pull-requests` reads "Showing the first 100 discussions.".
 - An account in `argus-claude-usage` keeps its last good usage after a failed refresh and adds the line "Last refresh failed · <reason> · <ago>". A good reply removes the line. A good reply older than twice the interval plus one minute is not kept.
@@ -75,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Group by in the `argus-issues` scope list stays at the bottom of the list, and Show and In scroll above it, so Group by shows with many projects in the open spaces. `menuPopup` in `lib/ui.js` takes `head` and `foot` parts that stay in view around the scrolling list.
 - The Issue tab of the `argus-pull-requests` New worktree view shows an empty list for a GitHub repo that has issues turned off, with no error.
 - Threads and Assignees in the `argus-tsk` scope list stay at the bottom of the list, and In scrolls above them, so they show with many projects. Long Threads and Assignees lists scroll on their own and leave In room for three rows.
+- A glab login check that fails for a reason other than a missing login, such as a network error, keeps the GitLab repos of that host on the boards of `argus-issues` and `argus-pull-requests`. A signed-out host or a failed check is checked again on the next read.
 
 ### Security
 

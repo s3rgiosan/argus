@@ -33,7 +33,7 @@ GitHub and GitLab issues in Herdr. Board in a panel on the right, one issue in a
 - A project whose issue list fails keeps its issues from the last good read for up to 15 minutes, and the failure note shows.
 - A GitHub repo that has issues turned off has no issues on the board and gets no note.
 - An empty list says "No issues could be read. See the messages above." only when a read for the scope failed and no read that fills the scope worked. The searches fill Assigned to me, Created by me and Mentions me; the project lists fill All open.
-- A GitLab host other than `gitlab.com` needs a glab login. Without it, the note "<host>: no glab login for this host" shows, the repos of that host leave the board, and glab makes no more calls for it until the refresh button is pressed.
+- A GitLab host other than `gitlab.com` needs a glab login. Without it, the note "<host>: no glab login for this host" shows, the repos of that host leave the board until a read finds a login. A check that fails for another reason, for example a network error, keeps the repos on the board, and their own reads show what fails. A host without a login, or a failed check, is checked again on the next read.
 - A folder that is not a repo, or has no remote, is probed again on each scheduled read. A repo is probed again after 10 minutes.
 
 ## Reads
