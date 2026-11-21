@@ -1,5 +1,5 @@
 // The agents board in Herdr: the agents that wait on you, failed or finished,
-// with snooze and reopen. One mod with two views, picked by `props().view`:
+// and folded lists of the working, idle and older ones, with snooze and reopen. One mod with two views, picked by `props().view`:
 // the board (the layout's panel) and the snooze menu (a popup).
 
 import { View, div, image, svg } from "gpui-kit";
@@ -40,13 +40,22 @@ const SECTIONS = [
   { key: "finished", title: "Finished", color: (t) => t.done },
 ];
 
+// Folded at first, in this order. A row's dot uses the color of its own kind.
+const FOLDS = [
+  { key: "working", title: "Working" },
+  { key: "idle", title: "Idle" },
+  { key: "older", title: "Older" },
+  { key: "snoozed", title: "Snoozed" },
+];
+
 export default class AgentsBoard extends View {
   init(_props, cx) {
     this.view = props()?.view ?? "board";
     this.found = new Set();
     // The row under the pointer, which shows its snooze or reopen button.
     this.hovered = null;
-    this.shelfOpen = false;
+    // The folds that are open, by key.
+    this.open = new Set();
     // The snooze menu's highlighted row; null until a key moves it.
     this.at = null;
     this.handle = cx.focus_handle();
@@ -89,7 +98,7 @@ export default class AgentsBoard extends View {
     const count = sections.waiting.length + sections.failed.length + sections.finished.length;
 
     const actions = [];
-    if (sections.working > 0) actions.push(div().flex_none().text_size(11).text_color(t.dim).child(`${sections.working} working`));
+    if (sections.working.length > 0) actions.push(div().flex_none().text_size(11).text_color(t.dim).child(`${sections.working.length} working`));
     const head = header(t, "Overview", actions, { badge: badge(t, String(count)) });
 
     const parts = [];
@@ -100,23 +109,26 @@ export default class AgentsBoard extends View {
       for (const r of rows) parts.push(this.agentRow(t, r, now, section.color(t)));
     }
     if (count === 0) parts.push(note(t, list.length === 0 ? "No agent reports a status yet." : "Nothing needs you now."));
-    if (sections.snoozed.length > 0) {
-      parts.push(this.shelfTitle(t, sections.snoozed.length));
-      if (this.shelfOpen) {
-        for (const r of sections.snoozed) parts.push(this.agentRow(t, r, now, colorOf(t, r.kind)));
-      }
+    for (const fold of FOLDS) {
+      const rows = sections[fold.key];
+      if (rows.length === 0) continue;
+      parts.push(this.foldHead(t, fold, rows.length));
+      if (!this.open.has(fold.key)) continue;
+      for (const r of rows) parts.push(this.agentRow(t, r, now, colorOf(t, r.kind)));
     }
 
     return frame(t, MOD).child(head).child(scrollArea("argus-agents-board", parts, { padding: 6 }));
   }
 
-  /** The Snoozed heading: a click folds or unfolds the shelf. */
-  shelfTitle(t, total) {
-    return foldTitle(t, "snoozed", {
-      label: `Snoozed · ${total}`,
-      chevron: this.icon(this.shelfOpen ? "chevron-down" : "chevron-right"),
+  /** A fold's heading: a click folds or unfolds its rows. */
+  foldHead(t, fold, total) {
+    const open = this.open.has(fold.key);
+    return foldTitle(t, fold.key, {
+      label: `${fold.title} · ${total}`,
+      chevron: this.icon(open ? "chevron-down" : "chevron-right"),
       onToggle: (cx) => {
-        this.shelfOpen = !this.shelfOpen;
+        if (open) this.open.delete(fold.key);
+        else this.open.add(fold.key);
         cx.notify();
       },
     });
@@ -133,7 +145,9 @@ export default class AgentsBoard extends View {
     const hovered = this.hovered === id;
     const pic = programIcon(r.program, 16, t.foreground);
     const when = snoozed ? untilLabel(r.until, now) : duration(now - r.since);
-    const action = snoozed
+    const action = r.kind === "working" || r.kind === "idle"
+      ? null
+      : snoozed
       ? iconButton(
           t,
           `reopen-${r.address}`,
@@ -176,8 +190,8 @@ export default class AgentsBoard extends View {
           .child(div().min_w(0).max_w(detail ? 120 : 240).truncate().text_color(snoozed ? t.muted : t.foreground).child(name))
           .when(Boolean(detail), (el) => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`· ${detail}`))),
       )
-      .when(hovered, (el) => el.child(div().id(`act-${id}`).on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(action)))
-      .when(!hovered, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(when)))
+      .when(hovered && action !== null, (el) => el.child(div().id(`act-${id}`).on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(action)))
+      .when(!hovered || action === null, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(when)))
       .child(div().size(7).mx(3).flex_none().rounded(4).bg(color));
   }
 
@@ -236,6 +250,8 @@ function tick() {
 }
 
 function colorOf(t, kind) {
+  if (kind === "working") return t.working;
+  if (kind === "idle") return t.idle;
   return SECTIONS.find((section) => section.key === kind)?.color(t) ?? t.dim;
 }
 
