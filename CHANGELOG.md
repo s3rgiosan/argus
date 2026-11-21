@@ -20,8 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `argus-issues` takes its `gh` and `glab` commands from the shared `argus.forge` key, and keeps its refresh interval and Conversation order in `argus-issues.settings`.
 
 - New mod `argus-agents`, labeled Overview: a board of the agents that need you, in sections for Needs you, Failed and Finished, with counts and the time each agent has been in its state. A click on a row shows the agent.
-- A finished agent stays on the board after you look at it, until it works again or you snooze it. Failed lists agents whose program reports an error status.
-- Snooze a row for 1 hour, 3 hours, until tomorrow morning or until the agent changes. A snooze also ends when the agent's state changes. Snoozed rows wait on a Snoozed shelf with their end time, and Reopen puts a row back.
+- A finished agent stays on the board after you look at it, until it works again or you snooze it. An agent that finishes while its pane is the focused pane goes to Idle instead. Failed lists agents whose program reports an error status.
+- The Overview board has folded lists after the open sections, each with a count: Working, Idle, Older and Snoozed. A finished row older than 1 hour moves from Finished to Older.
+- Snooze a row for 1 hour, 3 hours, until tomorrow morning or until the agent changes. A snooze also ends when the agent's state changes. Snoozed rows wait in the Snoozed list with their end time, and Reopen puts a row back.
 
 ### Changed
 
