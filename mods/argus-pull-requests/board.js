@@ -4,8 +4,8 @@
 import { prKey } from "./model.js";
 import { localPathFor, projectKey } from "./remote.js";
 import { KEEP_RUNS_MS } from "./review.js";
-import { isObject } from "./forge-cli.js";
-import { emptyMessage as emptyText, itemsByKeys, keptLists as keptItems, normalizeScope as normalizeShowWhere, rowSignature, scopeItems as scopeRows, scopeProjects, scopeTitle as titleOf, whereKey } from "./forge-board.js";
+import { isObject, isStringArray } from "./forge-cli.js";
+import { emptyMessage as emptyText, itemsByKeys, keptLists as keptItems, normalizeScope as normalizeShowWhere, paneTitle, rowSignature, scopeItems as scopeRows, scopeProjects, scopeTitle as titleOf, whereKey } from "./forge-board.js";
 
 
 /**
@@ -69,10 +69,6 @@ export function assembleBoard(input) {
     scopes.projects[project.key] = keysOf(projectPrs[project.key] ?? []);
   }
   return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {}, mergedSeen: input.mergedSeen ?? {}, listedAt: input.listedAt ?? {} };
-}
-
-function isStringArray(value) {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 /** True when `value` is a review run: a path and a branch. */
@@ -375,8 +371,7 @@ export function keepStale(next, current, startedAt) {
  * @returns {string}
  */
 export function prPaneTitle(pr) {
-  if (pr === null) return "Pull requests";
-  return pr.title ? `#${pr.number} · ${pr.title}` : `#${pr.number}`;
+  return paneTitle(pr, "Pull requests");
 }
 
 /**

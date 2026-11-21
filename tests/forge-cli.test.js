@@ -15,6 +15,7 @@ import {
   glabAuthArgs,
   glabLoginNote,
   isObject,
+  isStringArray,
   limitNote,
   missingNotes,
   parseGhDefaultBranch,
@@ -123,6 +124,14 @@ test("forgeSettings trims the commands and reads the old settings while the shar
 
 test("commandCandidates skips the home install folder without a home", () => {
   assert.deepEqual(commandCandidates("", "glab", ""), ["glab", "/opt/homebrew/bin/glab", "/usr/local/bin/glab", "/home/linuxbrew/.linuxbrew/bin/glab"]);
+});
+
+test("isStringArray is true only for an array of strings", () => {
+  assert.equal(isStringArray([]), true);
+  assert.equal(isStringArray(["a", "b"]), true);
+  assert.equal(isStringArray(["a", 1]), false);
+  assert.equal(isStringArray("a"), false);
+  assert.equal(isStringArray(null), false);
 });
 
 test("isObject and webUrl", () => {

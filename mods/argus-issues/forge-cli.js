@@ -34,6 +34,15 @@ export function isObject(value) {
 }
 
 /**
+ * True for an array of strings.
+ * @param {unknown} value
+ * @returns {value is string[]}
+ */
+export function isStringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/**
  * The gh and glab commands, trimmed; "" means gh or glab from PATH, else the
  * install folders. A missing or malformed FORGE_KEY value takes the commands
  * from `fallback`, the value under FORGE_FALLBACK_KEY.

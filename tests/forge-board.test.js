@@ -17,6 +17,7 @@ import {
   noteIsFor,
   normalizeScope,
   normalizeSettings,
+  paneTitle,
   positionIn,
   rereadDue,
   rowSignature,
@@ -295,6 +296,12 @@ test("normalizeSettings of a forge board keeps a valid interval and leaves the c
 test("normalizeSettings of a forge board keeps a known conversation order only", () => {
   assert.equal(normalizeSettings({ conversation: "newest" }).conversation, "newest");
   assert.equal(normalizeSettings({ conversation: "sideways" }).conversation, "oldest");
+});
+
+test("paneTitle shows the number and the title, the number alone, else the fallback", () => {
+  assert.equal(paneTitle(null, "Items"), "Items");
+  assert.equal(paneTitle({ number: 3, title: "" }, "Items"), "#3");
+  assert.equal(paneTitle({ number: 3, title: "Example title" }, "Items"), "#3 · Example title");
 });
 
 test("KEEP_LIST_MS is 15 minutes", () => {

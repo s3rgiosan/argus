@@ -4,7 +4,7 @@
 
 import { issueKey } from "./model.js";
 import { projectKey } from "./remote.js";
-import { isObject } from "./forge-cli.js";
+import { isObject, isStringArray } from "./forge-cli.js";
 import {
   KEEP_LIST_MS,
   emptyMessage as emptyText,
@@ -12,6 +12,7 @@ import {
   itemsByKeys,
   keptLists as keptItems,
   normalizeScope as normalizeShowWhere,
+  paneTitle,
   rowSignature,
   scopeItems as scopeRows,
   scopeProjects,
@@ -45,10 +46,6 @@ export const GROUPINGS = /** @type {Array<[Grouping, string]>} */ ([
   ["assignee", "Assignee"],
   ["label", "Label"],
 ]);
-
-function isStringArray(value) {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
 
 // Board
 
@@ -307,8 +304,7 @@ export function emptyMessage(board, repos = []) {
  * @returns {string}
  */
 export function issuePaneTitle(issue) {
-  if (issue === null) return "Issues";
-  return issue.title ? `#${issue.number} · ${issue.title}` : `#${issue.number}`;
+  return paneTitle(issue, "Issues");
 }
 
 /**
