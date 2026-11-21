@@ -1,12 +1,12 @@
 // Pure board logic for the pull request board: assembling reads, scopes, groups, filter and
 // row text. Pull requests are the objects built by model.js.
 
-import { compareNames } from "./follow.js";
 import { prKey } from "./model.js";
 import { localPathFor, projectKey } from "./remote.js";
 import { KEEP_RUNS_MS } from "./review.js";
+import { isObject } from "./forge-cli.js";
+import { emptyMessage as emptyText, itemsByKeys, keptLists as keptItems, normalizeScope as normalizeShowWhere, rowSignature, scopeItems as scopeRows, scopeProjects, scopeTitle as titleOf, whereKey } from "./forge-board.js";
 
-export { compareNames };
 
 /**
  * @typedef {import("./model.js").Pr} Pr
@@ -28,10 +28,6 @@ const GROUPS = [
   { id: "waiting", title: "Waiting on review" },
   { id: "draft", title: "Draft" },
 ];
-
-const MINUTE = 60;
-const HOUR = 3600;
-const DAY = 86400;
 
 // Board
 
@@ -73,10 +69,6 @@ export function assembleBoard(input) {
     scopes.projects[project.key] = keysOf(projectPrs[project.key] ?? []);
   }
   return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {}, mergedSeen: input.mergedSeen ?? {}, listedAt: input.listedAt ?? {} };
-}
-
-function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isStringArray(value) {
@@ -152,8 +144,7 @@ export function withoutFailedRepos(pairs, failed) {
 
 /**
  * The pull requests of the previous board for the repos whose list failed in this read, so one
- * failed read does not hide them. A repo keeps them for KEEP_RUNS_MS after its last successful
- * list, so a repo whose list always fails does not keep them forever.
+ * failed read does not hide them, kept for KEEP_RUNS_MS after the repo's last successful list.
  * `prs` holds every kept pull request of those repos. `projectPrs` holds the project lists of the
  * failed repos that are projects. `listedAt` holds the time of the last successful list of each kept repo.
  * @param {Board} previous
@@ -162,30 +153,8 @@ export function withoutFailedRepos(pairs, failed) {
  * @returns {{prs: Pr[], projectPrs: Record<string, Pr[]>, listedAt: Record<string, number>}}
  */
 export function keptLists(previous, failedKeys, now) {
-  const seen = previous.listedAt ?? {};
-  /** @type {Pr[]} */
-  const prs = [];
-  /** @type {Record<string, Pr[]>} */
-  const projectPrs = {};
-  /** @type {Record<string, number>} */
-  const listedAt = {};
-  for (const key of new Set(failedKeys)) {
-    if (!Object.hasOwn(seen, key) || now - seen[key] >= KEEP_RUNS_MS) continue;
-    listedAt[key] = seen[key];
-    prs.push(...previous.prs.filter((pr) => projectKey(pr) === key));
-    if (Object.hasOwn(previous.scopes.projects, key)) projectPrs[key] = prsByKeys(previous, previous.scopes.projects[key]);
-  }
-  return { prs, projectPrs, listedAt };
-}
-
-/**
- * The board with one more note, or the board itself when it has the note already.
- * @param {Board} board
- * @param {string} text
- * @returns {Board}
- */
-export function withNote(board, text) {
-  return board.notes.includes(text) ? board : { ...board, notes: [...board.notes, text] };
+  const kept = keptItems(previous, failedKeys, now, { items: previous.prs, keyOf: prKey, keepMs: KEEP_RUNS_MS });
+  return { prs: kept.items, projectPrs: kept.projectItems, listedAt: kept.listedAt };
 }
 
 // Scopes
@@ -203,28 +172,17 @@ const SHOWS = /** @type {const} */ ([
  * @returns {Scope}
  */
 export function normalizeScope(value) {
+  if (!isObject(value) || typeof value.kind !== "string") return /** @type {Scope} */ (normalizeShowWhere(value, SHOWS));
   const fallback = /** @type {Scope} */ ({ show: "needsReview", where: "all" });
-  if (!isObject(value)) return fallback;
-  if (typeof value.kind === "string") {
-    switch (value.kind) {
-      case "mine":
-        return { show: "mine", where: "all" };
-      case "follow":
-        return { show: "all", where: "follow" };
-      case "project":
-        return typeof value.key === "string" && value.key !== "" ? { show: "all", where: "project", key: value.key } : fallback;
-      default:
-        return fallback;
-    }
-  }
-  const show = SHOWS.some(([id]) => id === value.show) ? /** @type {Show} */ (value.show) : "needsReview";
-  switch (value.where) {
+  switch (value.kind) {
+    case "mine":
+      return { show: "mine", where: "all" };
     case "follow":
-      return { show, where: "follow" };
+      return { show: "all", where: "follow" };
     case "project":
-      return typeof value.key === "string" && value.key !== "" ? { show, where: "project", key: value.key } : { show, where: "all" };
+      return typeof value.key === "string" && value.key !== "" ? { show: "all", where: "project", key: value.key } : fallback;
     default:
-      return { show, where: "all" };
+      return fallback;
   }
 }
 
@@ -234,26 +192,7 @@ export function normalizeScope(value) {
  * @returns {Pr[]}
  */
 function prsByKeys(board, keys) {
-  const byKey = new Map(board.prs.map((pr) => [prKey(pr), pr]));
-  return keys.map((key) => byKey.get(key)).filter((pr) => pr !== undefined);
-}
-
-/**
- * The project key a scope limits to, null for all repos, or undefined when it
- * follows a space that is not a project.
- * @param {Scope} scope
- * @param {?string} followed
- * @returns {string|null|undefined}
- */
-function whereKey(scope, followed) {
-  switch (scope.where) {
-    case "follow":
-      return followed ?? undefined;
-    case "project":
-      return scope.key;
-    default:
-      return null;
-  }
+  return itemsByKeys(board.prs, keys, prKey);
 }
 
 /**
@@ -281,34 +220,14 @@ export function prsInScope(board, scope, followed) {
 
 /**
  * The rows of the scope list: the Show choices, then In (follow space, all repos and
- * each project). Each row's count keeps the other choice as it is, and picking it
- * changes only its own choice.
+ * each project), each with the count of pull requests it shows.
  * @param {Board} board
  * @param {?string} followed
  * @param {Scope} scope The current scope.
  * @returns {{show: Item[], where: Item[], projects: Item[]}}
  */
 export function scopeItems(board, followed, scope) {
-  const sameWhere = (next) => next.where === scope.where && (next.where !== "project" || next.key === scope.key);
-  const item = (key, label, next, current) => ({ key, label, scope: next, count: prsInScope(board, next, followed).length, current });
-  const keep = scope.where === "project" ? { where: "project", key: scope.key } : { where: scope.where };
-  const show = SHOWS.map(([id, label]) => item(id, label, /** @type {Scope} */ ({ show: id, ...keep }), scope.show === id));
-  const where = [
-    item("follow", "Follow space", { show: scope.show, where: "follow" }, scope.where === "follow"),
-    item("all", "All repos", { show: scope.show, where: "all" }, scope.where === "all"),
-  ];
-  const listed = board.projects.map((project) => ({ key: project.key, repo: project.repo }));
-  // A picked project no longer on the board stays in the list, so its row keeps the tick.
-  if (scope.where === "project" && !listed.some((project) => project.key === scope.key)) {
-    listed.push({ key: scope.key, repo: scope.key.split("/").slice(1).join("/") });
-  }
-  const projects = listed
-    .sort((a, b) => compareNames(a.repo, b.repo))
-    .map((project) => {
-      const next = /** @type {Scope} */ ({ show: scope.show, where: "project", key: project.key });
-      return item(project.key, project.repo, next, sameWhere(next));
-    });
-  return { show, where, projects };
+  return scopeRows(board, followed, scope, { shows: SHOWS, count: (next) => prsInScope(board, next, followed).length });
 }
 
 /**
@@ -319,39 +238,7 @@ export function scopeItems(board, followed, scope) {
  * @returns {string}
  */
 export function scopeTitle(scope, board, followed) {
-  const show = SHOWS.find(([id]) => id === scope.show)?.[1] ?? "Needs my review";
-  const repoOf = (key) => board.projects.find((p) => p.key === key)?.repo ?? null;
-  switch (scope.where) {
-    case "follow": {
-      const repo = followed === null ? null : repoOf(followed);
-      return `${show} · ${repo ?? "Follow space"}`;
-    }
-    case "project":
-      return `${show} · ${repoOf(scope.key) ?? scope.key.split("/").slice(1).join("/")}`;
-    default:
-      return show;
-  }
-}
-
-/**
- * The In part of the scope: All repos, the followed or picked repo, or Follow space.
- * @param {Scope} scope
- * @param {Board} board
- * @param {?string} followed
- * @returns {string}
- */
-export function scopeWhereTitle(scope, board, followed) {
-  const repoOf = (key) => board.projects.find((p) => p.key === key)?.repo ?? null;
-  switch (scope.where) {
-    case "follow": {
-      const repo = followed === null ? null : repoOf(followed);
-      return repo ?? "Follow space";
-    }
-    case "project":
-      return repoOf(scope.key) ?? scope.key.split("/").slice(1).join("/");
-    default:
-      return "All repos";
-  }
+  return titleOf(scope, board, followed, SHOWS);
 }
 
 // Groups
@@ -409,24 +296,6 @@ export function matchesFilter(pr, text) {
   if (fields.some((field) => String(field).toLowerCase().includes(needle))) return true;
   const digits = needle.startsWith("#") ? needle.slice(1) : needle;
   return digits !== "" && String(pr.number).startsWith(digits);
-}
-
-/**
- * @param {string} iso
- * @param {number} now Milliseconds since the epoch.
- * @returns {string}
- */
-export function ageText(iso, now) {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
-  const seconds = Math.max(0, Math.floor((now - then) / 1000));
-  if (seconds < MINUTE) return "now";
-  if (seconds < HOUR) return `${Math.floor(seconds / MINUTE)}m`;
-  if (seconds < DAY) return `${Math.floor(seconds / HOUR)}h`;
-  const days = Math.floor(seconds / DAY);
-  if (days < 30) return `${days}d`;
-  if (days < 365) return `${Math.floor(days / 30)}mo`;
-  return `${Math.floor(days / 365)}y`;
 }
 
 /**
@@ -511,47 +380,6 @@ export function prPaneTitle(pr) {
 }
 
 /**
- * What Follow space shows for the focused folder: its project ("followed"), a wait while the
- * board has not read that folder yet ("pending"), or that the folder is no GitHub or GitLab
- * repo ("none"). A new space's folder is unknown until a read or the folder watch lists it.
- * @param {Board} board
- * @param {string|null} folder The focused space's folder (`followFolder`).
- * @param {string|null} followed The project key of that folder (`followProjectKey`).
- * @returns {"followed"|"pending"|"none"}
- */
-export function followStatus(board, folder, followed) {
-  if (followed !== null) return "followed";
-  if (folder === null) return "none";
-  if (board.readAt === 0 || !board.folders.includes(folder)) return "pending";
-  return "none";
-}
-
-/**
- * The board with `folders` added to the folders it lists, or the board itself when it lists them all.
- * The folder watch uses it for folders that are no repo, so Follow space can say so without a read.
- * @param {Board} board
- * @param {string[]} folders
- * @returns {Board}
- */
-export function withFolders(board, folders) {
-  const missing = folders.filter((folder) => !board.folders.includes(folder));
-  return missing.length === 0 ? board : { ...board, folders: [...board.folders, ...missing] };
-}
-
-/**
- * The projects a scope shows: all of them, one project, or the followed space's project.
- * @param {Board} board
- * @param {Scope} scope
- * @param {?string} followed Project key of the followed space.
- * @returns {Project[]}
- */
-export function scopeProjects(board, scope, followed) {
-  const where = whereKey(scope, followed);
-  if (where === undefined) return [];
-  return where === null ? board.projects : board.projects.filter((project) => project.key === where);
-}
-
-/**
  * The head branches of the open pull requests of a project's repo.
  * @param {Board} board
  * @param {Project} project
@@ -567,49 +395,13 @@ export function openBranches(board, project) {
 }
 
 /**
- * The provider and host of each repo that `scope` shows: every project for All repos, the
- * followed or picked project otherwise. Empty when the scope has no known repo.
- * @param {Board} board
- * @param {Scope} scope
- * @param {?string} followed Project key of the followed space.
- * @returns {Array<{provider: string, host: string}>}
- */
-export function scopeRepos(board, scope, followed) {
-  const projects = scopeProjects(board, scope, followed);
-  const seen = new Set();
-  /** @type {Array<{provider: string, host: string}>} */
-  const repos = [];
-  for (const { provider, host } of projects) {
-    if (seen.has(`${provider} ${host}`)) continue;
-    seen.add(`${provider} ${host}`);
-    repos.push({ provider, host });
-  }
-  return repos;
-}
-
-/** True when a failure note comes from a read for `repo`: `gh` notes for GitHub, `glab (<host>)` notes for GitLab. */
-function noteIsFor(note, repo) {
-  if (repo.provider === "github") return note.startsWith("gh: ") || note.startsWith("gh not found");
-  if (note.startsWith("glab not found")) return true;
-  return note.startsWith(`glab (${repo.host}): `);
-}
-
-/**
- * The text of an empty pull request list: loading before the first read, a pointer to the notes
- * when a read for the scope failed (the list may be empty because of it), else that the scope has none.
- * With no known repo in the scope, any failure counts. A note that a list was cut ("Showing the
- * first …", `limitNote`) reports no failure.
+ * The text of an empty pull request list, as `emptyMessage` in lib/forge-board.js gives it.
  * @param {Board} board
  * @param {Array<{provider: string, host: string}>} [repos] The repos the scope shows (`scopeRepos`).
  * @returns {string}
  */
 export function emptyMessage(board, repos = []) {
-  if (board.readAt === 0) return "Loading…";
-  const failed = board.notes
-    .filter((note) => !note.startsWith("Showing the first "))
-    .some((note) => repos.length === 0 || repos.some((repo) => noteIsFor(note, repo)));
-  if (failed) return "No pull requests could be read. See the messages above.";
-  return "No pull requests here";
+  return emptyText(board, repos, { failed: "No pull requests could be read. See the messages above.", none: "No pull requests here" });
 }
 
 /**
@@ -678,23 +470,9 @@ export function mergedListRead(counts, failedKeys) {
  * @returns {string|null} Null when there is no row.
  */
 export function prSignature(pr) {
-  if (!pr) return null;
-  const checks = pr.checks ?? {};
-  return [pr.updatedAt, pr.state, pr.isDraft, pr.reviewDecision, pr.mergeable, checks.passed, checks.failed, checks.running, checks.total].join("|");
+  return rowSignature(pr, (row) => {
+    const checks = row.checks ?? {};
+    return [row.updatedAt, row.state, row.isDraft, row.reviewDecision, row.mergeable, checks.passed, checks.failed, checks.running, checks.total];
+  });
 }
 
-/**
- * True when the pull request pane reads its pull request again.
- * - The board has no row for it: after each board read.
- * - The row differs from the row at the last pane read: yes.
- * - Otherwise: only when the board has not read for longer than `intervalMs` and the pane
- *   has not read for that long (no board copy is running).
- * @param {{row: Pr|null|undefined, seen: string|null|undefined, boardReadAt: number, shownReadAt: number, now: number, intervalMs: number}} input
- * @returns {boolean}
- */
-export function prRereadDue({ row, seen, boardReadAt, shownReadAt, now, intervalMs }) {
-  const current = prSignature(row);
-  if (current === null || typeof seen !== "string") return boardReadAt > shownReadAt;
-  if (current !== seen) return true;
-  return now - boardReadAt > intervalMs && now - shownReadAt >= intervalMs;
-}

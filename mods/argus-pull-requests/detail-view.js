@@ -5,6 +5,7 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, TextView } from "gpui-base";
 import { frame, scrollArea, iconButton, chip, errorLine } from "./ui.js";
+import { uniqueKeys } from "./forge-board.js";
 
 /** The pane's sections, in order. */
 export const SECTIONS = [
@@ -50,16 +51,6 @@ function nameView(t, id, view, login) {
   let el = div().id(id).min_w(0).truncate().child(view.nameOf(login));
   if (login !== "") el = el.tooltip(`@${login}`);
   return el;
-}
-
-/** The keys made unique: a repeated key gets `~2`, `~3` and so on, in order. */
-function uniqueKeys(keys) {
-  const seen = new Map();
-  return keys.map((key) => {
-    const count = (seen.get(key) ?? 0) + 1;
-    seen.set(key, count);
-    return count === 1 ? key : `${key}~${count}`;
-  });
 }
 
 /** A key for a conversation item that does not depend on its place in the list. */

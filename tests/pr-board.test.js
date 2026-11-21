@@ -1,17 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  ageText,
   emptyMessage,
-  scopeRepos,
-  scopeProjects,
   mergedCounts,
   mergedInScope,
   mergedText,
   mergedListRead,
   openBranches,
-  followStatus,
-  withFolders,
   prPaneTitle,
   fetchedAtOf,
   keepStale,
@@ -29,10 +24,9 @@ import {
   reviewLabel,
   scopeItems,
   scopeTitle,
-  scopeWhereTitle,
   shortRepo,
 } from "../mods/argus-pull-requests/board.js";
-import { changesRequested, keptLists, withNote } from "../mods/argus-pull-requests/board.js";
+import { changesRequested, keptLists } from "../mods/argus-pull-requests/board.js";
 import { KEEP_RUNS_MS } from "../mods/argus-pull-requests/review.js";
 
 const checks = (passed, failed, running, total) => ({ passed, failed, running, total });
@@ -224,14 +218,6 @@ test("scopeTitle names Show, and In when it is not all repos", () => {
   assert.equal(scopeTitle({ show: "mine", where: "project", key: project.key }, board, null), "Mine · example-org/example-repo");
 });
 
-test("scopeWhereTitle names only the In part", () => {
-  const board = assembleBoard(input());
-  assert.equal(scopeWhereTitle({ show: "mine", where: "all" }, board, null), "All repos");
-  assert.equal(scopeWhereTitle({ show: "mine", where: "follow" }, board, project.key), "example-org/example-repo");
-  assert.equal(scopeWhereTitle({ show: "all", where: "follow" }, board, null), "Follow space");
-  assert.equal(scopeWhereTitle({ show: "mine", where: "project", key: "gitlab.example.com/example-group/example-project" }, board, null), "example-group/example-project");
-});
-
 test("matchesFilter", () => {
   const p = pr();
   assert.equal(matchesFilter(p, ""), true);
@@ -243,18 +229,6 @@ test("matchesFilter", () => {
   assert.equal(matchesFilter(p, "feature/one"), true);
   assert.equal(matchesFilter(p, "zzz"), false);
   assert.equal(matchesFilter(p, "#"), false);
-});
-
-test("ageText", () => {
-  const now = Date.parse("2026-06-01T00:00:00Z");
-  const ago = (s) => new Date(now - s * 1000).toISOString();
-  assert.equal(ageText(ago(30), now), "now");
-  assert.equal(ageText(ago(300), now), "5m");
-  assert.equal(ageText(ago(3 * 3600), now), "3h");
-  assert.equal(ageText(ago(2 * 86400), now), "2d");
-  assert.equal(ageText(ago(45 * 86400), now), "1mo");
-  assert.equal(ageText(ago(400 * 86400), now), "1y");
-  assert.equal(ageText("bad", now), "");
 });
 
 test("checksText", () => {
@@ -334,25 +308,6 @@ test("normalizeBoard drops review runs with a malformed run", () => {
   assert.deepEqual(normalizeBoard(board).reviews, {});
 });
 
-test("followStatus: followed, still being read, or not a repo", () => {
-  const board = { ...assembleBoard(input({})), folders: ["/home/test/code/example-repo", "/home/test/notes"] };
-  assert.equal(followStatus(board, "/home/test/code/example-repo", project.key), "followed");
-  // A folder the board has not read yet is still being read, not "not a repo".
-  assert.equal(followStatus(board, "/home/test/new-space", null), "pending");
-  assert.equal(followStatus(board, "/home/test/notes", null), "none");
-  // Before the first read, nothing is known yet.
-  assert.equal(followStatus({ ...board, readAt: 0 }, "/home/test/notes", null), "pending");
-  // With no folder to follow, there is nothing to read.
-  assert.equal(followStatus(board, null, null), "none");
-});
-
-test("withFolders adds folders the board has not listed, once", () => {
-  const board = { ...assembleBoard(input({})), folders: ["/a"] };
-  assert.deepEqual(withFolders(board, ["/a", "/b"]).folders, ["/a", "/b"]);
-  assert.equal(withFolders(board, ["/a"]), board);
-  assert.deepEqual(board.folders, ["/a"]);
-});
-
 test("emptyMessage: an empty list after failed reads does not claim there are no pull requests", () => {
   const board = assembleBoard(input({}));
   assert.equal(emptyMessage({ ...board, readAt: 0 }), "Loading…");
@@ -360,17 +315,6 @@ test("emptyMessage: an empty list after failed reads does not claim there are no
   assert.equal(emptyMessage({ ...board, notes: ["gh: error connecting to api.github.com"] }), "No pull requests could be read. See the messages above.");
   // A note that a list was cut is no failed read.
   assert.equal(emptyMessage({ ...board, notes: ["Showing the first 100 pull requests of example-org/example-repo."] }), "No pull requests here");
-});
-
-test("scopeRepos: the provider and host of the repos a scope shows", () => {
-  const lab = { ...project, key: "gitlab.example.com/example-group/example-project", provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project" };
-  const board = assembleBoard(input({ projects: [project, lab] }));
-  const all = { show: "all", where: "all" };
-  assert.deepEqual(scopeRepos(board, all, null), [{ provider: "github", host: "github.com" }, { provider: "gitlab", host: "gitlab.example.com" }]);
-  assert.deepEqual(scopeRepos(board, { show: "all", where: "project", key: lab.key }, null), [{ provider: "gitlab", host: "gitlab.example.com" }]);
-  assert.deepEqual(scopeRepos(board, { show: "mine", where: "follow" }, project.key), [{ provider: "github", host: "github.com" }]);
-  assert.deepEqual(scopeRepos(board, { show: "all", where: "follow" }, null), []);
-  assert.deepEqual(scopeRepos(board, { show: "all", where: "project", key: "unknown" }, null), []);
 });
 
 test("emptyMessage: only a failed read in the scope counts", () => {
@@ -391,15 +335,6 @@ test("emptyMessage: only a failed read in the scope counts", () => {
   assert.equal(emptyMessage(failedGl), "No pull requests could be read. See the messages above.");
   // A cut list never counts.
   assert.equal(emptyMessage({ ...board, notes: ["Showing the first 100 pull requests of example-org/example-repo."] }, gh), "No pull requests here");
-});
-
-test("scopeProjects: the projects a scope shows", () => {
-  const lab = { ...project, key: "gitlab.example.com/example-group/example-project", provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project" };
-  const board = assembleBoard(input({ projects: [project, lab] }));
-  assert.deepEqual(scopeProjects(board, { show: "all", where: "all" }, null).map((p) => p.key), [project.key, lab.key]);
-  assert.deepEqual(scopeProjects(board, { show: "all", where: "project", key: lab.key }, null).map((p) => p.key), [lab.key]);
-  assert.deepEqual(scopeProjects(board, { show: "mine", where: "follow" }, project.key).map((p) => p.key), [project.key]);
-  assert.deepEqual(scopeProjects(board, { show: "all", where: "follow" }, null), []);
 });
 
 test("openBranches: the head branches of a repo's open pull requests", () => {
@@ -512,24 +447,10 @@ test("normalizeBoard keeps good listedAt times and drops bad ones", () => {
   assert.deepEqual(normalizeBoard({ ...board, listedAt: undefined }).listedAt, {});
 });
 
-test("withNote adds a note once", () => {
-  const board = assembleBoard(input({ notes: ["gh: boom"] }));
-  assert.equal(withNote(board, "gh: boom"), board);
-  assert.deepEqual(withNote(board, "Could not read").notes, ["gh: boom", "Could not read"]);
-});
-
-test("prRereadDue reads again only for a changed row or a silent board", async () => {
-  const { prRereadDue, prSignature } = await import("../mods/argus-pull-requests/board.js");
+test("prSignature changes with the parts the pane shows", async () => {
+  const { prSignature } = await import("../mods/argus-pull-requests/board.js");
   const row = { updatedAt: "t1", state: "open", isDraft: false, reviewDecision: null, mergeable: "mergeable", checks: { passed: 1, failed: 0, running: 0, total: 1 } };
-  const seen = prSignature(row);
-  const base = { row, seen, boardReadAt: 2000, shownReadAt: 1000, now: 3000, intervalMs: 600_000 };
-  assert.equal(prRereadDue(base), false);
-  assert.equal(prRereadDue({ ...base, row: { ...row, updatedAt: "t2" } }), true);
-  assert.equal(prRereadDue({ ...base, row: { ...row, checks: { ...row.checks, failed: 1 } } }), true);
-  assert.equal(prRereadDue({ ...base, row: undefined }), true);
-  assert.equal(prRereadDue({ ...base, row: undefined, boardReadAt: 500 }), false);
-  assert.equal(prRereadDue({ ...base, seen: undefined }), true);
-  assert.equal(prRereadDue({ ...base, now: 2000 + 600_001, shownReadAt: 1000 }), true);
-  assert.equal(prRereadDue({ ...base, now: 2000 + 600_001, shownReadAt: 2500 }), false);
+  assert.equal(prSignature(row), "t1|open|false||mergeable|1|0|0|1");
+  assert.notEqual(prSignature({ ...row, checks: { ...row.checks, failed: 1 } }), prSignature(row));
   assert.equal(prSignature(null), null);
 });

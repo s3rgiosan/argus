@@ -3,6 +3,7 @@
 
 import { buildGroups, groupOf, prsInScope } from "./board.js";
 import { prKey } from "./model.js";
+import { displayName, shownOrder as orderOf } from "./forge-board.js";
 import { NO_METHOD, pickMergeMethod } from "./actions.js";
 
 /** @typedef {import("./model.js").Detail} Detail */
@@ -227,19 +228,7 @@ export function conversationItems(detail, order) {
  * @returns {string[]}
  */
 export function shownOrder(board, scope, followed) {
-  return buildGroups(prsInScope(board, scope, followed)).flatMap((group) => group.prs.map(prKey));
-}
-
-/**
- * Where `key` is in `order` (1-based), with its neighbours, or null when it is not there.
- * @param {string[]} order
- * @param {string} key
- * @returns {{index: number, total: number, prev: string|null, next: string|null}|null}
- */
-export function positionIn(order, key) {
-  const at = order.indexOf(key);
-  if (at < 0) return null;
-  return { index: at + 1, total: order.length, prev: order[at - 1] ?? null, next: order[at + 1] ?? null };
+  return orderOf(buildGroups(prsInScope(board, scope, followed)).map((group) => group.prs), prKey);
 }
 
 const GH_METHODS = [
@@ -304,24 +293,4 @@ export function mergeAllowed(detail, method) {
 export function mergeMenuNote(detail) {
   if (detail.pr.provider !== "gitlab" || !detail.squash || detail.squashLocked) return null;
   return "This merge request is set to squash. To merge without squash, turn that off on GitLab.";
-}
-
-/** Names for bot accounts, which GitHub gives no display name. Keyed by login without the `app/` prefix. */
-const KNOWN_BOTS = {
-  "copilot-pull-request-reviewer": "Copilot",
-  dependabot: "Dependabot",
-};
-
-/**
- * The name to show for a login: the forge's display name, else a known bot's name, else the
- * login without the `app/` prefix that `gh` adds to apps.
- * @param {string} login
- * @param {Record<string, string>|undefined} names
- * @returns {string}
- */
-export function displayName(login, names) {
-  const known = names && Object.hasOwn(names, login) ? names[login] : undefined;
-  if (typeof known === "string" && known !== "") return known;
-  const bare = login.startsWith("app/") ? login.slice("app/".length) : login;
-  return Object.hasOwn(KNOWN_BOTS, bare) ? KNOWN_BOTS[bare] : bare;
 }
