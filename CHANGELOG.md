@@ -5,6 +5,47 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The built-in review prompt of `argus-pull-requests` puts the title, author and branches between `<<<pull-request>>>` and `<<</pull-request>>>` lines. The quoted values also write `<`, `>` and some invisible and control Unicode characters as `\uXXXX`.
+- The built-in review prompt checks the head commit before and after the review, reads the pull request only at that commit, forbids git commands that change the worktree except `git fetch`, and stops without a review when a check or a command fails.
+- On GitHub, `{{viewCommand}}` of `argus-pull-requests` also asks for `baseRefOid`.
+- The `argus-pull-requests` board shows "1 merged worktree" or "N merged worktrees", without "can be removed".
+- The `argus-pull-requests` board puts a GitHub pull request in Needs work when a reviewer's latest review requests changes, and its row shows "changes requested". GitLab board lists carry no reviewer data.
+- The pull request pane of `argus-pull-requests` reads again when its board row changes. When no board copy reads, it reads on its own once each refresh interval.
+- The merged worktree count of `argus-pull-requests` reuses its merged pull request list for up to 15 minutes while the set of worktrees stays the same. The refresh button reads it again.
+- The Merged worktrees view of `argus-pull-requests` runs at most 4 commands at once and makes fewer forge calls, because the merged list of the project answers where it can.
+- A folder that was not a repo, or had no remote, is probed again on each scheduled read of `argus-pull-requests`. A repo is probed again after 10 minutes. A probe that timed out is tried again once each refresh interval.
+- A GitLab host other than `gitlab.com` needs a glab login in `argus-pull-requests`. Without it, the note "<host>: no glab login for this host" shows, the repos of that host leave the board, and glab makes no more calls for it until the refresh button is pressed.
+- A GitHub remote needs exactly `owner/repo` in `argus-pull-requests`. A host or a path part that starts with `-` is not a project.
+- The GitLab discussion limit note in `argus-pull-requests` reads "Showing the first 100 discussions.".
+- An account in `argus-claude-usage` keeps its last good usage after a failed refresh and adds the line "Last refresh failed · <reason> · <ago>". A good reply removes the line. A good reply older than twice the interval plus one minute is not kept.
+- `argus-claude-usage` keeps the accounts it found for 1 hour. The refresh button, a change of the extra folders and a forced refresh find them again.
+- `argus-toolbar` reads `argus.json` again only when a change touches that file.
+- `scripts/install.sh` copies a mod into a temporary folder beside `mods/` and then swaps it in, so a failed copy keeps the old install.
+- `scripts/sync-lib.mjs --check` fails on a lib copy that no module of the mod imports. The copy mode prints a warning.
+
+### Fixed
+
+- Approve and Request changes on GitHub in `argus-pull-requests` read the head commit of the pull request first. When it moved, they stop with "The pull request has new commits. Review them, then try again.". When the read fails, they stop with "Could not read the head commit of the pull request.". Comment is not checked.
+- A repo of `argus-pull-requests` whose list fails keeps its pull requests from the last good read for up to 15 minutes, and the failure note still shows.
+- An unexpected read error in `argus-pull-requests` shows as the note "Could not read the pull requests: …".
+- The pane of `argus-pull-requests` clears the Start request from shared state when it takes it.
+- `argus-tsk` keeps its last rows and shows the error "tsk printed output that is not a JSON task list." when `tsk` exits with 0 and prints something else.
+- `argus-tsk` uses the first tsk install that is new enough, and reports "too old" only when none is.
+- `argus-tsk` refuses a project title that starts with a dash with "A title cannot start with a dash.".
+- The store change check of `argus-tsk` tries GNU `stat` first, so it works on Linux.
+- `usage.sh` in `argus-claude-usage` removes only the stale temp folders of the current user, and checks twice a second with the same timeout.
+- The old-key move of `argus-claude-usage` does not run during `herdr-app check`.
+- `scripts/build-layout.mjs` writes its files atomically and refuses an `argus-pane` or `argus-spaces` folder that is a symbolic link.
+- The `argus-stay-awake` README gives the right time the display stays awake after the last agent finishes: up to about 2 minutes.
+
+### Security
+
+- Review prompt values of `argus-pull-requests` cannot close the pull request data block, because `<` and `>` are escaped in them.
+
 ## [1.12.0] - 2026-11-20
 
 ### Added
