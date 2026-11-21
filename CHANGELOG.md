@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New mod `argus-agents`, labeled Overview: a board of the agents that need you, in sections for Needs you, Failed and Finished, with counts and the time each agent has been in its state. A click on a row shows the agent.
 - A finished agent stays on the board after you look at it, until it works again or you snooze it. An agent that finishes while its pane is the focused pane and Herdr is in front goes to Idle instead. Failed lists agents whose program reports an error status.
 - The Overview board has folded lists after the open sections, each with a count: Working, Idle, Older and Snoozed. A finished row older than 1 hour moves from Finished to Older.
-- Snooze a row for 1 hour, 3 hours, until tomorrow morning or until the agent changes. A snooze also ends when the agent's state changes. Snoozed rows wait in the Snoozed list with their end time, and Reopen puts a row back.
+- Snooze a row for 1 hour, 3 hours, until tomorrow morning (09:00, or 09:00 the same day when you pick it before 09:00) or until the agent changes. A snooze also ends when the agent's state changes. Snoozed rows wait in the Snoozed list with their end time, and Reopen puts a row back.
 
 ### Changed
 
@@ -36,12 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Merged worktrees view of `argus-pull-requests` runs at most 4 commands at once and makes fewer forge calls, because the merged list of the project answers where it can.
 - A folder that was not a repo, or had no remote, is probed again on each scheduled read of `argus-pull-requests`. A repo is probed again after 10 minutes. A probe that timed out is tried again once each refresh interval.
 - A GitLab host other than `gitlab.com` needs a glab login in `argus-pull-requests`. Without it, the note "<host>: no glab login for this host" shows, the repos of that host leave the board until a read finds a login.
-- A GitHub remote needs exactly `owner/repo` in `argus-pull-requests`. A host or a path part that starts with `-` is not a project.
+- A GitHub remote needs exactly `owner/repo` in `argus-pull-requests` and `argus-issues`, made of the clean path parts. A host or a path part that starts with `-`, or a path part `.` or `..`, is not a project. `github.com` with a port other than the default of its protocol is not a project (`ssh.github.com` allows 22 and 443).
 - The GitLab discussion limit note in `argus-pull-requests` reads "Showing the first 100 discussions.".
 - An account in `argus-claude-usage` keeps its last good usage after a failed refresh and adds the line "Last refresh failed · <reason> · <ago>". A good reply removes the line. A good reply older than twice the interval plus one minute is not kept.
-- `argus-claude-usage` keeps the accounts it found for 1 hour. The refresh button, a change of the extra folders and a forced refresh find them again.
-- `argus-toolbar` reads `argus.json` again only when a change touches that file.
-- `scripts/install.sh` copies a mod into a temporary folder beside `mods/` and then swaps it in, so a failed copy keeps the old install.
+- `argus-claude-usage` keeps the accounts it found for 1 hour, but looks for accounts again on the next refresh when the last search found none. The refresh button, a change of the extra folders and a forced refresh find them again.
+- `argus-toolbar` reads `argus.json` each time it starts a new watch, so a save between two watches is not missed.
+- `scripts/install.sh` copies a mod into a temporary folder beside `mods/` and then swaps it in, so a failed copy, or a failed move into place, keeps the earlier install. It fails on a partial file list and gives the installed folders the normal mode, not 0700.
 - `scripts/sync-lib.mjs --check` fails on a lib copy that no module of the mod imports. The copy mode prints a warning.
 - The `gh` and `glab` commands of `argus-pull-requests` live in the shared-state key `argus.forge`, so other forge mods use the same commands. While that key is missing, the commands come from `argus-pull-requests.settings`, and the next save of the fields writes `argus.forge`.
 - Links in `argus-pull-requests` and `argus-claude-usage` open with Herdr's `cx.open_url`. The `open` and `xdg-open` commands are gone, and a link that does not open shows no error line.
@@ -54,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Approve and Request changes on GitHub in `argus-pull-requests` read the head commit of the pull request first. When it moved, they stop with "The pull request has new commits. Review them, then try again.". When the read fails, they stop with "Could not read the head commit of the pull request.". Comment is not checked.
+- Approve and Request changes on GitHub in `argus-pull-requests` read the head commit of the pull request first, then post the review through the REST API on the commit you saw (`commit_id`). GitLab Request changes reads the head commit too. When it moved, they stop with "The pull request has new commits. Review them, then try again.". When the read fails, they stop with "Could not read the head commit of the pull request.". Comment is not checked.
 - A repo of `argus-pull-requests` whose list fails keeps its pull requests from the last good read for up to 15 minutes, and the failure note still shows.
 - An unexpected read error in `argus-pull-requests` shows as the note "Could not read the pull requests: …".
 - The pane of `argus-pull-requests` clears the Start request from shared state when it takes it.
@@ -64,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The store change check of `argus-tsk` tries GNU `stat` first, so it works on Linux.
 - `usage.sh` in `argus-claude-usage` removes only the stale temp folders of the current user, and checks twice a second with the same timeout.
 - The old-key move of `argus-claude-usage` does not run during `herdr-app check`.
-- `scripts/build-layout.mjs` writes its files atomically and refuses an `argus-pane` or `argus-spaces` folder that is a symbolic link.
+- `scripts/build-layout.mjs` writes its files, and the preview image, atomically and refuses an `argus-pane` or `argus-spaces` folder that is a symbolic link.
 - The `argus-stay-awake` README gives the right time the display stays awake after the last agent finishes: up to about 2 minutes.
 - The refresh and settings buttons of `argus-pull-requests` and the icon buttons of `argus-claude-usage` have tooltips.
 - Every task that `argus-tsk`, `argus-claude-usage` and `argus-toolbar` start with `cx.spawn` waits one tick first, as Herdr app 0.1.16 needs.
@@ -77,6 +77,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Issue tab of the `argus-pull-requests` New worktree view shows an empty list for a GitHub repo that has issues turned off, with no error.
 - Threads and Assignees in the `argus-tsk` scope list stay at the bottom of the list, and In scrolls above them, so they show with many projects. Long Threads and Assignees lists scroll on their own and leave In room for three rows.
 - A glab login check that fails for a reason other than a missing login, such as a network error, keeps the GitLab repos of that host on the boards of `argus-issues` and `argus-pull-requests`. A signed-out host or a failed check is checked again on the next read.
+- Merged worktrees in `argus-pull-requests` offers nothing for a repo whose default branch cannot be read, and shows a note that names the repo.
+- The merged worktree count of `argus-pull-requests` falls back to GitHub or GitLab when git cannot name the default branch, and keeps no failed read until Refresh. Refresh also clears the cached merge methods.
+- A Read again in New worktree of `argus-pull-requests` that you press during a running read runs once more, so the list shows the newest result.
+- Each GitHub search in `argus-issues` (Assigned, Created, Mentions) has its own read. A failed search shows the failure text for its own Show even when another search worked, and keeps its last issues for 15 minutes.
+- `argus-agents` drops an entry 7 days after the agent was last seen, not after its last change. A second finish within one refresh counts as a new finish, and shows in Idle when the agent is watched.
+- A missing `gh` or `glab` is looked up again after 60 seconds in `argus-pull-requests` and `argus-issues`. The first save of the fields writes `argus.forge`, even when the values equal the fallback.
+- New worktree in `argus-pull-requests` and `argus-issues` checks the default branch name (`git check-ref-format --branch`, no leading `-`) and counts an invalid one as unknown. Its fetch uses `--`. It reads the default branch only when it cuts a new branch, so opening an issue worktree or reusing a local branch needs no default branch. A branch name of only dots gets a hash folder name, and `worktrees.directory` is used without its surrounding spaces.
+- The commit check (`scripts/check-commits.mjs`) ignores the diff below the `git commit -v` scissors line, treats only real trailers as trailers (a body line `Note: text` passes and a wrapped trailer is refused), and accepts `Revert "…"` subjects.
 
 ### Security
 
