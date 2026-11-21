@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { checkGroups, checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
 import { NO_METHOD } from "../mods/argus-pull-requests/actions.js";
 import { assembleBoard } from "../mods/argus-pull-requests/board.js";
+import { groupOf } from "../mods/argus-pull-requests/board.js";
+import { parseGhDetail, parseGhPr } from "../mods/argus-pull-requests/model.js";
 
 const basePr = {
   provider: "github", host: "github.com", repo: "example-org/example-repo", number: 12, title: "Example", url: "", author: "octo-user",
@@ -273,4 +275,21 @@ test("sectionOpen: a stored choice holds only while the default is what it was",
   assert.equal(sectionOpen({ open: false, defaultWas: false }, true), true);
   assert.equal(sectionOpen({ open: true, defaultWas: true }, false), false);
   assert.equal(sectionOpen(true, false), false);
+});
+
+test("the board and the pane group a GitHub pull request with one rule", () => {
+  const head = "0123456789abcdef0123456789abcdef01234567";
+  const cases = [
+    { reviewDecision: "APPROVED", latestReviews: [{ author: { login: "review-user" }, state: "CHANGES_REQUESTED" }] },
+    { reviewDecision: "REVIEW_REQUIRED", latestReviews: [{ author: { login: "review-user" }, state: "CHANGES_REQUESTED" }] },
+    { reviewDecision: "", latestReviews: [{ author: { login: "review-user" }, state: "APPROVED" }] },
+    { reviewDecision: "CHANGES_REQUESTED", latestReviews: [] },
+    { reviewDecision: "APPROVED", latestReviews: [], isDraft: true },
+  ];
+  for (const extra of cases) {
+    const raw = { number: 12, title: "Example", state: "OPEN", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", statusCheckRollup: [], headRefOid: head, ...extra };
+    const board = groupOf(parseGhPr(raw, "example-org/example-repo"));
+    const pane = verdictOf(parseGhDetail(JSON.stringify(raw), "example-org/example-repo")).group;
+    assert.equal(pane, board, JSON.stringify(extra));
+  }
 });

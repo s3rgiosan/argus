@@ -18,6 +18,7 @@ import {
   GH_THREADS_QUERY,
   glabArgs,
 } from "../mods/argus-pull-requests/forge.js";
+import { glabAuthArgs, glabLoginNote } from "../mods/argus-pull-requests/forge.js";
 
 test("ghLoginArgs", () => {
   assert.deepEqual(ghLoginArgs(), ["api", "user", "--jq", ".login"]);
@@ -94,4 +95,16 @@ test("the detail reads ask for reviewer names", () => {
 
 test("the GitLab detail query reads job and pipeline paths for check links", () => {
   assert.match(GL_DETAIL_QUERY, /headPipeline \{ status path jobs\(first: 100\) \{ nodes \{ name status webPath \} \} \}/);
+});
+
+test("the list fields hold latestReviews, and the view fields name each field once", () => {
+  assert.ok(GH_LIST_FIELDS.split(",").includes("latestReviews"));
+  const view = GH_VIEW_FIELDS.split(",");
+  assert.equal(new Set(view).size, view.length);
+  assert.ok(view.includes("latestReviews"));
+});
+
+test("glabAuthArgs checks one host, and the note names it", () => {
+  assert.deepEqual(glabAuthArgs("git.example.com"), ["auth", "status", "--hostname", "git.example.com"]);
+  assert.equal(glabLoginNote("git.example.com"), "git.example.com: no glab login for this host");
 });

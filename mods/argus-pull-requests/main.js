@@ -8,13 +8,13 @@ import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
 import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
 import { readdir, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
-import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
+import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys, needsProbe, needsGlabLogin } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
-import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
-import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghDefaultBranchArgs, ghIssuesArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY, GL_ISSUES_QUERY, GL_USERNAME_QUERY } from "./forge.js";
-import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, parseGhIssues, parseGlIssues, parseGlUsername, prKey } from "./model.js";
-import { candidates, countMerged, freshForReview, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
-import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
+import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, headRefusal, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
+import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghDefaultBranchArgs, ghIssuesArgs, glabArgs, glabAuthArgs, glabLoginNote, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY, GL_ISSUES_QUERY, GL_USERNAME_QUERY } from "./forge.js";
+import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhMergedFull, parseGlMergedFull, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, parseGhIssues, parseGlIssues, parseGlUsername, prKey } from "./model.js";
+import { answerFromList, candidates, candidateSignature, mergedHeadsFresh, countMerged, createLimiter, freshForReview, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
+import { lockNeedsRenewal, prRereadDue, prSignature, assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, followStatus, withFolders, withNote, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, keptLists, changesRequested, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { remoteHeadsArgs, parseRemoteHeads, branchRead, issueRead, remoteBranchPlan, issueBranch, issuePlan, filterItems, aheadBehind, localBranchStep, branchNote, fastForwardArgs, remoteBranchArgs, remoteHasBranch, refspecMissing, branchNameError, noticeFor, folderExistsMessage, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
 import { worktreeRoot, checkoutBranch, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
@@ -40,7 +40,8 @@ const TITLE_KEY = "argus-pull-requests.paneTitle";
 // The argus-claude-usage settings: account names and hidden accounts, read only.
 const USAGE_SETTINGS_KEY = "argus-claude-usage.settings";
 // A Start request from a Review with agent dialog, run by the pull request pane that opened it:
-// {id, owner, pr, argv, branch, extra}. The pane keeps running it when the dialog closes.
+// {id, owner, pr, argv, branch, extra}. The pane clears the key when it takes the request, and keeps
+// running it when the dialog closes.
 const REVIEW_START_KEY = "argus-pull-requests.reviewStart";
 // The state of each recent Start request, by id: {state: "running"|"done", error, at, seen}.
 const REVIEW_RESULT_KEY = "argus-pull-requests.reviewResult";
@@ -78,8 +79,18 @@ export default class PullRequests extends View {
     this.forceKeys = null;
     this.probing = false;
     this.focused = null;
-    // Folder -> {folder, top, main, remote}, or null when the folder is not a repository.
+    // Folder -> {entry, at}: `entry` is {folder, top, main, remote}, or null when the folder is not a
+    // repository. `at` is the time of the probe. A scheduled read probes again by `needsProbe`.
     this.repoCache = new Map();
+    // glab command and host -> Promise<boolean>: whether glab is signed in to the host. Kept until the refresh button.
+    this.glabHosts = new Map();
+    // Project key -> the default branch (or null) read by git. Kept until the refresh button.
+    this.defaultBranches = new Map();
+    // Project key -> {heads, signature, at}: the merged heads list and the candidate worktrees it was read for.
+    this.mergedHeads = new Map();
+    // Folder -> Promise of the probe that runs now, and folder -> time of the last rejected probe.
+    this.probes = new Map();
+    this.probeFailed = new Map();
     this.located = { gh: null, glab: null };
     this.login = null;
     // The pane's read: {key, kind: "loading"|"ok"|"error", detail, error, readAt}.
@@ -148,8 +159,10 @@ export default class PullRequests extends View {
       cx.timer.every(POLL, (cx) => {
         const selected = readSelected();
         if (!selected || this.shown?.key !== selected.key) return;
-        const boardReadAt = readBoard().readAt;
-        if (boardReadAt > this.shown.readAt) this.loadPr(cx, selected);
+        const board = readBoard();
+        const row = board.prs.find((pr) => prKey(pr) === selected.key);
+        const due = prRereadDue({ row, seen: this.shown.seen, boardReadAt: board.readAt, shownReadAt: this.shown.readAt, now: Date.now(), intervalMs: readSettings().interval * 60_000 });
+        if (due) this.loadPr(cx, selected);
       });
       return;
     }
@@ -195,9 +208,10 @@ export default class PullRequests extends View {
     setShared(LOCK_KEY, { owner: this.owner, until: 0 });
   }
 
-  /** Extends the lock while this copy still holds it. */
+  /** Extends the lock while this copy holds it and less than half of its time is left. */
   renewLock() {
-    if (holdsLock(shared(LOCK_KEY), this.owner, Date.now())) setShared(LOCK_KEY, takeLock(this.owner, Date.now()));
+    const now = Date.now();
+    if (lockNeedsRenewal(shared(LOCK_KEY), this.owner, now)) setShared(LOCK_KEY, takeLock(this.owner, now));
   }
 
   startSync(cx) {
@@ -220,8 +234,10 @@ export default class PullRequests extends View {
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       try {
-        await mapPool(unseen.filter((folder) => !this.repoCache.has(folder)), CLI_CONCURRENCY, (folder) => this.probe(folder));
-        const entries = unseen.map((folder) => this.repoCache.get(folder) ?? null);
+        const retryMs = readSettings().interval * 60_000;
+        const waiting = (folder) => Date.now() - (this.probeFailed.get(folder) ?? -Infinity) < retryMs;
+        await mapPool(unseen.filter((folder) => !this.repoCache.has(folder) && !waiting(folder)), CLI_CONCURRENCY, (folder) => this.probe(folder));
+        const entries = unseen.map((folder) => this.repoCache.get(folder)?.entry ?? null);
         const fresh = newProjectKeys(entries, readBoard().projects);
         if (fresh.length === 0) {
           // No new project: the board lists the probed folders at once, so Follow space stops waiting on them.
@@ -234,6 +250,8 @@ export default class PullRequests extends View {
         if (this.forceKeys !== null) this.forceKeys = [...new Set([...this.forceKeys, ...fresh])];
         this.force = true;
         this.startSync(cx);
+      } catch (caught) {
+        console.log(`${MOD}: the folder watch failed: ${caught?.message ?? String(caught)}`);
       } finally {
         this.probing = false;
       }
@@ -292,6 +310,10 @@ export default class PullRequests extends View {
       // Folders that the folder watch added to the board during the read stay on it.
       const added = current.folders.filter((folder) => !folderedBefore.has(folder));
       setShared(BOARD_KEY, withFolders(keepStale(next, current, startedAt), added));
+    } catch (caught) {
+      const text = `Could not read the pull requests: ${caught?.message ?? String(caught)}`;
+      console.log(`${MOD}: ${text}`);
+      if (read && holdsLock(shared(LOCK_KEY), this.owner, Date.now())) setShared(BOARD_KEY, withNote(readBoard(), text));
     } finally {
       this.reading = false;
       this.releaseLock();
@@ -309,18 +331,23 @@ export default class PullRequests extends View {
     const notes = [];
     const folders = localFolders(spaces(), panes());
 
-    await mapPool(folders.filter((folder) => !this.repoCache.has(folder)), CLI_CONCURRENCY, (folder) => this.probe(folder));
-    const entries = folders.map((folder) => this.repoCache.get(folder)).filter((entry) => entry);
-    const projects = mergeProjects(entries);
+    const probedAt = Date.now();
+    await mapPool(folders.filter((folder) => needsProbe(this.repoCache.get(folder), probedAt)), CLI_CONCURRENCY, (folder) => this.probe(folder));
+    const entries = folders.map((folder) => this.repoCache.get(folder)?.entry).filter((entry) => entry);
+    const found = mergeProjects(entries);
     this.renewLock();
 
-    const gitHub = projects.filter((project) => project.provider === "github");
-    const gitLab = projects.filter((project) => project.provider === "gitlab");
+    const gitHub = found.filter((project) => project.provider === "github");
+    const gitLabFound = found.filter((project) => project.provider === "gitlab");
     // glab is only looked up when a project needs it.
-    const [gh, glab] = await Promise.all([this.locate("gh"), gitLab.length > 0 ? this.locate("glab") : null]);
+    const [gh, glab] = await Promise.all([this.locate("gh"), gitLabFound.length > 0 ? this.locate("glab") : null]);
+    // A host other than gitlab.com stays only when glab is signed in to it. Without glab, the note says glab is missing.
+    const gitLab = glab === null ? gitLabFound : await this.signedInGitLab(glab, gitLabFound, notes);
+    const projects = found.filter((project) => project.provider === "github" || gitLab.includes(project));
+    this.renewLock();
     notes.push(...missingNotes({ gh: gh !== null, glab: glab !== null, githubProjects: gitHub.length, gitlabProjects: gitLab.length }));
 
-    const result = { needsReview: [], mine: [], projectPrs: {} };
+    const result = { needsReview: [], mine: [], projectPrs: {}, listedAt: {} };
     if (gh !== null) {
       await this.readGitHub(gh, gitHub, result, notes);
       this.renewLock();
@@ -336,7 +363,45 @@ export default class PullRequests extends View {
     const previous = readBoard();
     const { merged, mergedSeen } = mergedCounts(previous.merged ?? {}, previous.mergedSeen ?? {}, mergedListRead(counted, failed.map((project) => project.key)), Date.now());
     this.renewLock();
-    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged, mergedSeen });
+    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged, mergedSeen, listedAt: result.listedAt });
+  }
+
+  /**
+   * The GitLab projects that glab can read: every gitlab.com project, and the projects on hosts
+   * that glab is signed in to. Each other host adds one note and gets no further glab call.
+   */
+  async signedInGitLab(glab, projects, notes) {
+    const hosts = [...new Set(projects.map((project) => project.host))].filter(needsGlabLogin);
+    const signedIn = new Set();
+    await Promise.all(
+      hosts.map(async (host) => {
+        if (await this.glabLogin(glab, host)) signedIn.add(host);
+        else notes.push(glabLoginNote(host));
+      }),
+    );
+    return projects.filter((project) => !needsGlabLogin(project.host) || signedIn.has(project.host));
+  }
+
+  /**
+   * Whether glab is signed in to `host`, kept per glab command and host until the refresh button.
+   * A check that cannot start gives false and is not kept, so the next read checks again.
+   */
+  glabLogin(glab, host) {
+    const key = `${glab} ${host}`;
+    const cached = this.glabHosts.get(key);
+    if (cached) return cached;
+    const result = (async () => {
+      await null;
+      try {
+        const reply = await exec(glab, glabAuthArgs(host), { timeout: CLI_TIMEOUT });
+        return reply.code === 0;
+      } catch {
+        if (this.glabHosts.get(key) === result) this.glabHosts.delete(key);
+        return false;
+      }
+    })();
+    this.glabHosts.set(key, result);
+    return result;
   }
 
   /**
@@ -371,8 +436,12 @@ export default class PullRequests extends View {
     return mapPool(listings, CLI_CONCURRENCY, async ({ project, porcelain }) => {
       let count = null;
       try {
-        const remoteHead = await exec("git", defaultBranchArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
-        const defaultBranch = remoteHead.code === 0 ? defaultBranchOf(remoteHead.stdout) : null;
+        let defaultBranch = this.defaultBranches.get(project.key);
+        if (defaultBranch === undefined) {
+          const remoteHead = await exec("git", defaultBranchArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
+          defaultBranch = remoteHead.code === 0 ? defaultBranchOf(remoteHead.stdout) : null;
+          this.defaultBranches.set(project.key, defaultBranch);
+        }
         const worktrees = candidates(porcelain, defaultBranch);
         if (worktrees.length === 0) {
           count = 0;
@@ -382,7 +451,15 @@ export default class PullRequests extends View {
           if (command !== null) {
             const label = github ? "gh" : `glab (${project.host})`;
             const args = github ? ghMergedListArgs(project.repo) : glabArgs(project.host, GL_MERGED_LIST_QUERY, { path: project.repo });
-            const heads = await this.attempt(label, command, args, github ? parseGhMergedList : parseGlMergedList, []);
+            const signature = candidateSignature(worktrees);
+            const kept = this.mergedHeads.get(project.key);
+            let heads = null;
+            if (mergedHeadsFresh(kept, signature, Date.now())) {
+              heads = kept.heads;
+            } else {
+              heads = await this.attempt(label, command, args, github ? parseGhMergedList : parseGlMergedList, []);
+              if (heads !== null) this.mergedHeads.set(project.key, { heads, signature, at: Date.now() });
+            }
             if (heads !== null) count = countMerged(worktrees, heads, defaultBranch);
           }
         }
@@ -394,8 +471,16 @@ export default class PullRequests extends View {
     });
   }
 
-  /** Caches what `folder` is: a repository entry, or null. A rejected probe caches nothing. */
-  async probe(folder) {
+  /** Caches what `folder` is (a repository entry, or null) and the time of the probe. A rejected probe changes nothing. */
+  probe(folder) {
+    const running = this.probes.get(folder);
+    if (running) return running;
+    const task = this.probeOnce(folder).finally(() => this.probes.delete(folder));
+    this.probes.set(folder, task);
+    return task;
+  }
+
+  async probeOnce(folder) {
     let entry = null;
     try {
       const top = await exec("git", revParseArgs(), { cwd: folder, timeout: GIT_TIMEOUT });
@@ -406,10 +491,12 @@ export default class PullRequests extends View {
         entry = { folder, top: parsed.top, main: parsed.main, remote: remote === "" ? null : remote };
       }
     } catch {
-      // A probe that timed out or could not start is tried again on the next read.
+      // A probe that timed out or could not start is tried again on the next scheduled read.
+      this.probeFailed.set(folder, Date.now());
       return;
     }
-    this.repoCache.set(folder, entry);
+    this.probeFailed.delete(folder);
+    this.repoCache.set(folder, { entry, at: Date.now() });
   }
 
   /**
@@ -477,7 +564,10 @@ export default class PullRequests extends View {
     return value;
   }
 
-  /** Searches, lists and fills in GitHub pull requests into `result`. */
+  /**
+   * Searches, lists and fills in GitHub pull requests into `result`. A repo whose list fails keeps
+   * the pull requests of the previous board (`keptLists`), and its note shows.
+   */
   async readGitHub(gh, projects, result, notes) {
     const login = await this.ghLogin(gh, notes);
     this.renewLock();
@@ -505,6 +595,7 @@ export default class PullRequests extends View {
       await this.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes),
     ]);
     this.renewLock();
+    const listedAt = Date.now();
     const all = [];
     const failed = new Set();
     for (const [key, prs] of listed) {
@@ -512,11 +603,16 @@ export default class PullRequests extends View {
         failed.add(key);
         continue;
       }
+      result.listedAt[key] = listedAt;
       const note = limitNote(`pull requests of ${repos.get(key)}`, prs.length);
       if (note !== null) notes.push(note);
       all.push(...prs);
       if (projects.some((project) => project.key === key)) result.projectPrs[key] = prs;
     }
+    const kept = keptLists(readBoard(), [...failed], listedAt);
+    all.push(...kept.prs);
+    for (const [key, prs] of Object.entries(kept.projectPrs)) if (projects.some((project) => project.key === key)) result.projectPrs[key] = prs;
+    Object.assign(result.listedAt, kept.listedAt);
 
     const pick = async (list) => {
       const { found, missing } = pickPairs(all, list);
@@ -531,9 +627,13 @@ export default class PullRequests extends View {
     result.mine.push(...(await pick(minePairs ?? [])));
   }
 
-  /** Reads GitLab merge requests per host and per project into `result`. */
+  /**
+   * Reads GitLab merge requests per host and per project into `result`. A project whose list
+   * fails keeps the merge requests of the previous board (`keptLists`), and its note shows.
+   */
   async readGitLab(glab, projects, result, notes) {
     const hosts = [...new Set(projects.map((project) => project.host))];
+    const failed = [];
     await Promise.all([
       ...hosts.map(async (host) => {
         const user = await this.attempt(`glab (${host})`, glab, glabArgs(host, GL_USER_QUERY), (text) => parseGlabUser(text, host), notes);
@@ -556,12 +656,19 @@ export default class PullRequests extends View {
           (text) => parseGlabProject(text, project.host),
           notes,
         );
-        if (prs === null) return;
+        if (prs === null) {
+          failed.push(project.key);
+          return;
+        }
+        result.listedAt[project.key] = Date.now();
         const note = limitNote(`merge requests of ${project.repo}`, prs.length);
         if (note !== null) notes.push(note);
         result.projectPrs[project.key] = prs;
       }),
     ]);
+    const kept = keptLists(readBoard(), failed, Date.now());
+    Object.assign(result.projectPrs, kept.projectPrs);
+    Object.assign(result.listedAt, kept.listedAt);
     this.renewLock();
   }
 
@@ -626,6 +733,10 @@ export default class PullRequests extends View {
         this.located = { gh: null, glab: null };
         this.login = null;
         this.repoCache.clear();
+        this.glabHosts.clear();
+        this.defaultBranches.clear();
+        this.mergedHeads.clear();
+        this.probeFailed.clear();
         this.refresh(cx);
       },
       { busy: this.reading },
@@ -821,6 +932,8 @@ export default class PullRequests extends View {
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       setShared(REVIEW_RESULT_KEY, withResult(shared(REVIEW_RESULT_KEY), request.id, "running", null, Date.now()));
+      // This copy holds the request now, so its agent command and text leave shared state.
+      if (shared(REVIEW_START_KEY)?.id === request.id) setShared(REVIEW_START_KEY, null);
       let error;
       try {
         error = await this.runReview(request.pr, request.argv, request.branch, request.extra);
@@ -1087,7 +1200,9 @@ export default class PullRequests extends View {
           const github = projects.some((project) => project.provider === "github");
           const gitlab = projects.some((project) => project.provider === "gitlab");
           const [gh, glab] = await Promise.all([github ? this.locate("gh") : null, gitlab ? this.locate("glab") : null]);
-          const read = await mapPool(projects, CLI_CONCURRENCY, (project) => this.cleanupGroup(project, board, project.provider === "github" ? gh : glab));
+          // One limiter for the whole read, so at most CLI_CONCURRENCY processes run at once.
+          const limit = createLimiter(CLI_CONCURRENCY);
+          const read = await mapPool(projects, CLI_CONCURRENCY, (project) => this.cleanupGroup(project, board, project.provider === "github" ? gh : glab, limit));
           const notes = [...new Set(read.flatMap((entry) => entry.notes))];
           const groups = read.map((entry) => entry.group).filter((group) => group !== null && group.rows.length > 0);
           const ticked = tickedByDefault(groups.flatMap((group) => group.rows));
@@ -1102,11 +1217,13 @@ export default class PullRequests extends View {
 
   /**
    * One project's rows. A failed worktree list, a missing gh or glab, or a failed forge read
-   * leaves the project out and gives notes that name the repo.
+   * leaves the project out and gives notes that name the repo. Every command runs through `limit`.
+   * The project's merged list answers the worktrees it can (`answerFromList`); the other
+   * worktrees get their own forge read.
    * @returns {Promise<{group: {project: object, rows: object[]}|null, notes: string[]}>}
    */
-  async cleanupGroup(project, board, command) {
-    const git = (args, cwd) => exec("git", args, { cwd, timeout: GIT_TIMEOUT });
+  async cleanupGroup(project, board, command, limit) {
+    const git = (args, cwd) => limit(() => exec("git", args, { cwd, timeout: GIT_TIMEOUT }));
     let listing = null;
     let remoteHead = null;
     let failure = "";
@@ -1124,14 +1241,17 @@ export default class PullRequests extends View {
 
     const github = project.provider === "github";
     const label = github ? "gh" : `glab (${project.host})`;
+    const ask = (args, parse, notes) => limit(() => this.attempt(label, command, args, parse, notes));
     if (defaultBranch === null) {
       // A failed read leaves the default branch unknown: any base then counts.
       const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
-      defaultBranch = await this.attempt(label, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
+      defaultBranch = await ask(args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
       if (defaultBranch !== null) worktrees = candidates(listing.stdout, defaultBranch);
       if (worktrees.length === 0) return { group: null, notes: [] };
     }
 
+    // The merged list reads beside the checks. A failed list read gives null, so every worktree gets its own read.
+    const listRead = ask(github ? ghMergedListArgs(project.repo) : glabArgs(project.host, GL_MERGED_LIST_QUERY, { path: project.repo }), github ? parseGhMergedFull : parseGlMergedFull, []);
     // A worktree whose checks cannot be read counts as one with changes.
     const dirty = new Set();
     const ignored = {};
@@ -1164,17 +1284,18 @@ export default class PullRequests extends View {
     const inSpace = worktreesInSpaces(worktrees, spaces(), panes());
 
     const notes = [];
-    const merged = {};
-    const reviewMerged = {};
-    await mapPool(worktrees, CLI_CONCURRENCY, async (worktree) => {
+    const answered = answerFromList(worktrees, await listRead);
+    const merged = answered.merged;
+    const reviewMerged = answered.reviewMerged;
+    await mapPool(answered.rest, CLI_CONCURRENCY, async (worktree) => {
       // The project stops reading after its first failed forge read.
       if (notes.length > 0) return;
       if (worktree.review !== null) {
         const args = github ? ghPrStateArgs(project.repo, worktree.review) : glabArgs(project.host, GL_MR_STATE_QUERY, { path: project.repo, iid: String(worktree.review) });
-        reviewMerged[worktree.review] = await this.attempt(label, command, args, github ? parseGhPrState : parseGlMrState, notes);
+        reviewMerged[worktree.review] = await ask(args, github ? parseGhPrState : parseGlMrState, notes);
       } else {
         const args = github ? ghMergedArgs(project.repo, worktree.branch) : glabArgs(project.host, GL_MERGED_QUERY, { path: project.repo, branch: worktree.branch });
-        merged[worktree.branch] = (await this.attempt(label, command, args, github ? parseGhMerged : parseGlMerged, notes)) ?? [];
+        merged[worktree.branch] = (await ask(args, github ? parseGhMerged : parseGlMerged, notes)) ?? [];
       }
     });
     // A failed read could hide a merged pull request or mark one wrongly, so the project is left out.
@@ -1906,12 +2027,14 @@ export default class PullRequests extends View {
   loadPr(cx, selected) {
     const seq = ++this.prSeq;
     const readAt = Date.now();
+    // The board row as it is when this read starts; a later change of the row asks for a new read.
+    const seen = prSignature(readBoard().prs.find((pr) => prKey(pr) === selected.key));
     const switched = this.shown?.key !== selected.key;
     if (switched) {
-      this.shown = { key: selected.key, kind: "loading", detail: null, error: null, readAt };
+      this.shown = { key: selected.key, kind: "loading", detail: null, error: null, readAt, seen };
       this.actionError = null;
     } else {
-      this.shown = { ...this.shown, readAt };
+      this.shown = { ...this.shown, readAt, seen };
     }
     if (checking()) return;
     cx.spawn(async (cx) => {
@@ -1924,7 +2047,7 @@ export default class PullRequests extends View {
         next = { kind: "error", detail: null, error: error?.message ?? String(error) };
       }
       if (seq !== this.prSeq) return;
-      this.shown = { key: selected.key, readAt, ...next };
+      this.shown = { key: selected.key, readAt, seen, ...next };
       cx.notify();
     });
   }
@@ -2179,7 +2302,12 @@ export default class PullRequests extends View {
           error = command.name === "glab" ? GLAB_MISSING : GH_MISSING;
         } else {
           let run = command;
-          if (draftStep) {
+          // gh pr review has no head pin, so the head is read and compared first.
+          if (command.check) {
+            const head = await exec(cli, command.check, { timeout: CLI_TIMEOUT });
+            error = head.code === 0 ? headRefusal(detail.headSha, head.stdout) : cliError(command.name, head);
+          }
+          if (error === null && draftStep) {
             const list = await exec(cli, draftListArgs(detail), { timeout: CLI_TIMEOUT });
             const plan = list.code === 0 ? draftPlan(list.stdout, kept, body) : { error: cliError(command.name, list) };
             if ("error" in plan) {
@@ -2225,6 +2353,15 @@ export default class PullRequests extends View {
     });
   }
 
+  /** The conversation items of `detail`. The last result is kept while the detail and the order stay the same. */
+  conversationFor(detail, order) {
+    const memo = this.conversationMemo;
+    if (memo && memo.detail === detail && memo.order === order) return memo.items;
+    const items = conversationItems(detail, order);
+    this.conversationMemo = { detail, order, items };
+    return items;
+  }
+
   /** The pull request pane: header, actions and the five sections. */
   renderPr(t, cx) {
     // A Start request from the Review with agent dialog this pane opened runs here.
@@ -2234,12 +2371,13 @@ export default class PullRequests extends View {
       this.runRequest(cx, request);
     }
     const selected = readSelected();
+    const board = readBoard();
     // A new selection arrives as a re-render; the read runs as a task.
     if (selected && this.shown?.key !== selected.key && !checking()) this.loadPr(cx, selected);
     if (!checking()) {
       // The board comes first, because every pane copy sees the same board; a pane's own read
       // can lag, and two copies with different titles would overwrite each other.
-      const listed = selected ? (readBoard().prs.find((pr) => prKey(pr) === selected.key) ?? null) : null;
+      const listed = selected ? (board.prs.find((pr) => prKey(pr) === selected.key) ?? null) : null;
       const read = this.shown?.key === selected?.key ? (this.shown?.detail?.pr ?? null) : null;
       shareTitle(cx, prPaneTitle(listed ?? read));
     }
@@ -2258,7 +2396,6 @@ export default class PullRequests extends View {
 
     const detail = shown.detail;
     const pr = detail.pr;
-    const board = readBoard();
     const key = shown.key;
     const localPath = localPathFor(board.projects, pr.host, pr.repo);
     const checkout = this.checkouts.get(key) ?? { running: false, error: null };
@@ -2292,7 +2429,7 @@ export default class PullRequests extends View {
       checks: checkLayout(detail.checks, this.passedOpen.has(key)),
       // The display name the forge gives a login, a known bot's name, else the login.
       nameOf: (login) => displayName(login, detail.names),
-      items: conversationItems(detail, readSettings().conversation),
+      items: this.conversationFor(detail, readSettings().conversation),
       position,
       hasCheckout: localPath !== null,
       checkingOut: checkout.running,
@@ -2458,19 +2595,14 @@ export default class PullRequests extends View {
 
 }
 
-function prState(pr) {
-  if (pr.state === "merged") return "Merged";
-  if (pr.state === "closed") return "Closed";
-  return pr.isDraft ? "Draft" : "Open";
-}
-
 /** A 44 px board row, two lines. Click opens the pull request pane. `reviewed` adds a dot when a review agent worktree exists. */
 function prRow(t, id, pr, selected, now, reviewed) {
   const checks = checksText(pr.checks);
   let checksColor = t.muted;
   if (checks.startsWith("✗")) checksColor = t.blocked;
   else if (checks.startsWith("●")) checksColor = t.working;
-  const review = reviewLabel(pr.reviewDecision);
+  const changes = changesRequested(pr);
+  const review = changes ? reviewLabel("changes_requested") : reviewLabel(pr.reviewDecision);
   return v_flex()
     .id(id)
     .h(44)
@@ -2499,7 +2631,7 @@ function prRow(t, id, pr, selected, now, reviewed) {
         .text_size(11)
         .text_color(t.dim)
         .child(div().flex_1().min_w(0).truncate().child(`${shortRepo(pr.repo)} · ${pr.headRef}`))
-        .when(review !== null, (el) => el.child(div().flex_none().text_color(pr.reviewDecision === "changes_requested" ? t.blocked : t.dim).child(review ?? "")))
+        .when(review !== null, (el) => el.child(div().flex_none().text_color(changes ? t.blocked : t.dim).child(review ?? "")))
         .when(reviewed, (el) => el.child(div().id(`${id}-agent`).size(6).flex_none().rounded_full().bg(t.accent).tooltip("Review agent worktree"))),
     );
 }
@@ -2557,15 +2689,15 @@ function pickScope(scope) {
   setShared(SCOPE_KEY, scope);
 }
 
-/**
- * Selects a pull request and shows it: focuses this mod's pane in the shown tab,
- * or splits the tab's focused pane to the right to open one.
- */
 /** Makes `pr` the selected pull request, which every pull request pane shows. */
 function selectPr(pr) {
   setShared(SELECTED_KEY, { key: prKey(pr), provider: pr.provider, host: pr.host, repo: pr.repo, number: pr.number });
 }
 
+/**
+ * Selects a pull request and shows it: focuses this mod's pane in the shown tab,
+ * or splits the tab's focused pane to the right to open one.
+ */
 export function openPr(pr) {
   selectPr(pr);
   const tab = spaces()

@@ -2,7 +2,8 @@
 
 /** @typedef {import("./remote.js").Provider} Provider */
 /** @typedef {{passed: number, failed: number, running: number, total: number}} Checks */
-/** @typedef {{provider: Provider, host: string, repo: string, number: number, title: string, url: string, author: string, headRef: string, baseRef: string, isDraft: boolean, state: "open"|"closed"|"merged", reviewDecision: "approved"|"changes_requested"|"review_required"|null, checks: Checks, mergeable: "mergeable"|"conflicting"|"blocked"|"unknown", updatedAt: string, localPath: string|null}} Pr */
+/** @typedef {{provider: Provider, host: string, repo: string, number: number, title: string, url: string, author: string, headRef: string, baseRef: string, isDraft: boolean, state: "open"|"closed"|"merged", reviewDecision: "approved"|"changes_requested"|"review_required"|null, checks: Checks, mergeable: "mergeable"|"conflicting"|"blocked"|"unknown", updatedAt: string, localPath: string|null, changesRequestedBy: string[]}} Pr */
+/** `changesRequestedBy` holds the reviewers whose latest review requests changes. It is empty when the read gives no reviews. */
 /** @typedef {{name: string, state: "passed"|"failed"|"running", url: string|null}} Check */
 /** `url` is the page of the check run or job, when the forge gives one. */
 /** @typedef {{name: string, state: "approved"|"changes_requested"|"commented"|"dismissed"|"pending"|"requested"}} Reviewer */
@@ -196,6 +197,24 @@ function ghDecision(decision) {
 }
 
 /**
+ * The logins whose latest review requests changes. The first review of each login counts, as in `ghReviewers`.
+ * @param {unknown} latestReviews `latestReviews` from gh.
+ * @returns {string[]}
+ */
+function ghChangesRequestedBy(latestReviews) {
+  const seen = new Set();
+  const names = [];
+  for (const review of Array.isArray(latestReviews) ? latestReviews : []) {
+    const name = review?.author?.login;
+    const state = GH_REVIEW_STATES[review?.state];
+    if (typeof name !== "string" || !state || seen.has(name)) continue;
+    seen.add(name);
+    if (state === "changes_requested") names.push(name);
+  }
+  return names;
+}
+
+/**
  * @param {object} raw One `gh pr list|view --json` object.
  * @param {string} repo
  * @returns {Pr}
@@ -219,6 +238,7 @@ export function parseGhPr(raw, repo) {
     mergeable: ghMergeable(raw),
     updatedAt: String(raw.updatedAt ?? ""),
     localPath: null,
+    changesRequestedBy: ghChangesRequestedBy(raw.latestReviews),
   };
 }
 
@@ -511,6 +531,9 @@ export function parseGlabMr(node, host) {
     mergeable: glMergeable(node),
     updatedAt: String(node.updatedAt ?? ""),
     localPath: null,
+    changesRequestedBy: glReviewers(node)
+      .filter((reviewer) => reviewer.state === "changes_requested")
+      .map((reviewer) => reviewer.name),
   };
 }
 
@@ -561,8 +584,11 @@ function glReviewers(node) {
   return reviewers;
 }
 
-/** The text that says a thread list stopped at its limit. */
+/** The text that says a GitHub thread list stopped at its limit. */
 export const THREADS_LIMIT_NOTE = "Showing the first 100 file comment threads.";
+
+/** The text that says a GitLab discussion list stopped at its limit. The limit counts every discussion. */
+export const DISCUSSIONS_LIMIT_NOTE = "Showing the first 100 discussions.";
 
 /** The most threads one read returns. */
 const THREAD_LIMIT = 100;
@@ -613,7 +639,7 @@ function glDiscussions(node) {
     for (const { author, body, at } of notes) conversation.push({ author, body, at, kind: "comment", state: null, id: null });
   }
   conversation.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
-  return { conversation, threads, threadsNote: nodes.length >= THREAD_LIMIT ? THREADS_LIMIT_NOTE : null, names };
+  return { conversation, threads, threadsNote: nodes.length >= THREAD_LIMIT ? DISCUSSIONS_LIMIT_NOTE : null, names };
 }
 
 /**
@@ -689,7 +715,7 @@ function mergedEntry(number, headSha, mergedAt, base) {
 }
 
 /** Newest merge first; an entry with no merge time goes last. */
-function byMergedAt(a, b) {
+export function byMergedAt(a, b) {
   if (a.mergedAt === b.mergedAt) return 0;
   if (a.mergedAt === null) return 1;
   if (b.mergedAt === null) return -1;
@@ -863,7 +889,57 @@ export function parseGlMergedList(text) {
   const nodes = JSON.parse(text)?.data?.project?.mergeRequests?.nodes;
   if (!Array.isArray(nodes)) return [];
   return nodes
-    .filter((node) => isObject(node) && node.sourceProjectId === node.targetProjectId)
+    .filter((node) => isObject(node) && sameProject(node))
     .map((node) => mergedHead(node.iid, node.sourceBranch, node.diffHeadSha, node.targetBranch))
     .filter((entry) => entry !== null);
+}
+
+/**
+ * One entry of a project's merged list, for the Merged worktrees view. `merged` is null when the
+ * head commit is not valid. `cross` is true for a pull request from a fork.
+ * @typedef {{number: number, branch: string, cross: boolean, merged: Merged|null}} MergedListEntry
+ * @typedef {{entries: MergedListEntry[], total: number}} MergedList
+ * `total` is how many items the forge gave, so a caller can see a list that reached its limit.
+ */
+
+/**
+ * `ghMergedListArgs` output with every entry, forks included.
+ * @param {string} text
+ * @returns {MergedList}
+ */
+export function parseGhMergedFull(text) {
+  const raw = parseJson(text);
+  if (!Array.isArray(raw)) throw unexpected();
+  const entries = [];
+  for (const item of raw) {
+    if (!isObject(item) || !Number.isInteger(item.number) || item.number <= 0) continue;
+    entries.push({
+      number: item.number,
+      branch: typeof item.headRefName === "string" ? item.headRefName : "",
+      cross: item.isCrossRepository === true,
+      merged: mergedEntry(item.number, item.headRefOid, item.mergedAt, item.baseRefName),
+    });
+  }
+  return { entries, total: raw.length };
+}
+
+/**
+ * `GL_MERGED_LIST_QUERY` output with every entry, merge requests from other projects included.
+ * @param {string} text
+ * @returns {MergedList}
+ */
+export function parseGlMergedFull(text) {
+  const nodes = glNodes(glReply(text).project?.mergeRequests);
+  const entries = [];
+  for (const node of nodes) {
+    const number = isObject(node) ? glIid(node) : null;
+    if (number === null) continue;
+    entries.push({
+      number,
+      branch: typeof node.sourceBranch === "string" ? node.sourceBranch : "",
+      cross: !sameProject(node),
+      merged: mergedEntry(node.iid, node.diffHeadSha, node.mergedAt, node.targetBranch),
+    });
+  }
+  return { entries, total: nodes.length };
 }

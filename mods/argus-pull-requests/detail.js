@@ -33,8 +33,9 @@ const FALLBACK_REASONS = { ready: "Nothing blocks the merge", waiting: "No revie
 
 /**
  * The pane's verdict: the board's group for the pull request (or Merged, Closed) and one line
- * of reasons from its checks, review and merge state. A reviewer's open request for changes
- * moves an open pull request that is not a draft to Needs work, as the review decision may not show it.
+ * of reasons from its checks, review and merge state. The group comes from `groupOf` with the
+ * reviewers of the detail, so a reviewer's open request for changes moves the pull request to
+ * Needs work on the board and in the pane.
  * @param {Detail} detail
  * @returns {{group: "ready"|"needsWork"|"waiting"|"draft"|"merged"|"closed", title: string, reasons: string}}
  */
@@ -42,7 +43,8 @@ export function verdictOf(detail) {
   const { pr } = detail;
   if (pr.state === "merged") return { group: "merged", title: "Merged", reasons: `Merged into ${pr.baseRef}` };
   if (pr.state === "closed") return { group: "closed", title: "Closed", reasons: "Closed without a merge" };
-  let group = groupOf(pr);
+  const changesBy = detail.reviewers.filter((reviewer) => reviewer.state === "changes_requested").map((reviewer) => reviewer.name);
+  const group = groupOf({ ...pr, changesRequestedBy: changesBy });
   const total = detail.checks.length;
   const failed = detail.checks.filter((check) => check.state === "failed").length;
   const running = detail.checks.filter((check) => check.state === "running").length;
@@ -66,10 +68,7 @@ export function verdictOf(detail) {
     default:
       break;
   }
-  if (pr.reviewDecision !== "changes_requested" && requestedBy !== "") {
-    reasons.push(`changes requested by ${requestedBy}`);
-    if (!pr.isDraft) group = "needsWork";
-  }
+  if (pr.reviewDecision !== "changes_requested" && requestedBy !== "") reasons.push(`changes requested by ${requestedBy}`);
   if (pr.isDraft) reasons.push("draft");
   if (detail.merge.state === "conflicting") reasons.push("merge conflicts");
   else if (detail.merge.state === "blocked") reasons.push(detail.merge.reason ?? "merge blocked");

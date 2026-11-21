@@ -32,6 +32,8 @@ import {
   scopeWhereTitle,
   shortRepo,
 } from "../mods/argus-pull-requests/board.js";
+import { changesRequested, keptLists, withNote } from "../mods/argus-pull-requests/board.js";
+import { KEEP_RUNS_MS } from "../mods/argus-pull-requests/review.js";
 
 const checks = (passed, failed, running, total) => ({ passed, failed, running, total });
 
@@ -454,11 +456,92 @@ test("mergedInScope sums the counts of the scope's projects", () => {
 
 test("mergedText: nothing at 0, singular and plural", () => {
   assert.equal(mergedText(0), null);
-  assert.equal(mergedText(1), "1 merged worktree can be removed");
-  assert.equal(mergedText(3), "3 merged worktrees can be removed");
+  assert.equal(mergedText(1), "1 merged worktree");
+  assert.equal(mergedText(3), "3 merged worktrees");
 });
 
 test("mergedListRead: a project whose worktree list failed keeps its count", () => {
   assert.deepEqual(mergedListRead([{ key: "a", count: 2 }], ["b"]), [{ key: "a", count: 2 }, { key: "b", count: null }]);
   assert.deepEqual(mergedCounts({ b: 4 }, { b: 10 }, mergedListRead([{ key: "a", count: 2 }], ["b"]), 20).merged, { a: 2, b: 4 });
+});
+
+test("groupOf: a reviewer's request for changes moves the pull request to Needs work", () => {
+  assert.equal(groupOf(pr({ reviewDecision: "approved", changesRequestedBy: ["review-user"] })), "needsWork");
+  assert.equal(groupOf(pr({ reviewDecision: null, changesRequestedBy: ["review-user"] })), "needsWork");
+  assert.equal(groupOf(pr({ isDraft: true, changesRequestedBy: ["review-user"] })), "draft");
+  assert.equal(groupOf(pr({ changesRequestedBy: [] })), "ready");
+  // A board saved before the field existed has none.
+  assert.equal(groupOf(pr()), "ready");
+  assert.equal(changesRequested(pr({ reviewDecision: "changes_requested" })), true);
+  assert.equal(changesRequested(pr({ changesRequestedBy: "review-user" })), false);
+});
+
+test("openBranches matches the repo without regard to case", () => {
+  const board = assembleBoard(input({ projectPrs: { [project.key]: [pr({ repo: "Example-Org/Example-Repo", headRef: "feat/a" })] } }));
+  assert.deepEqual([...openBranches(board, project)], ["feat/a"]);
+  assert.deepEqual([...openBranches(board, { ...project, repo: "EXAMPLE-ORG/example-repo" })], ["feat/a"]);
+  assert.deepEqual([...openBranches(board, { ...project, repo: "example-org/other-repo" })], []);
+  assert.deepEqual([...openBranches(board, { ...project, provider: "gitlab" })], []);
+});
+
+test("keptLists keeps a failed repo's pull requests from the previous board for KEEP_RUNS_MS", () => {
+  const other = pr({ repo: "example-org/search-only", number: 7 });
+  const previous = assembleBoard(
+    input({
+      projectPrs: { [project.key]: [pr({ number: 1 }), pr({ number: 2 })] },
+      needsReview: [other],
+      listedAt: { [project.key]: 1000, "github.com/example-org/search-only": 1000 },
+    }),
+  );
+  const kept = keptLists(previous, [project.key, "github.com/example-org/search-only"], 1000 + KEEP_RUNS_MS - 1);
+  assert.deepEqual(kept.prs.map((item) => item.number).sort(), [1, 2, 7]);
+  assert.deepEqual(Object.keys(kept.projectPrs), [project.key]);
+  assert.deepEqual(kept.projectPrs[project.key].map((item) => item.number), [1, 2]);
+  assert.deepEqual(kept.listedAt, { [project.key]: 1000, "github.com/example-org/search-only": 1000 });
+  // Too old, or never listed: nothing stays.
+  assert.deepEqual(keptLists(previous, [project.key], 1000 + KEEP_RUNS_MS), { prs: [], projectPrs: {}, listedAt: {} });
+  assert.deepEqual(keptLists(assembleBoard(input()), [project.key], 1000), { prs: [], projectPrs: {}, listedAt: {} });
+  // A repo that did not fail keeps nothing from the previous board.
+  assert.deepEqual(keptLists(previous, [], 1000), { prs: [], projectPrs: {}, listedAt: {} });
+});
+
+test("normalizeBoard keeps good listedAt times and drops bad ones", () => {
+  const board = assembleBoard(input({ listedAt: { [project.key]: 5 } }));
+  assert.deepEqual(normalizeBoard(board).listedAt, { [project.key]: 5 });
+  assert.deepEqual(normalizeBoard({ ...board, listedAt: { [project.key]: "5" } }).listedAt, {});
+  assert.deepEqual(normalizeBoard({ ...board, listedAt: undefined }).listedAt, {});
+});
+
+test("withNote adds a note once", () => {
+  const board = assembleBoard(input({ notes: ["gh: boom"] }));
+  assert.equal(withNote(board, "gh: boom"), board);
+  assert.deepEqual(withNote(board, "Could not read").notes, ["gh: boom", "Could not read"]);
+});
+
+test("lockNeedsRenewal writes only in the second half of the lock", async () => {
+  const { lockNeedsRenewal } = await import("../mods/argus-pull-requests/board.js");
+  const { LOCK_MS } = await import("../mods/argus-pull-requests/sync.js");
+  const now = 1_000_000;
+  assert.equal(lockNeedsRenewal({ owner: "a", until: now + LOCK_MS }, "a", now), false);
+  assert.equal(lockNeedsRenewal({ owner: "a", until: now + LOCK_MS / 2 }, "a", now), false);
+  assert.equal(lockNeedsRenewal({ owner: "a", until: now + LOCK_MS / 2 - 1 }, "a", now), true);
+  assert.equal(lockNeedsRenewal({ owner: "b", until: now + 1 }, "a", now), false);
+  assert.equal(lockNeedsRenewal({ owner: "a", until: now - 1 }, "a", now), false);
+  assert.equal(lockNeedsRenewal(null, "a", now), false);
+});
+
+test("prRereadDue reads again only for a changed row or a silent board", async () => {
+  const { prRereadDue, prSignature } = await import("../mods/argus-pull-requests/board.js");
+  const row = { updatedAt: "t1", state: "open", isDraft: false, reviewDecision: null, mergeable: "mergeable", checks: { passed: 1, failed: 0, running: 0, total: 1 } };
+  const seen = prSignature(row);
+  const base = { row, seen, boardReadAt: 2000, shownReadAt: 1000, now: 3000, intervalMs: 600_000 };
+  assert.equal(prRereadDue(base), false);
+  assert.equal(prRereadDue({ ...base, row: { ...row, updatedAt: "t2" } }), true);
+  assert.equal(prRereadDue({ ...base, row: { ...row, checks: { ...row.checks, failed: 1 } } }), true);
+  assert.equal(prRereadDue({ ...base, row: undefined }), true);
+  assert.equal(prRereadDue({ ...base, row: undefined, boardReadAt: 500 }), false);
+  assert.equal(prRereadDue({ ...base, seen: undefined }), true);
+  assert.equal(prRereadDue({ ...base, now: 2000 + 600_001, shownReadAt: 1000 }), true);
+  assert.equal(prRereadDue({ ...base, now: 2000 + 600_001, shownReadAt: 2500 }), false);
+  assert.equal(prSignature(null), null);
 });

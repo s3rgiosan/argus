@@ -5,6 +5,7 @@ import { compareNames } from "./follow.js";
 import { prKey } from "./model.js";
 import { localPathFor, projectKey } from "./remote.js";
 import { KEEP_RUNS_MS } from "./review.js";
+import { LOCK_MS, holdsLock } from "./sync.js";
 
 export { compareNames };
 
@@ -14,8 +15,9 @@ export { compareNames };
  * @typedef {import("./remote.js").Project} Project
  * @typedef {"needsReview" | "mine" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
- * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>}} Board
- * `reviews` holds the review runs of each pull request, keyed by `prKey`.
+ * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>, listedAt?: Record<string, number>}} Board
+ * `reviews` holds the review runs of each pull request, keyed by `prKey`. `listedAt` holds the time
+ * of the last successful pull request list of each repo, keyed by `projectKey`.
  * @typedef {{path: string, branch: string}} Run
  * @typedef {"ready"|"needsWork"|"waiting"|"draft"} GroupId
  * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} Item
@@ -50,7 +52,7 @@ function emptyBoard() {
 /**
  * Builds the shared board from one read. Pull requests are deduplicated by key and carry the
  * local checkout path of their repository.
- * @param {{projects: Project[], folders: string[], needsReview: Pr[], mine: Pr[], projectPrs: Record<string, Pr[]>, notes: string[], readAt: number, reviews?: Record<string, Run[]>}} input
+ * @param {{projects: Project[], folders: string[], needsReview: Pr[], mine: Pr[], projectPrs: Record<string, Pr[]>, notes: string[], readAt: number, reviews?: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>, listedAt?: Record<string, number>}} input
  * @returns {Board}
  */
 export function assembleBoard(input) {
@@ -71,7 +73,7 @@ export function assembleBoard(input) {
   for (const project of projects) {
     scopes.projects[project.key] = keysOf(projectPrs[project.key] ?? []);
   }
-  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {}, mergedSeen: input.mergedSeen ?? {} };
+  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {}, mergedSeen: input.mergedSeen ?? {}, listedAt: input.listedAt ?? {} };
 }
 
 function isObject(value) {
@@ -116,7 +118,9 @@ export function normalizeBoard(value) {
   const merged = isObject(value.merged) && Object.values(value.merged).every((count) => Number.isInteger(count) && count >= 0) ? value.merged : {};
   // The time of each project's last successful count; bad times mean none.
   const mergedSeen = isObject(value.mergedSeen) && Object.values(value.mergedSeen).every((time) => Number.isFinite(time) && time >= 0) ? value.mergedSeen : {};
-  return /** @type {Board} */ ({ ...value, reviews, merged, mergedSeen });
+  // The time of each repo's last successful list; bad times mean none.
+  const listedAt = isObject(value.listedAt) && Object.values(value.listedAt).every((time) => Number.isFinite(time) && time >= 0) ? value.listedAt : {};
+  return /** @type {Board} */ ({ ...value, reviews, merged, mergedSeen, listedAt });
 }
 
 /**
@@ -145,6 +149,44 @@ export function pickPairs(prs, pairs) {
  */
 export function withoutFailedRepos(pairs, failed) {
   return pairs.filter((pair) => !failed.has(projectKey(pair)));
+}
+
+/**
+ * The pull requests of the previous board for the repos whose list failed in this read, so one
+ * failed read does not hide them. A repo keeps them for KEEP_RUNS_MS after its last successful
+ * list, so a repo whose list always fails does not keep them forever.
+ * `prs` holds every kept pull request of those repos. `projectPrs` holds the project lists of the
+ * failed repos that are projects. `listedAt` holds the time of the last successful list of each kept repo.
+ * @param {Board} previous
+ * @param {string[]} failedKeys Repo keys (`projectKey`) whose list failed.
+ * @param {number} now
+ * @returns {{prs: Pr[], projectPrs: Record<string, Pr[]>, listedAt: Record<string, number>}}
+ */
+export function keptLists(previous, failedKeys, now) {
+  const seen = previous.listedAt ?? {};
+  /** @type {Pr[]} */
+  const prs = [];
+  /** @type {Record<string, Pr[]>} */
+  const projectPrs = {};
+  /** @type {Record<string, number>} */
+  const listedAt = {};
+  for (const key of new Set(failedKeys)) {
+    if (!Object.hasOwn(seen, key) || now - seen[key] >= KEEP_RUNS_MS) continue;
+    listedAt[key] = seen[key];
+    prs.push(...previous.prs.filter((pr) => projectKey(pr) === key));
+    if (Object.hasOwn(previous.scopes.projects, key)) projectPrs[key] = prsByKeys(previous, previous.scopes.projects[key]);
+  }
+  return { prs, projectPrs, listedAt };
+}
+
+/**
+ * The board with one more note, or the board itself when it has the note already.
+ * @param {Board} board
+ * @param {string} text
+ * @returns {Board}
+ */
+export function withNote(board, text) {
+  return board.notes.includes(text) ? board : { ...board, notes: [...board.notes, text] };
 }
 
 // Scopes
@@ -316,12 +358,22 @@ export function scopeWhereTitle(scope, board, followed) {
 // Groups
 
 /**
+ * True when the review decision requests changes, or when a reviewer's latest review requests
+ * changes. The review decision may not show every request for changes.
+ * @param {Pr} pr
+ * @returns {boolean}
+ */
+export function changesRequested(pr) {
+  return pr.reviewDecision === "changes_requested" || (Array.isArray(pr.changesRequestedBy) && pr.changesRequestedBy.length > 0);
+}
+
+/**
  * @param {Pr} pr
  * @returns {GroupId}
  */
 export function groupOf(pr) {
   if (pr.isDraft) return "draft";
-  if (pr.checks.failed > 0 || pr.reviewDecision === "changes_requested" || pr.mergeable === "conflicting") {
+  if (pr.checks.failed > 0 || changesRequested(pr) || pr.mergeable === "conflicting") {
     return "needsWork";
   }
   const reviewed = pr.reviewDecision === "approved" || pr.reviewDecision === null;
@@ -509,7 +561,7 @@ export function scopeProjects(board, scope, followed) {
 export function openBranches(board, project) {
   const branches = new Set();
   for (const pr of board.prs) {
-    if (pr.state !== "open" || pr.provider !== project.provider || pr.host !== project.host || pr.repo !== project.repo) continue;
+    if (pr.state !== "open" || pr.provider !== project.provider || projectKey(pr) !== projectKey(project)) continue;
     branches.add(pr.headRef);
   }
   return branches;
@@ -607,7 +659,7 @@ export function mergedInScope(board, scope, followed) {
  */
 export function mergedText(count) {
   if (count <= 0) return null;
-  return count === 1 ? "1 merged worktree can be removed" : `${count} merged worktrees can be removed`;
+  return count === 1 ? "1 merged worktree" : `${count} merged worktrees`;
 }
 
 /**
@@ -619,4 +671,44 @@ export function mergedText(count) {
  */
 export function mergedListRead(counts, failedKeys) {
   return [...counts, ...failedKeys.map((key) => ({ key, count: null }))];
+}
+
+/**
+ * True when the lock that `owner` holds ends in less than half of `lockMs`. Only then does a
+ * read write the lock again, so a long read does not render every mod after each project.
+ * @param {{owner: string, until: number}|null|undefined} lock
+ * @param {string} owner
+ * @param {number} now
+ * @param {number} [lockMs]
+ * @returns {boolean}
+ */
+export function lockNeedsRenewal(lock, owner, now, lockMs = LOCK_MS) {
+  return holdsLock(lock, owner, now) && lock.until - now < lockMs / 2;
+}
+
+/**
+ * A text for the parts of a board row that the pull request pane shows.
+ * @param {Pr|null|undefined} pr
+ * @returns {string|null} Null when there is no row.
+ */
+export function prSignature(pr) {
+  if (!pr) return null;
+  const checks = pr.checks ?? {};
+  return [pr.updatedAt, pr.state, pr.isDraft, pr.reviewDecision, pr.mergeable, checks.passed, checks.failed, checks.running, checks.total].join("|");
+}
+
+/**
+ * True when the pull request pane reads its pull request again.
+ * - The board has no row for it: after each board read.
+ * - The row differs from the row at the last pane read: yes.
+ * - Otherwise: only when the board has not read for longer than `intervalMs` and the pane
+ *   has not read for that long (no board copy is running).
+ * @param {{row: Pr|null|undefined, seen: string|null|undefined, boardReadAt: number, shownReadAt: number, now: number, intervalMs: number}} input
+ * @returns {boolean}
+ */
+export function prRereadDue({ row, seen, boardReadAt, shownReadAt, now, intervalMs }) {
+  const current = prSignature(row);
+  if (current === null || typeof seen !== "string") return boardReadAt > shownReadAt;
+  if (current !== seen) return true;
+  return now - boardReadAt > intervalMs && now - shownReadAt >= intervalMs;
 }

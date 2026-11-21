@@ -13,6 +13,7 @@ import {
   remoteArgs,
   revParseArgs,
 } from "../mods/argus-pull-requests/remote.js";
+import { PROBE_TTL_MS, needsGlabLogin, needsProbe } from "../mods/argus-pull-requests/remote.js";
 
 const ENTRIES = [
   { folder: "/home/test/b", top: "/home/test/b", main: "/home/test/b", remote: "git@github.com:example-org/zeta.git" },
@@ -112,4 +113,42 @@ test("localPathFor: matches host and repo case-insensitively, else null", () => 
   const projects = mergeProjects(ENTRIES);
   assert.equal(localPathFor(projects, "github.com", "EXAMPLE-ORG/ZETA"), "/home/test/b");
   assert.equal(localPathFor(projects, "gitlab.example.com", "example-org/zeta"), null);
+});
+
+test("parseRemote: a GitHub repo is owner/name only", () => {
+  for (const url of ["https://github.com/example-org/example-repo/extra", "git@github.com:example-org/example-repo/tree.git", "https://github.com/example-org"]) {
+    assert.equal(parseRemote(url), null, url);
+  }
+  assert.equal(parseRemote("git@github.com:example-org/example-repo.git")?.repo, "example-org/example-repo");
+  // GitLab keeps subgroups.
+  assert.equal(parseRemote("https://gitlab.com/example-group/example-sub/deeper/example-project.git")?.repo, "example-group/example-sub/deeper/example-project");
+});
+
+test("parseRemote: a host or path part that starts with - is refused", () => {
+  const urls = [
+    "-example.com:example-group/example-project.git",
+    "git@-example.com:example-group/example-project.git",
+    "git@github.com:-example-org/example-repo.git",
+    "https://github.com/example-org/-example-repo",
+    "https://gitlab.example.com/example-group/-sub/example-project",
+    "git@gitlab.example.com:example-group/example-sub/--upload-pack.git",
+  ];
+  for (const url of urls) assert.equal(parseRemote(url), null, url);
+  assert.equal(parseRemote("https://github.com/example-org/example-repo-")?.repo, "example-org/example-repo-");
+});
+
+test("needsProbe: no repo and no remote probe on every read; a repo with a remote after PROBE_TTL_MS", () => {
+  const repo = { folder: "/home/test/a", top: "/home/test/a", main: "/home/test/a", remote: "git@github.com:example-org/example-repo.git" };
+  assert.equal(needsProbe(undefined, 1000), true);
+  assert.equal(needsProbe({ entry: null, at: 1000 }, 1000), true);
+  assert.equal(needsProbe({ entry: { ...repo, remote: null }, at: 1000 }, 1000), true);
+  assert.equal(needsProbe({ entry: repo, at: 1000 }, 1000 + PROBE_TTL_MS - 1), false);
+  assert.equal(needsProbe({ entry: repo, at: 1000 }, 1000 + PROBE_TTL_MS), true);
+  assert.equal(PROBE_TTL_MS, 10 * 60 * 1000);
+});
+
+test("needsGlabLogin: every GitLab host except gitlab.com", () => {
+  assert.equal(needsGlabLogin("gitlab.com"), false);
+  assert.equal(needsGlabLogin("gitlab.example.com"), true);
+  assert.equal(needsGlabLogin("git.example.com:8443"), true);
 });

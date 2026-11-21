@@ -15,6 +15,8 @@ export const DRAFT_KEPT = "Your comment is kept as a pending review comment on t
 export const DRAFT_TEXT =
   "Your earlier comment is still a pending review comment on the merge request. Submit the same text to publish it, or delete it on GitLab first.";
 export const DRAFTS_UNREAD = "Could not read your pending review comments on the merge request.";
+export const HEAD_MOVED = "The pull request has new commits. Review them, then try again.";
+export const HEAD_UNREAD = "Could not read the head commit of the pull request.";
 
 /** How long the pane keeps the signed-in GitHub login, or a failed read of it. */
 export const LOGIN_TTL = 5 * 60 * 1000;
@@ -100,11 +102,13 @@ export function pickMergeMethod(text) {
  * The command for one action, or the reason it cannot run. Bodies go in as one
  * `--body=` or `--message=` argument, so text that starts with `-` stays a value.
  * Approve on GitLab and Merge on both forges pin the head commit the pane read.
+ * `gh pr review` has no pin, so Approve and Request changes on GitHub carry `check`: the
+ * arguments that read the head commit, which `headRefusal` compares before the review runs.
  * A second command in `then` runs only after the first one succeeds. `publishOnly`
  * says a GitLab Request changes already has its comment as a pending draft
  * (`draftPlan`), so only the publish runs.
  * @param {{kind: ActionKind, detail: Detail, body: string, method?: MergeMethod|null, publishOnly?: boolean}} input
- * @returns {{name: "gh"|"glab", args: string[], then?: string[]} | {error: string}}
+ * @returns {{name: "gh"|"glab", args: string[], then?: string[], check?: string[]} | {error: string}}
  */
 export function actionCommand({ kind, detail, body, method = null, publishOnly = false }) {
   if (!KINDS.includes(kind)) throw new Error(`unknown action: ${kind}`);
@@ -114,7 +118,8 @@ export function actionCommand({ kind, detail, body, method = null, publishOnly =
   const refusal = bodyError(kind, body);
   if (refusal !== null) return { error: refusal };
   const number = String(pr.number);
-  const pinned = kind === "merge" || (kind === "approve" && gitLab);
+  const checked = !gitLab && (kind === "approve" || kind === "request_changes");
+  const pinned = kind === "merge" || (kind === "approve" && gitLab) || checked;
   if (pinned && (typeof headSha !== "string" || headSha === "")) return { error: NO_SHA };
 
   if (gitLab) {
@@ -144,17 +149,47 @@ export function actionCommand({ kind, detail, body, method = null, publishOnly =
   }
 
   const review = ["pr", "review", number, "--repo", pr.repo];
+  const check = ghHeadArgs(pr.repo, pr.number);
   switch (kind) {
     case "approve":
-      return { name: "gh", args: [...review, "--approve"] };
+      return { name: "gh", args: [...review, "--approve"], check };
     case "request_changes":
-      return { name: "gh", args: [...review, "--request-changes", `--body=${body}`] };
+      return { name: "gh", args: [...review, "--request-changes", `--body=${body}`], check };
     case "comment":
       return { name: "gh", args: [...review, "--comment", `--body=${body}`] };
     default:
       if (!GH_METHODS.some(([known]) => known === method)) return { error: NO_METHOD };
       return { name: "gh", args: ["pr", "merge", number, "--repo", pr.repo, `--${method}`, "--match-head-commit", String(headSha)] };
   }
+}
+
+/**
+ * The arguments that print the head commit of a GitHub pull request as JSON.
+ * @param {string} repo
+ * @param {number} number
+ * @returns {string[]}
+ */
+export function ghHeadArgs(repo, number) {
+  return ["pr", "view", String(number), "--repo", repo, "--json", "headRefOid"];
+}
+
+/**
+ * The refusal for a review of a head commit that is not the current one, or null when the
+ * pane's head is still the head of the pull request.
+ * @param {string|null} shown The head commit the pane read (`detail.headSha`).
+ * @param {string} stdout `ghHeadArgs` output.
+ * @returns {string|null}
+ */
+export function headRefusal(shown, stdout) {
+  let raw;
+  try {
+    raw = JSON.parse(stdout);
+  } catch {
+    return HEAD_UNREAD;
+  }
+  const current = raw && typeof raw === "object" ? raw.headRefOid : undefined;
+  if (typeof current !== "string" || current === "") return HEAD_UNREAD;
+  return current === shown ? null : HEAD_MOVED;
 }
 
 /**

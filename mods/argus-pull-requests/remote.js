@@ -38,9 +38,13 @@ export function parseRemote(url) {
   if (host === "") return null;
   const repo = path.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
   const parts = repo.split("/").filter((part) => part !== "");
-  if (parts.length < 2) return null;
+  const github = host === "github.com";
+  // A GitHub repo is owner/name. A GitLab project can be in subgroups.
+  if (github ? parts.length !== 2 : parts.length < 2) return null;
+  // A value that starts with "-" could be read as an option by gh, glab or git.
+  if (host.startsWith("-") || parts.some((part) => part.startsWith("-"))) return null;
   if (isOtherForge(host)) return null;
-  return { provider: host === "github.com" ? "github" : "gitlab", host, repo };
+  return { provider: github ? "github" : "gitlab", host, repo };
 }
 
 const OTHER_FORGES = ["bitbucket.org", "dev.azure.com", "ssh.dev.azure.com", "codeberg.org", "gitea.com", "git.sr.ht"];
@@ -49,6 +53,34 @@ const OTHER_FORGES = ["bitbucket.org", "dev.azure.com", "ssh.dev.azure.com", "co
 function isOtherForge(host) {
   const name = host.replace(/:\d+$/, "");
   return OTHER_FORGES.includes(name) || name.endsWith(".visualstudio.com");
+}
+
+/** How long a probe that found a repository with a remote stays in the cache. */
+export const PROBE_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * True when a scheduled read must probe a folder again. A folder that was not probed, that is
+ * not a repository or that has no remote is probed on each read. A repository with a remote is
+ * probed again after PROBE_TTL_MS, so a changed remote shows.
+ * @param {{entry: ?{remote: ?string}, at: number}|undefined} cached
+ * @param {number} now
+ * @returns {boolean}
+ */
+export function needsProbe(cached, now) {
+  if (cached === undefined || cached === null) return true;
+  if (cached.entry === null || cached.entry.remote === null) return true;
+  return now - cached.at >= PROBE_TTL_MS;
+}
+
+/**
+ * True when a GitLab project's host needs a glab login check before glab reads it. Every host
+ * that is not GitHub or a known other forge counts as GitLab, so a host other than gitlab.com
+ * counts only when glab is signed in to it.
+ * @param {string} host
+ * @returns {boolean}
+ */
+export function needsGlabLogin(host) {
+  return host !== "gitlab.com";
 }
 
 /**

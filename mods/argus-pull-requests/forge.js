@@ -6,8 +6,8 @@
 export const LIST_LIMIT = 100;
 
 export const GH_LIST_FIELDS =
-  "number,title,url,author,headRefName,baseRefName,isDraft,state,reviewDecision,statusCheckRollup,mergeable,mergeStateStatus,updatedAt";
-export const GH_VIEW_FIELDS = `${GH_LIST_FIELDS},body,headRefOid,latestReviews,reviewRequests,reviews,comments`;
+  "number,title,url,author,headRefName,baseRefName,isDraft,state,reviewDecision,latestReviews,statusCheckRollup,mergeable,mergeStateStatus,updatedAt";
+export const GH_VIEW_FIELDS = `${GH_LIST_FIELDS},body,headRefOid,reviewRequests,reviews,comments`;
 
 export const GL_MR_FIELDS =
   "iid title webUrl draft state sourceBranch targetBranch updatedAt author { username } approvedBy { nodes { username } } conflicts detailedMergeStatus headPipeline { status } targetProject { fullPath }";
@@ -70,6 +70,25 @@ export const GH_THREADS_QUERY =
 export function ghThreadsArgs(repo, number) {
   const [owner, name] = repo.split("/");
   return ["api", "graphql", "-f", `query=${GH_THREADS_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${number}`];
+}
+
+/**
+ * The arguments that check the glab login for one host. The command exits with 0 only when
+ * glab is signed in to the host. It does not print the token.
+ * @param {string} host
+ * @returns {string[]}
+ */
+export function glabAuthArgs(host) {
+  return ["auth", "status", "--hostname", host];
+}
+
+/**
+ * The board note for a host that glab is not signed in to.
+ * @param {string} host
+ * @returns {string}
+ */
+export function glabLoginNote(host) {
+  return `${host}: no glab login for this host`;
 }
 
 /**

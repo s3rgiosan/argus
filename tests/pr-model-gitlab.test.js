@@ -162,11 +162,11 @@ test("parseGlabDetail reads squash only when it is true", () => {
   assert.equal(d.headSha, null);
 });
 
-test("parseGlabDetail notes a thread list that reached its limit", () => {
+test("parseGlabDetail notes a discussion list that reached its limit", () => {
   const raw = JSON.parse(fixture("pr-glab-detail.json"));
   const thread = raw.data.project.mergeRequest.discussions.nodes[1];
   raw.data.project.mergeRequest.discussions.nodes = Array.from({ length: 100 }, () => thread);
-  assert.equal(parseGlabDetail(JSON.stringify(raw), "gitlab.example.com").threadsNote, "Showing the first 100 file comment threads.");
+  assert.equal(parseGlabDetail(JSON.stringify(raw), "gitlab.example.com").threadsNote, "Showing the first 100 discussions.");
 });
 
 test("parseGlabDetail: display names of the note authors", () => {
@@ -209,4 +209,9 @@ test("parseGlabDetail: a check link with whitespace is dropped, and the origin o
   assert.equal(parseGlabDetail(JSON.stringify(raw), host).checks[0].url, "http://gitlab.example.com:8080/example-group/example-project/-/jobs/8");
   mr.webUrl = "not a url";
   assert.equal(parseGlabDetail(JSON.stringify(raw), host).checks[0].url, `https://${host}/example-group/example-project/-/jobs/8`);
+});
+
+test("changesRequestedBy: the detail reads it from the reviewers; the lists have none", () => {
+  assert.deepEqual(parseGlabDetail(fixture("pr-glab-detail.json"), "gitlab.example.com").pr.changesRequestedBy, ["review-user"]);
+  for (const pr of parseGlabProject(fixture("pr-glab-project.json"), "gitlab.example.com")) assert.deepEqual(pr.changesRequestedBy, []);
 });
