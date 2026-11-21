@@ -67,10 +67,10 @@ export default class ClaudeUsage extends View {
       this.found = await probeIcons(readTextFile, appHome());
       cx.notify();
     });
-    cx.spawn(async (cx) => this.sync(cx));
+    this.startSync(cx);
     cx.timer.every(TICK, (cx) => {
       if (this.view === "settings" && this.ensureNameInputs()) cx.notify();
-      cx.spawn(async (cx) => this.sync(cx));
+      this.startSync(cx);
     });
     cx.timer.every(MINUTE, (cx) => cx.notify());
   }
@@ -85,6 +85,14 @@ export default class ClaudeUsage extends View {
     if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
     writeData({ fetching: null });
     setShared(LOCK_KEY, releasedLock(this.owner));
+  }
+
+  /** Starts a sync in a task. */
+  startSync(cx) {
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      await this.sync(cx);
+    });
   }
 
   /**
@@ -149,7 +157,7 @@ export default class ClaudeUsage extends View {
       this.releaseLock();
       const again = this.gate.finish();
       if (fetched) cx.notify();
-      if (again) cx.spawn(async (cx) => this.sync(cx));
+      if (again) this.startSync(cx);
     }
   }
 
@@ -157,7 +165,7 @@ export default class ClaudeUsage extends View {
   requestRefresh(cx) {
     this.force = true;
     writeData({ requestedAt: Date.now() });
-    cx.spawn(async (cx) => this.sync(cx));
+    this.startSync(cx);
     cx.notify();
   }
 
@@ -170,9 +178,9 @@ export default class ClaudeUsage extends View {
     const fetching = Boolean(readData().fetching);
     const icon = iconResolver(MOD, this.found);
     const actions = [
-      iconButton(t, "refresh", ICON("refresh-cw"), (_e, cx) => this.requestRefresh(cx), { busy: fetching }),
-      ...(props()?.overlay ? [iconButton(t, "as-pane", icon("panel-right"), () => openAsPane())] : []),
-      iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx)),
+      iconButton(t, "refresh", ICON("refresh-cw"), (_e, cx) => this.requestRefresh(cx), { busy: fetching, tooltip: "Refresh" }),
+      ...(props()?.overlay ? [iconButton(t, "as-pane", icon("panel-right"), () => openAsPane(), { tooltip: "Open as a pane" })] : []),
+      iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx), { tooltip: "Settings" }),
     ];
     const link = (id, label, url) =>
       row(t, id)
