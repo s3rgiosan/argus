@@ -59,3 +59,15 @@ test("an orphan copy fails --check and only warns when copying", () => {
   assert.match(copied.stderr, /warning: mods\/m\/ui\.js/);
   assert.equal(existsSync(join(root, "mods/m/ui.js")), true);
 });
+
+test("copies a lib file that another used lib file imports", () => {
+  const root = repo();
+  writeFileSync(join(root, "lib/a.js"), 'import { b } from "./b.js";\nexport const a = b;\n');
+  writeFileSync(join(root, "lib/b.js"), "export const b = 1;\n");
+  mkdirSync(join(root, "mods/m"));
+  writeFileSync(join(root, "mods/m/main.js"), 'import { a } from "./a.js";\n');
+  assert.equal(run(root).status, 0);
+  assert.equal(readFileSync(join(root, "mods/m/b.js"), "utf8"), "export const b = 1;\n");
+  assert.equal(existsSync(join(root, "mods/m/ui.js")), false);
+  assert.equal(run(root, "--check").status, 0);
+});
