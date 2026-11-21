@@ -8,7 +8,6 @@ import { h_flex, v_flex } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
 import { randomUUID } from "crypto";
 import { localFolders, followProjectKey, projectKey, localPathFor } from "./remote.js";
-import { normalizeSettings } from "./locate.js";
 import { GH_MISSING, GLAB_MISSING, cliError, missingNotes, glabArgs, limitNote, ghDefaultBranchArgs, GL_DEFAULT_BRANCH_QUERY, parseGhDefaultBranch, parseGlDefaultBranch } from "./forge-cli.js";
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, headRefusal, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghIssuesArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_ISSUES_QUERY } from "./forge.js";
@@ -16,7 +15,7 @@ import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads
 import { answerFromList, candidates, candidateSignature, mergedHeadsFresh, countMerged, freshForReview, rowsFor, branchStep, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
 import { prSignature, assembleBoard, normalizeBoard, emptyMessage, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, keptLists, changesRequested, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
-import { INTERVALS, ageText, displayName, followStatus, positionIn, rereadDue, scopeProjects, scopeRepos, scopeWhereTitle } from "./forge-board.js";
+import { INTERVALS, ageText, displayName, followStatus, normalizeSettings, positionIn, rereadDue, scopeProjects, scopeRepos, scopeWhereTitle } from "./forge-board.js";
 import { branchRead, issueRead, noticeFor, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
 import { checkoutBranch, checkoutPlan, aheadCount, aheadRefusal } from "./checkout.js";
 import { gitError, defaultBranchArgs, defaultBranchOf, tipArgs, remoteHeadsArgs, parseRemoteHeads, issueBranch, filterItems, folderExistsMessage, worktreeListArgs } from "./worktree.js";

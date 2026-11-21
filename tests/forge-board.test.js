@@ -1,18 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  CONVERSATION_ORDERS,
   DEFAULT_INTERVAL,
   INTERVALS,
+  KEEP_LIST_MS,
   KNOWN_BOTS,
   ageText,
   displayName,
   emptyMessage,
   followStatus,
+  groupItems,
   itemsByKeys,
   keptLists,
   keyRepo,
   noteIsFor,
   normalizeScope,
+  normalizeSettings,
   positionIn,
   rereadDue,
   rowSignature,
@@ -232,6 +236,69 @@ test("keptLists keeps a failed repo's items for keepMs after its last list", () 
 
 test("shownOrder lists the keys group by group", () => {
   assert.deepEqual(shownOrder([[item(2), item(1)], [], [item(5)]], keyOf), [keyOf(item(2)), keyOf(item(1)), keyOf(item(5))]);
+});
+
+test("shownOrder counts an item in several groups once, at its first place", () => {
+  assert.deepEqual(shownOrder([[item(2), item(1)], [item(1), item(5)]], keyOf), [keyOf(item(2)), keyOf(item(1)), keyOf(item(5))]);
+});
+
+test("groupItems puts an item in the group of each of its values, A to Z, with the none group last", () => {
+  const items = [
+    { id: 1, tags: ["beta", "Alpha"] },
+    { id: 2, tags: [] },
+    { id: 3, tags: ["beta"] },
+  ];
+  const valuesOf = (entry) => entry.tags.map((tag) => ({ key: tag.toLowerCase(), title: tag }));
+  const groups = groupItems(items, valuesOf, { key: "none", title: "No tag" });
+  assert.deepEqual(
+    groups.map((group) => [group.key, group.title, group.items.map((entry) => entry.id)]),
+    [
+      ["alpha", "Alpha", [1]],
+      ["beta", "beta", [1, 3]],
+      ["none", "No tag", [2]],
+    ],
+  );
+});
+
+test("groupItems keeps the first title of a key, counts an item once per group and leaves out an empty none group", () => {
+  const items = [
+    { id: 1, tags: ["Bug", "bug"] },
+    { id: 2, tags: ["BUG"] },
+  ];
+  const groups = groupItems(items, (entry) => entry.tags.map((tag) => ({ key: tag.toLowerCase(), title: tag })), { key: "none", title: "No tag" });
+  assert.deepEqual(
+    groups.map((group) => [group.key, group.title, group.items.map((entry) => entry.id)]),
+    [["bug", "Bug", [1, 2]]],
+  );
+  assert.deepEqual(groupItems([], () => [], { key: "none", title: "No tag" }), []);
+});
+
+test("groupItems sorts groups of the same title by key", () => {
+  const items = [
+    { id: 1, owner: { key: "b", title: "same" } },
+    { id: 2, owner: { key: "a", title: "same" } },
+  ];
+  const groups = groupItems(items, (entry) => [entry.owner], { key: "none", title: "None" });
+  assert.deepEqual(groups.map((group) => group.key), ["a", "b"]);
+});
+
+test("normalizeSettings of a forge board: defaults", () => {
+  assert.deepEqual(normalizeSettings(null), { interval: DEFAULT_INTERVAL, conversation: "oldest" });
+  assert.deepEqual(CONVERSATION_ORDERS, ["oldest", "newest"]);
+});
+
+test("normalizeSettings of a forge board keeps a valid interval and leaves the commands to the shared forge settings", () => {
+  assert.equal(normalizeSettings({ interval: 4 }).interval, DEFAULT_INTERVAL);
+  assert.deepEqual(normalizeSettings({ interval: 10, gh: " ~/bin/gh " }), { interval: 10, conversation: "oldest" });
+});
+
+test("normalizeSettings of a forge board keeps a known conversation order only", () => {
+  assert.equal(normalizeSettings({ conversation: "newest" }).conversation, "newest");
+  assert.equal(normalizeSettings({ conversation: "sideways" }).conversation, "oldest");
+});
+
+test("KEEP_LIST_MS is 15 minutes", () => {
+  assert.equal(KEEP_LIST_MS, 15 * 60 * 1000);
 });
 
 test("displayName is safe without a login or names", () => {

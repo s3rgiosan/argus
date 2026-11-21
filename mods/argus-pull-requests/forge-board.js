@@ -1,9 +1,9 @@
 // Copied from lib/forge-board.js by scripts/sync-lib.mjs: edit lib/forge-board.js, then run it.
 //
 // Pure helpers for a board of forge items (pull requests, issues) read from
-// the open spaces' repos: the refresh choices, scopes (Show and In), Follow
-// space, notes, kept lists, the pane's order and names, and when a pane reads
-// its item again. A board here is an object with `projects`, `folders`,
+// the open spaces' repos: the board settings, scopes (Show and In), Follow
+// space, notes, kept lists, groups, the pane's order and names, and when a
+// pane reads its item again. A board here is an object with `projects`, `folders`,
 // `notes`, `readAt`, `scopes.projects` and a list of items. No Herdr imports,
 // so Node can test it.
 
@@ -23,6 +23,26 @@ export const INTERVALS = [1, 3, 5, 10, 15];
 
 /** Refresh interval used when the setting is unset or invalid, in minutes. */
 export const DEFAULT_INTERVAL = 3;
+
+/** The orders a pane can show a conversation in. */
+export const CONVERSATION_ORDERS = ["oldest", "newest"];
+
+/** How long a repo whose list fails keeps its items from the last successful list, in ms. */
+export const KEEP_LIST_MS = 15 * 60 * 1000;
+
+/**
+ * A forge board's own settings: the refresh interval, and the order of the pane's conversation
+ * ("oldest" first by default, or "newest" first). The gh and glab commands are the shared
+ * forge settings (`readForge`).
+ * @param {unknown} value
+ * @returns {{interval: number, conversation: string}}
+ */
+export function normalizeSettings(value) {
+  const v = isObject(value) ? value : {};
+  const interval = INTERVALS.includes(v.interval) ? v.interval : DEFAULT_INTERVAL;
+  const conversation = CONVERSATION_ORDERS.includes(v.conversation) ? v.conversation : "oldest";
+  return { interval, conversation };
+}
 
 const MINUTE = 60;
 const HOUR = 3600;
@@ -306,17 +326,47 @@ export function emptyMessage(board, repos, { failed, none }) {
   return broken ? failed : none;
 }
 
+// Groups
+
+/**
+ * The groups of `items` by the values `valuesOf` gives each item, for example its assignees or
+ * labels. An item with several values shows in the group of each one, and an item with none in
+ * the `none` group. Values of the same key share one group, under the first title seen. Groups
+ * sort A to Z by title, then by key, with the `none` group last. Items keep their order.
+ * @template T
+ * @param {T[]} items
+ * @param {(item: T) => Array<{key: string, title: string}>} valuesOf
+ * @param {{key: string, title: string}} none
+ * @returns {Array<{key: string, title: string, items: T[]}>}
+ */
+export function groupItems(items, valuesOf, none) {
+  const groups = new Map();
+  const empty = { key: none.key, title: none.title, items: [] };
+  for (const item of items) {
+    const values = valuesOf(item);
+    if (values.length === 0) empty.items.push(item);
+    for (const { key, title } of values) {
+      if (!groups.has(key)) groups.set(key, { key, title, items: [] });
+      const group = groups.get(key);
+      if (!group.items.includes(item)) group.items.push(item);
+    }
+  }
+  const list = [...groups.values()].sort((a, b) => compareNames(a.title, b.title) || compareNames(a.key, b.key));
+  return empty.items.length > 0 ? [...list, empty] : list;
+}
+
 // The pane
 
 /**
- * The item keys in the order the board shows them: the lists in order, each list's items in order.
+ * The item keys in the order the board shows them: the lists in order, each list's items in
+ * order. An item that shows in several lists counts once, at its first place.
  * @template T
  * @param {T[][]} lists The board's groups, as lists of items.
  * @param {(item: T) => string} keyOf
  * @returns {string[]}
  */
 export function shownOrder(lists, keyOf) {
-  return lists.flatMap((list) => list.map(keyOf));
+  return [...new Set(lists.flatMap((list) => list.map(keyOf)))];
 }
 
 /**
