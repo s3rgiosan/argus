@@ -1,6 +1,6 @@
-// Pure helpers for the issue pane: state text, the opened line, comment order, names and the list position.
+// Pure helpers for the issue pane: state text, the opened line, comment order and names.
 
-import { ageText } from "./board.js";
+import { ageText, displayName } from "./forge-board.js";
 
 /** @typedef {import("./model.js").Detail} Detail */
 /** @typedef {import("./model.js").Issue} Issue */
@@ -46,19 +46,6 @@ export function namesOf(detail) {
 }
 
 /**
- * The name to show for a login: the forge's display name, else the login without the `app/`
- * prefix that `gh` gives apps.
- * @param {string} login
- * @param {Record<string, string>} names
- * @returns {string}
- */
-export function displayName(login, names) {
-  const known = Object.hasOwn(names, login) ? names[login] : "";
-  if (known !== "") return known;
-  return login.startsWith("app/") ? login.slice("app/".length) : login;
-}
-
-/**
  * The line under the title: who opened the issue and when, then when it changed last.
  * @param {Issue} issue
  * @param {Record<string, string>} names
@@ -82,7 +69,7 @@ function agoText(age) {
 }
 
 /**
- * The comments in the order the settings ask for: "oldest" or "newest" first.
+ * The comments in the order of the Conversation setting: "oldest" or "newest" first.
  * @param {Detail} detail
  * @param {string} order
  * @returns {import("./model.js").Comment[]}
@@ -100,18 +87,6 @@ export function commentItems(detail, order) {
 export function sectionSummaries(detail) {
   const count = detail.comments.length;
   return { description: detail.body.trim() === "" ? "None" : "", comments: count === 1 ? "1 comment" : `${count} comments` };
-}
-
-/**
- * Where `key` is in `order` (1-based), with its neighbours, or null when it is not there.
- * @param {string[]} order
- * @param {string} key
- * @returns {{index: number, total: number, prev: string|null, next: string|null}|null}
- */
-export function positionIn(order, key) {
-  const at = order.indexOf(key);
-  if (at < 0) return null;
-  return { index: at + 1, total: order.length, prev: order[at - 1] ?? null, next: order[at + 1] ?? null };
 }
 
 /**

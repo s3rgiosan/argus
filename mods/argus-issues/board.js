@@ -1,33 +1,42 @@
 // Pure board logic for the issues board: assembling reads, scopes, groups, filter and row text.
-// Issues are the objects built by model.js.
+// Issues are the objects built by model.js; the scope, group and
+// kept-list rules shared with other forge boards come from lib/forge-board.js.
 
-import { compareNames } from "./follow.js";
 import { issueKey } from "./model.js";
 import { projectKey } from "./remote.js";
+import { isObject } from "./forge-cli.js";
+import {
+  KEEP_LIST_MS,
+  emptyMessage as emptyText,
+  groupItems,
+  itemsByKeys,
+  keptLists as keptItems,
+  normalizeScope as normalizeShowWhere,
+  rowSignature,
+  scopeItems as scopeRows,
+  scopeProjects,
+  scopeTitle as titleOf,
+  shownOrder as orderOf,
+  whereKey,
+} from "./forge-board.js";
 
 /**
  * @typedef {import("./model.js").Issue} Issue
  * @typedef {import("./remote.js").Project} Project
  * @typedef {"assigned" | "created" | "mentions" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
- * @typedef {{issues: Issue[], scopes: {assigned: string[], created: string[], mentions: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[]}} Board
+ * @typedef {{issues: Issue[], scopes: {assigned: string[], created: string[], mentions: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], listedAt: Record<string, number>}} Board
+ *   `listedAt` holds the time of the last successful issue list of each project, keyed by `projectKey`.
  * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} Item
  */
 
-const MINUTE = 60;
-const HOUR = 3600;
-const DAY = 86400;
-
-const SHOWS = /** @type {const} */ ([
+/** The Show choices, as [id, label]; the first is the default. */
+export const SHOWS = /** @type {Array<[Show, string]>} */ ([
   ["assigned", "Assigned to me"],
   ["created", "Created by me"],
   ["mentions", "Mentions me"],
   ["all", "All open"],
 ]);
-
-function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function isStringArray(value) {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
@@ -37,12 +46,12 @@ function isStringArray(value) {
 
 /** @returns {Board} */
 function emptyBoard() {
-  return { issues: [], scopes: { assigned: [], created: [], mentions: [], projects: {} }, projects: [], folders: [], readAt: 0, notes: [] };
+  return { issues: [], scopes: { assigned: [], created: [], mentions: [], projects: {} }, projects: [], folders: [], readAt: 0, notes: [], listedAt: {} };
 }
 
 /**
  * Builds the shared board from one read. Issues are deduplicated by key; the first copy read wins.
- * @param {{projects: Project[], folders: string[], assigned: Issue[], created: Issue[], mentions: Issue[], projectIssues: Record<string, Issue[]>, notes: string[], readAt: number}} input
+ * @param {{projects: Project[], folders: string[], assigned: Issue[], created: Issue[], mentions: Issue[], projectIssues: Record<string, Issue[]>, notes: string[], readAt: number, listedAt?: Record<string, number>}} input
  * @returns {Board}
  */
 export function assembleBoard(input) {
@@ -59,11 +68,11 @@ export function assembleBoard(input) {
   };
   const scopes = { assigned: keysOf(input.assigned), created: keysOf(input.created), mentions: keysOf(input.mentions), projects: {} };
   for (const project of input.projects) scopes.projects[project.key] = keysOf(input.projectIssues[project.key] ?? []);
-  return { issues: [...byKey.values()], scopes, projects: input.projects, folders: input.folders, readAt: input.readAt, notes: input.notes };
+  return { issues: [...byKey.values()], scopes, projects: input.projects, folders: input.folders, readAt: input.readAt, notes: input.notes, listedAt: input.listedAt ?? {} };
 }
 
 /**
- * A well-formed board, or the empty board for anything else.
+ * A well-formed board, or the empty board for anything else. Bad list times mean none.
  * @param {unknown} value
  * @returns {Board}
  */
@@ -83,7 +92,22 @@ export function normalizeBoard(value) {
     isStringArray(scopes.mentions) &&
     isObject(scopes.projects) &&
     Object.values(scopes.projects).every(isStringArray);
-  return valid ? /** @type {Board} */ (value) : emptyBoard();
+  if (!valid) return emptyBoard();
+  const listedAt = isObject(value.listedAt) && Object.values(value.listedAt).every((time) => Number.isFinite(time) && time >= 0) ? value.listedAt : {};
+  return /** @type {Board} */ ({ ...value, listedAt });
+}
+
+/**
+ * The issues of the previous board for the projects whose list failed in this read, kept for
+ * KEEP_LIST_MS after their last successful list (`keptLists` in lib/forge-board.js).
+ * @param {Board} previous
+ * @param {string[]} failedKeys Project keys whose list failed.
+ * @param {number} now
+ * @returns {{issues: Issue[], projectIssues: Record<string, Issue[]>, listedAt: Record<string, number>}}
+ */
+export function keptLists(previous, failedKeys, now) {
+  const kept = keptItems(previous, failedKeys, now, { items: previous.issues, keyOf: issueKey, keepMs: KEEP_LIST_MS });
+  return { issues: kept.items, projectIssues: kept.projectItems, listedAt: kept.listedAt };
 }
 
 // Scopes
@@ -94,44 +118,7 @@ export function normalizeBoard(value) {
  * @returns {Scope}
  */
 export function normalizeScope(value) {
-  if (!isObject(value)) return { show: "assigned", where: "all" };
-  const show = SHOWS.some(([id]) => id === value.show) ? /** @type {Show} */ (value.show) : "assigned";
-  switch (value.where) {
-    case "follow":
-      return { show, where: "follow" };
-    case "project":
-      return typeof value.key === "string" && value.key !== "" ? { show, where: "project", key: value.key } : { show, where: "all" };
-    default:
-      return { show, where: "all" };
-  }
-}
-
-/**
- * The project key a scope limits to, null for all repos, or undefined when it
- * follows a space that is not a project.
- * @param {Scope} scope
- * @param {?string} followed
- * @returns {string|null|undefined}
- */
-function whereKey(scope, followed) {
-  switch (scope.where) {
-    case "follow":
-      return followed ?? undefined;
-    case "project":
-      return scope.key;
-    default:
-      return null;
-  }
-}
-
-/**
- * @param {Board} board
- * @param {string[]} keys
- * @returns {Issue[]}
- */
-function issuesByKeys(board, keys) {
-  const byKey = new Map(board.issues.map((issue) => [issueKey(issue), issue]));
-  return keys.map((key) => byKey.get(key)).filter((issue) => issue !== undefined);
+  return /** @type {Scope} */ (normalizeShowWhere(value, SHOWS));
 }
 
 /**
@@ -149,47 +136,23 @@ export function issuesInScope(board, scope, followed) {
     case "assigned":
     case "created":
     case "mentions":
-      issues = issuesByKeys(board, board.scopes[scope.show]);
+      issues = itemsByKeys(board.issues, board.scopes[scope.show], issueKey);
       break;
     default:
-      issues = where === null ? board.issues : issuesByKeys(board, board.scopes.projects[where] ?? []);
+      issues = where === null ? board.issues : itemsByKeys(board.issues, board.scopes.projects[where] ?? [], issueKey);
   }
   return where === null ? issues : issues.filter((issue) => projectKey(issue) === where);
 }
 
 /**
- * The rows of the scope list: the Show choices, then In (Follow space, All repos and each
- * project). Each row's count keeps the other choice as it is, and picking it changes only its own choice.
+ * The rows of the scope list, with the count of issues each choice shows.
  * @param {Board} board
  * @param {?string} followed
  * @param {Scope} scope The current scope.
  * @returns {{show: Item[], where: Item[], projects: Item[]}}
  */
 export function scopeItems(board, followed, scope) {
-  const item = (key, label, next, current) => ({ key, label, scope: next, count: issuesInScope(board, next, followed).length, current });
-  const keep = scope.where === "project" ? { where: "project", key: scope.key } : { where: scope.where };
-  const show = SHOWS.map(([id, label]) => item(id, label, /** @type {Scope} */ ({ show: id, ...keep }), scope.show === id));
-  const where = [
-    item("follow", "Follow space", { show: scope.show, where: "follow" }, scope.where === "follow"),
-    item("all", "All repos", { show: scope.show, where: "all" }, scope.where === "all"),
-  ];
-  const listed = board.projects.map((project) => ({ key: project.key, repo: project.repo }));
-  // A picked project no longer on the board stays in the list, so its row keeps the tick.
-  if (scope.where === "project" && !listed.some((project) => project.key === scope.key)) {
-    listed.push({ key: scope.key, repo: keyRepo(scope.key) });
-  }
-  const projects = listed
-    .sort((a, b) => compareNames(a.repo, b.repo))
-    .map((project) => {
-      const next = /** @type {Scope} */ ({ show: scope.show, where: "project", key: project.key });
-      return item(project.key, project.repo, next, scope.where === "project" && scope.key === project.key);
-    });
-  return { show, where, projects };
-}
-
-/** The repo part of a project key (`host/owner/name`). */
-function keyRepo(key) {
-  return key.split("/").slice(1).join("/");
+  return /** @type {{show: Item[], where: Item[], projects: Item[]}} */ (scopeRows(board, followed, scope, { shows: SHOWS, count: (next) => issuesInScope(board, /** @type {Scope} */ (next), followed).length }));
 }
 
 /**
@@ -200,50 +163,7 @@ function keyRepo(key) {
  * @returns {string}
  */
 export function scopeTitle(scope, board, followed) {
-  const show = SHOWS.find(([id]) => id === scope.show)?.[1] ?? "Assigned to me";
-  const repoOf = (key) => board.projects.find((p) => p.key === key)?.repo ?? null;
-  switch (scope.where) {
-    case "follow": {
-      const repo = followed === null ? null : repoOf(followed);
-      return `${show} · ${repo ?? "Follow space"}`;
-    }
-    case "project":
-      return `${show} · ${repoOf(scope.key) ?? keyRepo(scope.key)}`;
-    default:
-      return show;
-  }
-}
-
-/**
- * The projects a scope shows: all of them, one project, or the followed space's project.
- * @param {Board} board
- * @param {Scope} scope
- * @param {?string} followed
- * @returns {Project[]}
- */
-export function scopeProjects(board, scope, followed) {
-  const where = whereKey(scope, followed);
-  if (where === undefined) return [];
-  return where === null ? board.projects : board.projects.filter((project) => project.key === where);
-}
-
-/**
- * The provider and host of each repo that `scope` shows. Empty when the scope has no known repo.
- * @param {Board} board
- * @param {Scope} scope
- * @param {?string} followed
- * @returns {Array<{provider: string, host: string}>}
- */
-export function scopeRepos(board, scope, followed) {
-  const seen = new Set();
-  const repos = [];
-  for (const { provider, host } of scopeProjects(board, scope, followed)) {
-    const id = `${provider} ${host}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    repos.push({ provider, host });
-  }
-  return repos;
+  return titleOf(scope, board, followed, SHOWS);
 }
 
 /**
@@ -260,32 +180,6 @@ export function mentionsNote(board, scope, followed) {
   return gitlab ? "GitLab has no search for mentions, so GitLab issues do not show here." : null;
 }
 
-/**
- * What Follow space shows for the focused folder: its project ("followed"), a wait while the
- * board has not read that folder yet ("pending"), or that the folder is no GitHub or GitLab repo ("none").
- * @param {Board} board
- * @param {string|null} folder The focused space's folder (`followFolder`).
- * @param {string|null} followed The project key of that folder (`followProjectKey`).
- * @returns {"followed"|"pending"|"none"}
- */
-export function followStatus(board, folder, followed) {
-  if (followed !== null) return "followed";
-  if (folder === null) return "none";
-  if (board.readAt === 0 || !board.folders.includes(folder)) return "pending";
-  return "none";
-}
-
-/**
- * The board with `folders` added to the folders it lists, or the board itself when it lists them all.
- * @param {Board} board
- * @param {string[]} folders
- * @returns {Board}
- */
-export function withFolders(board, folders) {
-  const missing = folders.filter((folder) => !board.folders.includes(folder));
-  return missing.length === 0 ? board : { ...board, folders: [...board.folders, ...missing] };
-}
-
 // Groups
 
 /**
@@ -294,17 +188,9 @@ export function withFolders(board, folders) {
  * @returns {Array<{key: string, title: string, issues: Issue[]}>}
  */
 export function buildGroups(issues) {
-  const groups = new Map();
-  for (const issue of issues) {
-    const key = projectKey(issue);
-    if (!groups.has(key)) groups.set(key, { key, title: issue.repo, issues: [] });
-    groups.get(key).issues.push(issue);
-  }
   const time = (issue) => Date.parse(issue.updatedAt) || 0;
-  const newest = (a, b) => time(b) - time(a) || b.number - a.number;
-  const list = [...groups.values()].sort((a, b) => compareNames(a.title, b.title) || compareNames(a.key, b.key));
-  for (const group of list) group.issues.sort(newest);
-  return list;
+  const newest = [...issues].sort((a, b) => time(b) - time(a) || b.number - a.number);
+  return groupItems(newest, (issue) => [{ key: projectKey(issue), title: issue.repo }], { key: "", title: "" }).map((group) => ({ key: group.key, title: group.title, issues: group.items }));
 }
 
 /**
@@ -315,7 +201,10 @@ export function buildGroups(issues) {
  * @returns {string[]}
  */
 export function shownOrder(board, scope, followed) {
-  return buildGroups(issuesInScope(board, scope, followed)).flatMap((group) => group.issues.map(issueKey));
+  return orderOf(
+    buildGroups(issuesInScope(board, scope, followed)).map((group) => group.issues),
+    issueKey,
+  );
 }
 
 // Filter and row text
@@ -333,24 +222,6 @@ export function matchesFilter(issue, text) {
   if (fields.some((field) => String(field ?? "").toLowerCase().includes(needle))) return true;
   const digits = needle.startsWith("#") ? needle.slice(1) : needle;
   return digits !== "" && String(issue.number).startsWith(digits);
-}
-
-/**
- * @param {string} iso
- * @param {number} now Milliseconds since the epoch.
- * @returns {string}
- */
-export function ageText(iso, now) {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
-  const seconds = Math.max(0, Math.floor((now - then) / 1000));
-  if (seconds < MINUTE) return "now";
-  if (seconds < HOUR) return `${Math.floor(seconds / MINUTE)}m`;
-  if (seconds < DAY) return `${Math.floor(seconds / HOUR)}h`;
-  const days = Math.floor(seconds / DAY);
-  if (days < 30) return `${days}d`;
-  if (days < 365) return `${Math.floor(days / 30)}mo`;
-  return `${Math.floor(days / 365)}y`;
 }
 
 /**
@@ -374,28 +245,14 @@ export function assigneesText(issue) {
   return rest.length === 0 ? first.login : `${first.login} +${rest.length}`;
 }
 
-/** True when a failure note comes from a read for `repo`: `gh` notes for GitHub, `glab (<host>)` notes for GitLab. */
-function noteIsFor(note, repo) {
-  if (repo.provider === "github") return note.startsWith("gh: ") || note.startsWith("gh not found");
-  if (note.startsWith("glab not found")) return true;
-  return note.startsWith(`glab (${repo.host}): `);
-}
-
 /**
- * The text of an empty list: loading before the first read, a pointer to the notes when a read
- * for the scope failed, else that the scope has none. With no known repo in the scope, any failure
- * counts. A note that a list was cut reports no failure.
+ * The text of an empty issue list, as `emptyMessage` in lib/forge-board.js gives it.
  * @param {Board} board
  * @param {Array<{provider: string, host: string}>} [repos] The repos the scope shows (`scopeRepos`).
  * @returns {string}
  */
 export function emptyMessage(board, repos = []) {
-  if (board.readAt === 0) return "Loading…";
-  const failed = board.notes
-    .filter((note) => !note.startsWith("Showing the first "))
-    .some((note) => repos.length === 0 || repos.some((repo) => noteIsFor(note, repo)));
-  if (failed) return "No issues could be read. See the messages above.";
-  return "No open issues here";
+  return emptyText(board, repos, { failed: "No issues could be read. See the messages above.", none: "No open issues here" });
 }
 
 /**
@@ -407,4 +264,14 @@ export function emptyMessage(board, repos = []) {
 export function issuePaneTitle(issue) {
   if (issue === null) return "Issues";
   return issue.title ? `#${issue.number} · ${issue.title}` : `#${issue.number}`;
+}
+
+/**
+ * A text for the parts of a board row that the issue pane shows, or null when there is no row.
+ * A change of it makes the pane read its issue again (`rereadDue`).
+ * @param {Issue|null|undefined} issue
+ * @returns {string|null}
+ */
+export function issueSignature(issue) {
+  return rowSignature(issue, (row) => [row.updatedAt, row.state, row.title, row.comments, row.labels.join(","), row.assignees.map((person) => person.login).join(",")]);
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { issueKey, webUrl, glRepoOf, parseGhSearch, parseGhList, parseGhView, parseGlUsername, parseGlUser, parseGlProject, parseGlDetail } from "../mods/argus-issues/model.js";
+import { issueKey, glRepoOf, parseGhSearch, parseGhList, parseGhView, parseGlUser, parseGlProject, parseGlDetail } from "../mods/argus-issues/model.js";
 
 const ghItem = (overrides = {}) => ({
   number: 7,
@@ -37,13 +37,6 @@ const glNode = (overrides = {}) => ({
 
 test("issueKey is the lower-case host, repo and number", () => {
   assert.equal(issueKey({ host: "GitHub.com", repo: "Example-Org/Repo", number: 3 }), "github.com/example-org/repo#3");
-});
-
-test("webUrl keeps only http and https URLs without spaces", () => {
-  assert.equal(webUrl("https://example.com/a"), "https://example.com/a");
-  assert.equal(webUrl("javascript:alert(1)"), null);
-  assert.equal(webUrl("https://example.com/a b"), null);
-  assert.equal(webUrl(5), null);
 });
 
 test("parseGhSearch reads issues and leaves out pull requests and broken items", () => {
@@ -152,8 +145,6 @@ test("parseGlUser reads the assigned and created lists, with the repo from the r
 test("GitLab parsers throw the first GraphQL error and refuse a missing project", () => {
   assert.throws(() => parseGlUser(JSON.stringify({ errors: [{ message: "Example error" }] }), "gitlab.example.com"), /Example error/);
   assert.throws(() => parseGlProject(JSON.stringify({ data: { project: null } }), "gitlab.example.com", "example-group/example-project"), /project not found/);
-  assert.throws(() => parseGlUsername(JSON.stringify({ data: { currentUser: null } })), /unexpected glab output/);
-  assert.equal(parseGlUsername(JSON.stringify({ data: { currentUser: { username: "octo-user" } } })), "octo-user");
 });
 
 test("parseGlProject uses the project path of the call", () => {

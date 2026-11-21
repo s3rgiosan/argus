@@ -7,20 +7,19 @@ import {
   issuesInScope,
   scopeItems,
   scopeTitle,
-  scopeRepos,
   mentionsNote,
-  followStatus,
-  withFolders,
   buildGroups,
   shownOrder,
   matchesFilter,
-  ageText,
   rowDetail,
   assigneesText,
   emptyMessage,
   issuePaneTitle,
+  issueSignature,
+  keptLists,
 } from "../mods/argus-issues/board.js";
-import { stateText, namesOf, displayName, openedLine, commentItems, sectionSummaries, positionIn, hiddenText } from "../mods/argus-issues/detail.js";
+import { stateText, namesOf, openedLine, commentItems, sectionSummaries, hiddenText } from "../mods/argus-issues/detail.js";
+import { displayName, KEEP_LIST_MS } from "../lib/forge-board.js";
 
 function issue(overrides = {}) {
   return {
@@ -75,9 +74,44 @@ test("assembleBoard keeps one copy of each issue and the keys of each list", () 
 
 test("normalizeBoard keeps a valid board and drops anything else", () => {
   const b = board();
-  assert.equal(normalizeBoard(b), b);
+  assert.deepEqual(normalizeBoard(b), b);
   assert.equal(normalizeBoard({ ...b, readAt: "x" }).readAt, 0);
   assert.deepEqual(normalizeBoard(null).issues, []);
+});
+
+test("normalizeBoard keeps good list times only", () => {
+  const b = board();
+  assert.deepEqual(normalizeBoard({ ...b, listedAt: { [github.key]: 10 } }).listedAt, { [github.key]: 10 });
+  assert.deepEqual(normalizeBoard({ ...b, listedAt: { [github.key]: -1 } }).listedAt, {});
+  assert.deepEqual(normalizeBoard({ ...b, listedAt: undefined }).listedAt, {});
+});
+
+test("keptLists keeps the issues of a failed project list for a while after its last good list", () => {
+  const previous = assembleBoard({
+    projects: [github, gitlab],
+    folders: [],
+    assigned: [],
+    created: [],
+    mentions: [],
+    projectIssues: { [github.key]: [mine, other], [gitlab.key]: [gl] },
+    notes: [],
+    readAt: 5,
+    listedAt: { [github.key]: 1_000, [gitlab.key]: 1_000 },
+  });
+  const kept = keptLists(previous, [github.key], 1_000 + KEEP_LIST_MS - 1);
+  assert.deepEqual(kept.projectIssues[github.key].map((i) => i.number), [1, 2]);
+  assert.deepEqual(kept.listedAt, { [github.key]: 1_000 });
+  assert.equal(kept.projectIssues[gitlab.key], undefined);
+  assert.deepEqual(keptLists(previous, [github.key], 1_000 + KEEP_LIST_MS), { issues: [], projectIssues: {}, listedAt: {} });
+});
+
+test("issueSignature changes with the row parts the pane shows", () => {
+  const base = issue({ labels: ["bug"], assignees: [{ login: "octo-user", name: "" }], comments: 1 });
+  assert.equal(issueSignature(null), null);
+  assert.equal(issueSignature(base), issueSignature({ ...base }));
+  for (const change of [{ updatedAt: "2026-01-05T00:00:00Z" }, { title: "Other title" }, { comments: 2 }, { labels: [] }, { assignees: [] }, { state: "closed" }]) {
+    assert.notEqual(issueSignature({ ...base, ...change }), issueSignature(base));
+  }
 });
 
 test("normalizeScope defaults to Assigned to me in All repos", () => {
@@ -126,27 +160,11 @@ test("scopeTitle names the Show choice and the repo", () => {
   assert.equal(scopeTitle({ show: "created", where: "project", key: "github.com/example-org/gone" }, b, null), "Created by me · example-org/gone");
 });
 
-test("scopeRepos lists each provider and host once", () => {
-  assert.deepEqual(scopeRepos(board(), { show: "all", where: "all" }, null), [
-    { provider: "github", host: "github.com" },
-    { provider: "gitlab", host: "gitlab.example.com" },
-  ]);
-});
-
 test("mentionsNote speaks only for Mentions me with a GitLab project in scope", () => {
   const b = board();
   assert.match(mentionsNote(b, { show: "mentions", where: "all" }, null) ?? "", /GitLab has no search for mentions/);
   assert.equal(mentionsNote(b, { show: "mentions", where: "project", key: github.key }, null), null);
   assert.equal(mentionsNote(b, { show: "assigned", where: "all" }, null), null);
-});
-
-test("followStatus waits for a folder the board has not read", () => {
-  const b = board();
-  assert.equal(followStatus(b, "/home/test/repo", github.key), "followed");
-  assert.equal(followStatus(b, "/home/test/new", null), "pending");
-  assert.equal(followStatus(withFolders(b, ["/home/test/new"]), "/home/test/new", null), "none");
-  assert.equal(followStatus(b, null, null), "none");
-  assert.equal(withFolders(b, ["/home/test/repo"]), b);
 });
 
 test("buildGroups makes one group per repo, A to Z, newest first inside", () => {
@@ -171,14 +189,6 @@ test("matchesFilter looks at title, number, author, labels and assignees", () =>
   assert.ok(matchesFilter(i, "person"));
   assert.ok(!matchesFilter(i, "#5"));
   assert.ok(!matchesFilter(i, "nothing"));
-});
-
-test("ageText gives a short age", () => {
-  const now = Date.parse("2026-02-01T00:00:00Z");
-  assert.equal(ageText("2026-02-01T00:00:00Z", now), "now");
-  assert.equal(ageText("2026-01-31T23:30:00Z", now), "30m");
-  assert.equal(ageText("2026-01-31T00:00:00Z", now), "1d");
-  assert.equal(ageText("bad", now), "");
 });
 
 test("row text shows the author, the labels and the assignees", () => {
@@ -225,7 +235,7 @@ test("stateText names the closed reason", () => {
   assert.deepEqual(stateText(issue({ state: "closed", stateReason: "constructor" })), { text: "Closed", open: false });
 });
 
-test("namesOf and displayName use the forge's names and strip app/", () => {
+test("namesOf gives the forge's names to displayName", () => {
   const names = namesOf(detail());
   assert.deepEqual(names, { "octo-user": "Octo User", "other-user": "Other Person", "third-user": "Third Person" });
   assert.equal(displayName("other-user", names), "Other Person");
@@ -240,7 +250,7 @@ test("openedLine says who opened it and when it changed", () => {
   assert.equal(openedLine({ ...i, createdAt: "", updatedAt: "" }, {}, now), "opened by octo-user");
 });
 
-test("commentItems follows the order setting", () => {
+test("commentItems follows the Conversation setting", () => {
   assert.deepEqual(commentItems(detail(), "oldest").map((c) => c.body), ["A", "B"]);
   assert.deepEqual(commentItems(detail(), "newest").map((c) => c.body), ["B", "A"]);
 });
@@ -248,12 +258,6 @@ test("commentItems follows the order setting", () => {
 test("sectionSummaries counts the comments", () => {
   assert.deepEqual(sectionSummaries(detail()), { description: "None", comments: "2 comments" });
   assert.equal(sectionSummaries(detail({ comments: [detail().comments[0]], body: "x" })).comments, "1 comment");
-});
-
-test("positionIn gives the place and the neighbours", () => {
-  assert.deepEqual(positionIn(["a", "b", "c"], "b"), { index: 2, total: 3, prev: "a", next: "c" });
-  assert.deepEqual(positionIn(["a"], "a"), { index: 1, total: 1, prev: null, next: null });
-  assert.equal(positionIn(["a"], "x"), null);
 });
 
 test("hiddenText names the reason when there is one", () => {

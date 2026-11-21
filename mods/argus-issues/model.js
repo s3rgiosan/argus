@@ -1,5 +1,7 @@
 // Turns forge CLI output into the issue model. Every provider gives the same Issue and Detail shapes.
 
+import { isObject, parseJson, unexpected, glReply, glNodes, webUrl } from "./forge-cli.js";
+
 /** @typedef {import("./remote.js").Provider} Provider */
 /** @typedef {{login: string, name: string}} Person */
 /**
@@ -12,24 +14,8 @@
 
 const GH_HOST = "github.com";
 
-function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function text(value) {
   return typeof value === "string" ? value : "";
-}
-
-function unexpected(cli) {
-  return new Error(`unexpected ${cli} output`);
-}
-
-function parseJson(raw, cli) {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    throw unexpected(cli);
-  }
 }
 
 /**
@@ -39,15 +25,6 @@ function parseJson(raw, cli) {
  */
 export function issueKey(issue) {
   return `${issue.host}/${issue.repo}#${issue.number}`.toLowerCase();
-}
-
-/**
- * An http or https URL, or null for anything else.
- * @param {unknown} value
- * @returns {string|null}
- */
-export function webUrl(value) {
-  return typeof value === "string" && /^https?:\/\//.test(value) && !/\s/.test(value) ? value : null;
 }
 
 /** A positive whole number from a number or a string of digits, else null. */
@@ -174,22 +151,6 @@ export function parseGhView(raw, repo) {
 
 // GitLab
 
-/** Parses a GraphQL reply and throws the first reported error. */
-function glReply(raw) {
-  const value = parseJson(raw, "glab");
-  if (!isObject(value)) throw unexpected("glab");
-  if (Array.isArray(value.errors) && value.errors.length > 0) {
-    throw new Error(String(value.errors[0]?.message ?? "unexpected glab output"));
-  }
-  if (!isObject(value.data)) throw unexpected("glab");
-  return value.data;
-}
-
-function glNodes(connection) {
-  if (!isObject(connection) || !Array.isArray(connection.nodes)) throw unexpected("glab");
-  return connection.nodes;
-}
-
 /**
  * The project path of a full GitLab reference such as `group/project#12`, or null.
  * @param {unknown} reference
@@ -242,17 +203,6 @@ function glIssues(connection, host, repo) {
   return glNodes(connection)
     .map((node) => glIssue(node, host, repo))
     .filter((issue) => issue !== null);
-}
-
-/**
- * `GL_USERNAME_QUERY` output.
- * @param {string} raw
- * @returns {string}
- */
-export function parseGlUsername(raw) {
-  const name = glReply(raw).currentUser?.username;
-  if (typeof name !== "string" || name === "") throw unexpected("glab");
-  return name;
 }
 
 /**
