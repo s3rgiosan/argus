@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New worktree in the `argus-issues` pane footer starts a worktree on the issue's branch (its number and a title slug) in the local checkout of its repo, and opens its space, as the Issue tab of the `argus-pull-requests` New worktree view does. Without a local checkout of the repo, the footer says so and the button is off.
 - `argus-issues` takes its `gh` and `glab` commands from the shared `argus.forge` key, and keeps its refresh interval and Conversation order in `argus-issues.settings`.
 
+- New mod `argus-agents`, labeled Overview: a board of the agents that need you, in sections for Needs you, Failed and Finished, with counts and the time each agent has been in its state. A click on a row shows the agent.
+- A finished agent stays on the board after you look at it, until it works again or you snooze it. Failed lists agents whose program reports an error status.
+- Snooze a row for 1 hour, 3 hours, until tomorrow morning or until the agent changes. A snooze also ends when the agent's state changes. Snoozed rows wait on a Snoozed shelf with their end time, and Reopen puts a row back.
+
 ### Changed
 
 - The built-in review prompt of `argus-pull-requests` puts the title, author and branches between `<<<pull-request>>>` and `<<</pull-request>>>` lines. The quoted values also write `<`, `>` and some invisible and control Unicode characters as `\uXXXX`.
@@ -46,12 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/sync-lib.mjs` also copies the lib files that a used lib file imports.
 - `argus-pull-requests` loads Herdr's own chevron-right and plus icons when Herdr ships them, and `lib/icons.js` lists clock for the mods that use it.
 - `lib/forge-board.js` also holds the board settings (refresh interval and Conversation order), the 15-minute keep time of failed lists, the item groups by several values, and the item pane title. `lib/forge-cli.js` also holds the string list check. `argus-pull-requests` uses them in place of its `locate.js` and its own copies. The pane order of `shownOrder` counts an item that shows in several groups once.
-
-### Added
-
-- New mod `argus-agents`: a board of the agents that need you, in sections for Needs you, Failed and Finished, with counts and the time each agent has been in its state. A click on a row shows the agent.
-- A finished agent stays on the board after you look at it, until it works again or you snooze it. Failed lists agents whose program reports an error status.
-- Snooze a row for 1 hour, 3 hours, until tomorrow morning or until the agent changes. A snooze also ends when the agent's state changes. Snoozed rows wait on a Snoozed shelf with their end time, and Reopen puts a row back.
 
 ### Fixed
 

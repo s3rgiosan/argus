@@ -1,4 +1,4 @@
-# Agents
+# Overview
 
 A board of the agents that need you: waiting on you, failed or finished. Panel on the right.
 
@@ -16,7 +16,7 @@ Failed shows only agents whose program reports an error status to Herdr. An agen
 
 ## Open it
 
-In the `Argus` layout: the Agents button beside the tab bar.
+In the `Argus` layout: the Overview button beside the tab bar.
 
 ## Credits
 
