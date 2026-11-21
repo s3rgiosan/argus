@@ -1,7 +1,7 @@
 // The title an account goes by in the panel, settings and toasts. No Herdr
 // imports, so Node can test it.
 
-import { tildePath } from "./accounts.js";
+import { tildePath } from "./paths.js";
 
 /**
  * The display name set in settings, else the profile's label (its

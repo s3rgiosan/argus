@@ -1,7 +1,8 @@
 // Builds Review with agent: the agents to offer, their commands, the review branch and
 // worktree, the review prompt, the review runs on the board, and their removal.
 
-import { expandHome, tildePath, visibleProfiles } from "./accounts.js";
+import { visibleProfiles } from "./accounts.js";
+import { expandHome, tildePath } from "./paths.js";
 import { branchSlug } from "./worktree.js";
 import { fetchRef } from "./forge.js";
 

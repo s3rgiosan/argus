@@ -2,37 +2,12 @@
 // Finds the Claude Code profiles on this computer. File access comes in
 // through `io`, so Node can test discovery without Herdr.
 
+import { expandHome, tildePath } from "./paths.js";
+
 /**
  * @typedef {{ folder: string, isDefault: boolean, label: string, email: string | null, accountUuid: string | null }} Profile
  * @typedef {{ home: string, listHome(): Promise<{ name: string, isDirectory: boolean }[]>, readText(path: string): Promise<string | null> }} DiscoveryIO
  */
-
-/**
- * Expands a leading `~` and drops trailing slashes.
- *
- * @param {string} path
- * @param {string} home
- * @returns {string}
- */
-export function expandHome(path, home) {
-  let out = String(path ?? "").trim();
-  if (out === "~") out = home;
-  else if (out.startsWith("~/")) out = home + out.slice(1);
-  return out.length > 1 ? out.replace(/\/+$/, "") : out;
-}
-
-/**
- * Shows a path under the home folder with `~`.
- *
- * @param {string} path
- * @param {string} home
- * @returns {string}
- */
-export function tildePath(path, home) {
-  if (path === home) return "~";
-  if (path.startsWith(home + "/")) return "~" + path.slice(home.length);
-  return path;
-}
 
 /**
  * Lists the Claude Code profile folders: the default one, every `~/.claude-*`
@@ -136,4 +111,44 @@ export async function readFirst(readers, path) {
     }
   }
   return null;
+}
+
+/**
+ * File access for `discover`. `readdir` lists the home folder the way
+ * `readdir` from `fs/promises` does with `withFileTypes`; a list that fails
+ * gives no folders. `readers` read a file in turn, as `readFirst` does.
+ *
+ * @param {{ home: string, readdir: (path: string, options: { withFileTypes: true }) => Promise<{ name: string, isDirectory(): boolean }[]>, readers: ((path: string) => Promise<string | null>)[] }} sources
+ * @returns {DiscoveryIO}
+ */
+export function discoveryIO({ home, readdir, readers }) {
+  return {
+    home,
+    async listHome() {
+      try {
+        const entries = await readdir(home, { withFileTypes: true });
+        return entries.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory() }));
+      } catch {
+        return [];
+      }
+    },
+    readText: (path) => readFirst(readers, path),
+  };
+}
+
+/**
+ * The argus-claude-usage settings that name and pick profiles: display names
+ * by folder (empty names left out), hidden folders and extra folders.
+ *
+ * @param {unknown} value The stored `argus-claude-usage.settings`.
+ * @returns {{ names: Record<string, string>, hidden: string[], extra: string[] }}
+ */
+export function usageSettings(value) {
+  const v = value && typeof value === "object" ? /** @type {Record<string, unknown>} */ (value) : {};
+  const strings = (list) => (Array.isArray(list) ? list.filter((item) => typeof item === "string") : []);
+  const names =
+    v.names && typeof v.names === "object" && !Array.isArray(v.names)
+      ? Object.fromEntries(Object.entries(v.names).filter(([, name]) => typeof name === "string" && name.trim() !== ""))
+      : {};
+  return { names, hidden: strings(v.hidden), extra: strings(v.extra) };
 }

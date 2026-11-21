@@ -1,5 +1,7 @@
 // Settings, CLI lookup candidates and user-facing CLI text for the gh and glab commands.
 
+import { expandHome } from "./paths.js";
+
 /** Refresh interval choices, in minutes. */
 export const INTERVALS = [1, 3, 5, 10, 15];
 
@@ -27,18 +29,6 @@ export function normalizeSettings(value) {
 
 /** The orders the pane can show a conversation in. */
 export const CONVERSATION_ORDERS = ["oldest", "newest"];
-
-/**
- * Expands a leading `~` to `home`.
- * @param {string} path
- * @param {string} home
- * @returns {string}
- */
-function expandHome(path, home) {
-  if (path === "~") return home;
-  if (path.startsWith("~/")) return home + path.slice(1);
-  return path;
-}
 
 /**
  * The commands to try for `gh` or `glab`, in order: the command setting, the

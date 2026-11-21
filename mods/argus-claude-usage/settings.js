@@ -1,7 +1,8 @@
 // The mod's settings and the changes the settings view makes to them.
 // No Herdr imports, so Node can test them. Folders are stored with `~`.
 
-import { expandHome, tildePath } from "./accounts.js";
+import { usageSettings } from "./accounts.js";
+import { expandHome, tildePath } from "./paths.js";
 
 export const INTERVALS = [1, 5, 15];
 
@@ -16,19 +17,11 @@ export const DEFAULTS = Object.freeze({ hidden: [], extra: [], interval: 5, clau
  */
 export function normalizeSettings(value) {
   const v = value && typeof value === "object" ? /** @type {Record<string, unknown>} */ (value) : {};
-  const strings = (list) => (Array.isArray(list) ? list.filter((x) => typeof x === "string") : []);
   return {
-    hidden: strings(v.hidden),
-    extra: strings(v.extra),
+    ...usageSettings(v),
     interval: INTERVALS.includes(/** @type {number} */ (v.interval)) ? /** @type {number} */ (v.interval) : DEFAULTS.interval,
     claude: typeof v.claude === "string" ? v.claude : DEFAULTS.claude,
-    names: namesOf(v.names),
   };
-}
-
-function namesOf(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value).filter(([, name]) => typeof name === "string" && name.trim()));
 }
 
 /**

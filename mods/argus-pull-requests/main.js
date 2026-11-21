@@ -6,7 +6,6 @@
 import { div, svg, image, View } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
 import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
-import { readdir, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys, needsProbe, needsGlabLogin } from "./remote.js";
 import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
@@ -21,7 +20,9 @@ import { worktreeRoot, checkoutBranch, checkoutPlan, spaceFor, gitError, aheadCo
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
-import { discover, expandHome, readFirst } from "./accounts.js";
+import { discover, usageSettings } from "./accounts.js";
+import { expandHome } from "./paths.js";
+import { profileIO } from "./pane.js";
 import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
@@ -857,10 +858,10 @@ export default class PullRequests extends View {
       } catch (caught) {
         error = `Could not list the agents: ${caught?.message ?? String(caught)}`;
       }
-      const usage = usageSettings();
+      const usage = usageSettings(shared(USAGE_SETTINGS_KEY));
       let profiles = [];
       try {
-        profiles = await discover(discoveryIO(), { extra: usage.extra });
+        profiles = await discover(profileIO(), { extra: usage.extra });
       } catch {
         // Without the profiles, Claude Code shows once with its plain command.
       }
@@ -2651,33 +2652,6 @@ function openRun(reviewRun) {
   const id = spaceFor(spaces(), panes(), reviewRun.path);
   if (id !== null) run("space.select", { id });
   else run("space.new", { folder: reviewRun.path });
-}
-
-/** The argus-claude-usage settings this mod reads: account names, hidden and extra profile folders. */
-function usageSettings() {
-  const value = shared(USAGE_SETTINGS_KEY);
-  const v = value && typeof value === "object" ? value : {};
-  const strings = (list) => (Array.isArray(list) ? list.filter((item) => typeof item === "string") : []);
-  const names = v.names && typeof v.names === "object" && !Array.isArray(v.names) ? Object.fromEntries(Object.entries(v.names).filter(([, name]) => typeof name === "string" && name.trim() !== "")) : {};
-  return { names, hidden: strings(v.hidden), extra: strings(v.extra) };
-}
-
-/** File access for the Claude Code profile search, as argus-claude-usage does it. */
-function discoveryIO() {
-  const dir = home();
-  return {
-    home: dir,
-    async listHome() {
-      try {
-        const entries = await readdir(dir, { withFileTypes: true });
-        return entries.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory() }));
-      } catch {
-        return [];
-      }
-    },
-    // readTextFile reads up to 1 MiB; .claude.json can grow past that.
-    readText: (path) => readFirst([readTextFile, (p) => readFile(p, "utf8")], path),
-  };
 }
 
 function openScopes() {

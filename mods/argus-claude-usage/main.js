@@ -5,9 +5,10 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, closeOverlay, notify } from "herdr";
-import { readdir, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
-import { discover, visibleProfiles, expandHome, tildePath, readFirst } from "./accounts.js";
+import { discover, visibleProfiles } from "./accounts.js";
+import { expandHome, tildePath } from "./paths.js";
+import { profileIO } from "./pane.js";
 import { parseReply, mergeEntry, pace, paceText } from "./usage.js";
 import { formatDuration, formatAgo } from "./format.js";
 import { normalizeSettings, isHidden, toggleHidden, addExtra, removeExtra, setName, pendingMoves, INTERVALS } from "./settings.js";
@@ -135,7 +136,7 @@ export default class ClaudeUsage extends View {
       // A forced refresh reads the profiles again; so does a change of the extra folders.
       const extraKey = JSON.stringify(settings.extra ?? []);
       if (force || this.discovered?.extraKey !== extraKey || startedAt - this.discovered.at >= DISCOVERY_TTL) {
-        this.discovered = { extraKey, at: startedAt, profiles: await discover(discoveryIO(), { extra: settings.extra }) };
+        this.discovered = { extraKey, at: startedAt, profiles: await discover(profileIO(), { extra: settings.extra }) };
       }
       const profiles = this.discovered.profiles;
       const folders = new Set(profiles.map((profile) => profile.folder));
@@ -598,23 +599,6 @@ async function fetchUsage(profile, settings) {
 
 function errorReply(reason) {
   return { state: "error", reason, plan: null, windows: [], surfaces: [], extra: null };
-}
-
-function discoveryIO() {
-  const dir = home();
-  return {
-    home: dir,
-    async listHome() {
-      try {
-        const entries = await readdir(dir, { withFileTypes: true });
-        return entries.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory() }));
-      } catch {
-        return [];
-      }
-    },
-    // readTextFile reads up to 1 MiB; .claude.json can grow past that.
-    readText: (path) => readFirst([readTextFile, (p) => readFile(p, "utf8")], path),
-  };
 }
 
 function readFolded() {
