@@ -250,9 +250,15 @@ function tick() {
 }
 
 function colorOf(t, kind) {
-  if (kind === "working") return t.working;
-  if (kind === "idle") return t.idle;
-  return SECTIONS.find((section) => section.key === kind)?.color(t) ?? t.dim;
+  switch (kind) {
+    case "working":
+      return t.working ?? t.dim;
+    case "idle":
+      // A theme can leave out the idle color.
+      return t.idle ?? t.dim;
+    default:
+      return SECTIONS.find((section) => section.key === kind)?.color(t) ?? t.dim;
+  }
 }
 
 /** The program's icon from Herdr's program table: a one-color glyph or a picture. */
