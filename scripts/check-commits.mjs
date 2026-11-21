@@ -15,7 +15,22 @@ const TYPES = ["feat", "fix", "docs", "refactor", "perf", "test", "build", "ci",
 // Scopes for commits that touch no single mod.
 const REPO_SCOPES = ["lib", "scripts", "tests", "skill"];
 const ATTRIBUTION = [/co-authored-by:/i, /claude-session:/i, /claude\.ai\/code/i, /generated with/i];
-const TRAILER = /^[A-Za-z][A-Za-z0-9-]*: \S/;
+const TRAILER = /^([A-Za-z][A-Za-z0-9-]*): \S/;
+// Single-word trailer keys that git projects use. Other keys need a dash.
+const TRAILER_WORDS = ["fixes", "closes", "resolves", "refs", "see-also", "cc"];
+// The line git writes before the diff of `git commit -v`, with the comment character first.
+const SCISSORS = /^(\S+) -{24} >8 -{24}\s*$/;
+
+function isTrailerLine(line) {
+  const match = TRAILER.exec(line);
+  return match !== null && (match[1].includes("-") || TRAILER_WORDS.includes(match[1].toLowerCase()));
+}
+
+/** True when every line is a trailer or a wrapped continuation of one, and the first is a trailer. */
+function isTrailerParagraph(paragraph) {
+  const lines = paragraph.split("\n");
+  return isTrailerLine(lines[0]) && lines.every((line) => isTrailerLine(line) || /^\s+\S/.test(line));
+}
 
 /** The scopes a subject can name: every mod folder, then the repo scopes. */
 export function knownScopes(repo) {
@@ -26,12 +41,18 @@ export function knownScopes(repo) {
 
 /**
  * The problems in one commit message, as sentences. An empty list means the
- * message follows the rules. Git's own merge, fixup and squash subjects pass.
+ * message follows the rules. Git's own merge, revert, fixup, squash and amend
+ * subjects pass. The comment lines and the diff that `git commit -v` adds
+ * below the scissors line are not part of the message.
  */
 export function commitProblems(message, scopes) {
-  const lines = message.split("\n").filter((line) => !line.startsWith("#"));
+  let all = message.split("\n");
+  const cut = all.findIndex((line) => SCISSORS.test(line));
+  const comment = cut === -1 ? "#" : SCISSORS.exec(all[cut])[1];
+  if (cut !== -1) all = all.slice(0, cut);
+  const lines = all.filter((line) => !line.startsWith(comment));
   const subject = (lines[0] ?? "").trim();
-  if (/^(Merge |fixup! |squash! |amend! )/.test(subject)) return [];
+  if (/^(Merge |Revert "|fixup! |squash! |amend! )/.test(subject)) return [];
   const problems = [];
   const match = /^([a-z]+)(?:\(([^)]+)\))?(!)?: (.+)$/.exec(subject);
   if (!match) {
@@ -46,7 +67,7 @@ export function commitProblems(message, scopes) {
   }
   const body = lines.slice(1).join("\n").trim();
   const last = body.split(/\n\s*\n/).pop() ?? "";
-  if (last && last.split("\n").every((line) => TRAILER.test(line))) problems.push(`Remove the trailer lines "${last.split("\n")[0]}".`);
+  if (last && isTrailerParagraph(last)) problems.push(`Remove the trailer lines "${last.split("\n")[0]}".`);
   return problems;
 }
 

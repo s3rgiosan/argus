@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync, chmodSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync, chmodSync, symlinkSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -406,4 +406,16 @@ test("a written layout leaves no temporary file behind", () => {
   assert.equal(run(dir).status, 0);
   assert.deepEqual(readdirSync(join(dir, "layouts")).filter((f) => f.endsWith(".tmp")), []);
   assert.deepEqual(readdirSync(join(dir, "mods", "argus-pane")).filter((f) => f.endsWith(".tmp")), []);
+});
+
+test("the preview svg is replaced atomically, never written through a link", () => {
+  const dir = home();
+  const victim = join(dir, "victim.svg");
+  writeFileSync(victim, "keep");
+  symlinkSync(victim, join(dir, "layouts", "Argus.svg"));
+  assert.equal(run(dir).status, 0);
+  assert.equal(readFileSync(victim, "utf8"), "keep");
+  assert.equal(lstatSync(join(dir, "layouts", "Argus.svg")).isSymbolicLink(), false);
+  assert.match(readFileSync(join(dir, "layouts", "Argus.svg"), "utf8"), /^<svg /);
+  assert.deepEqual(names(dir), ["Argus.json", "Argus.svg", "main.json"]);
 });

@@ -34,12 +34,31 @@ fi
 
 mkdir -p "$target"
 
-# Copies the files of a mod folder into a new folder.
+# Copies the files of a mod folder into a new folder. A failing find fails the copy.
 copy_mod() {
-  (cd "$1" && find . -type f ! -name gpui-kit.d.ts ! -name jsconfig.json ! -name .DS_Store) | while IFS= read -r file; do
-    mkdir -p "$2/$(dirname "$file")" || exit 1
-    cp -p "$1/$file" "$2/$file" || exit 1
-  done
+  list=$(mktemp "${TMPDIR:-/tmp}/argus-files.XXXXXX") || return 1
+  if ! (cd "$1" && find . -type f ! -name gpui-kit.d.ts ! -name jsconfig.json ! -name .DS_Store) > "$list"; then
+    rm -f "$list"
+    return 1
+  fi
+  while IFS= read -r file; do
+    mkdir -p "$2/$(dirname "$file")" && cp -p "$1/$file" "$2/$file" || { rm -f "$list"; return 1; }
+  done < "$list"
+  rm -f "$list"
+}
+
+# Moves the folder or link at $dest that the checks above allowed to go to $aside.
+set_old_aside() {
+  [ -n "$old" ] || return 0
+  mv "$dest" "$aside"
+}
+
+# Deletes the old copy that set_old_aside moved.
+drop_old() {
+  case $old in
+    link) rm "$aside" ;;
+    dir) rm -rf "$aside" ;;
+  esac
 }
 
 # Removes the folder or link at $dest that the checks above allowed to go.
@@ -101,8 +120,23 @@ for name in "$@"; do
       echo "install.sh: could not copy $name; $dest is unchanged" >&2
       exit 1
     fi
-    remove_old
-    mv "$new" "$dest"
+    # mktemp makes the folder 0700; give it the mode that mkdir would.
+    chmod "$(printf '%o' $((0777 & ~0$(umask))))" "$new"
+    aside="$dest.argus-old.$$"
+    if ! set_old_aside; then
+      echo "install.sh: could not move $dest aside; it is unchanged" >&2
+      exit 1
+    fi
+    if ! mv "$new" "$dest"; then
+      if [ -n "$old" ] && ! mv "$aside" "$dest"; then
+        echo "install.sh: could not install $name, and the old copy is at $aside" >&2
+        trap - EXIT
+        exit 1
+      fi
+      echo "install.sh: could not install $name; $dest is unchanged" >&2
+      exit 1
+    fi
+    drop_old
     trap - EXIT
     echo "copied $name -> $dest"
   else

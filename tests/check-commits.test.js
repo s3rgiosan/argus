@@ -59,3 +59,47 @@ test("the --file mode exits 1 on a bad message and 0 on a good one", () => {
   assert.equal(spawnSync(process.execPath, [script, "--file", bad]).status, 1);
   assert.equal(spawnSync(process.execPath, [script, "--file", good]).status, 0);
 });
+
+const SCISSORS = "# ------------------------ >8 ------------------------";
+
+test("ignores the diff after the scissors line", () => {
+  const message = `fix(scripts): stage install\n\n# Please enter the commit message\n#\n${SCISSORS}\n# Do not modify or remove the line above.\n# Everything below it will be ignored.\ndiff --git a/f b/f\n+generated with x\n+Signed-off-by: Octo User\n`;
+  assert.deepEqual(commitProblems(message, scopes), []);
+});
+
+test("ignores the diff after a scissors line with another comment character", () => {
+  const message = `fix(scripts): stage install\n\n; Please enter the commit message\n;\n; ------------------------ >8 ------------------------\n; Everything below it will be ignored.\ndiff --git a/f b/f\n+generated with x\n`;
+  assert.deepEqual(commitProblems(message, scopes), []);
+});
+
+test("ignores comment lines with another comment character", () => {
+  assert.deepEqual(commitProblems("fix(scripts): stage install\n\n; On branch main\n; ------------------------ >8 ------------------------\n+x\n", scopes), []);
+});
+
+test("still refuses attribution above the scissors line", () => {
+  const message = `fix(scripts): stage install\n\nGenerated with Example Tool\n${SCISSORS}\ndiff\n`;
+  assert.equal(commitProblems(message, scopes).length, 1);
+});
+
+test("keeps a one-line body that starts with a word and a colon", () => {
+  assert.deepEqual(commitProblems("feat(lib): add\n\nNote: this is a one-line body.\n", scopes), []);
+  assert.deepEqual(commitProblems("feat(lib): add\n\nBody text.\n\nNote: this is a one-line body.\n", scopes), []);
+});
+
+test("refuses a one-line trailer with a known single-word key", () => {
+  assert.ok(commitProblems("fix(lib): add\n\nBody.\n\nFixes: #12\n", scopes).some((p) => p.includes("trailer")));
+  assert.ok(commitProblems("fix(lib): add\n\nCloses: #12\nRefs: #13\n", scopes).some((p) => p.includes("trailer")));
+});
+
+test("refuses a trailer paragraph with a wrapped continuation line", () => {
+  const message = "feat(lib): add\n\nBody.\n\nSigned-off-by: Octo User\nChange-Id: I123\n  continued here\n";
+  assert.ok(commitProblems(message, scopes).some((p) => p.includes("trailer")));
+});
+
+test("keeps a paragraph whose first line is not a trailer", () => {
+  assert.deepEqual(commitProblems("feat(lib): add\n\nSome prose here.\n  Signed-off-by: Octo User\n", scopes), []);
+});
+
+test("passes git revert subjects", () => {
+  assert.deepEqual(commitProblems('Revert "feat(lib): add"\n\nThis reverts commit abc123.\n', scopes), []);
+});

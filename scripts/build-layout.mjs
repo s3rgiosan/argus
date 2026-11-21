@@ -7,7 +7,7 @@
 //
 //   node scripts/build-layout.mjs [--name Argus] [--switch]
 
-import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync, copyFileSync, mkdirSync, mkdtempSync, statSync, lstatSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync, mkdirSync, mkdtempSync, statSync, lstatSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -252,7 +252,7 @@ for (const { spec, use } of copies) {
 }
 
 const preview = `layouts/${name}.svg`;
-copyFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "layouts", "Argus.svg"), join(layouts, `${name}.svg`));
+writeAtomic(join(layouts, `${name}.svg`), readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "layouts", "Argus.svg"), "utf8"));
 writeAtomic(target, JSON.stringify({ ...layout, preview, generated_by: MARKER }, null, 2) + "\n");
 console.log(`${name}: ${panels.length} panel(s): ${panels.map((p) => p.label).join(", ") || "none"}`);
 
