@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidates, defaultBranchOf, defaultBranchArgs, insideFolder, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces, freshForReview } from "../mods/argus-pull-requests/cleanup.js";
+import { candidates, insideFolder, rowsFor, branchStep, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces, freshForReview } from "../mods/argus-pull-requests/cleanup.js";
 import { branchDelete, linkedWorktrees, reviewNumber } from "../mods/argus-pull-requests/review.js";
+import { BRANCH_MERGED_LIMIT, MERGED_LIST_LIMIT, answerFromList } from "../mods/argus-pull-requests/cleanup.js";
+import { parseGhMerged, parseGhMergedFull, parseGhPrState, parseGlMerged, parseGlMergedFull, parseGlMrState } from "../mods/argus-pull-requests/model.js";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -34,15 +36,6 @@ function merged(number, headSha = SHA_A, mergedAt = "2026-11-10T00:00:00Z", base
 function input(worktrees, extra = {}) {
   return { worktrees, merged: {}, reviewMerged: {}, dirty: new Set(), inSpace: new Set(), openBranches: new Set(), ...extra };
 }
-
-test("defaultBranchOf reads the branch from a remote HEAD", () => {
-  assert.equal(defaultBranchOf("origin/main\n"), "main");
-  assert.equal(defaultBranchOf(""), null);
-  assert.equal(defaultBranchOf("upstream/dev"), "dev");
-  assert.deepEqual(defaultBranchArgs(), ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
-  assert.deepEqual(tipArgs("feat/a"), ["rev-parse", "--verify", "--quiet", "refs/heads/feat/a"]);
-  assert.deepEqual(statusArgs(), ["status", "--porcelain", "--untracked-files=all"]);
-});
 
 test("linkedWorktrees reads the head commit of each linked worktree", () => {
   const list = linkedWorktrees(porcelain(MAIN, { path: "/w/a", branch: "feat/a", head: SHA_B }));
@@ -262,4 +255,80 @@ test("freshForReview: the board's Review link drops a list with no removal resul
   assert.equal(freshForReview(done), done);
   const loading = { phase: "loading", results: {} };
   assert.equal(freshForReview(loading), loading);
+});
+
+const SHA_X = "1".repeat(40);
+const SHA_Y = "2".repeat(40);
+const ghItem = (number, branch, extra = {}) => ({ number, headRefName: branch, headRefOid: SHA_X, mergedAt: `2026-11-${String(number).padStart(2, "0")}T00:00:00Z`, baseRefName: "main", isCrossRepository: false, ...extra });
+const tree = (branch, review = null) => ({ path: `/w/${branch}`, branch, head: SHA_X, locked: false, prunable: false, review });
+
+test("answerFromList gives the same answers as the per-worktree reads on a complete list", () => {
+  const items = [
+    ghItem(3, "feat/a"),
+    ghItem(5, "feat/a", { headRefOid: SHA_Y }),
+    ghItem(6, "feat/a", { isCrossRepository: true }),
+    ghItem(8, "argus/review-8-abc", { isCrossRepository: true }),
+    ghItem(9, "feat/bad", { headRefOid: "nope" }),
+  ];
+  const worktrees = [tree("feat/a"), tree("feat/none"), tree("argus/review-8-abc", 8), tree("argus/review-4-abc", 4), tree("feat/bad")];
+  const answered = answerFromList(worktrees, parseGhMergedFull(JSON.stringify(items)));
+  assert.deepEqual(answered.rest, []);
+  // The per-branch read (`ghMergedArgs`) and the per-number read (`ghPrStateArgs`) of the same pull requests.
+  const branch = (name) => parseGhMerged(JSON.stringify(items.filter((item) => item.headRefName === name)));
+  const number = (n) => {
+    const item = items.find((entry) => entry.number === n);
+    return parseGhPrState(JSON.stringify(item ? { ...item, state: "MERGED" } : { number: n, state: "OPEN" }));
+  };
+  assert.deepEqual(answered.merged, { "feat/a": branch("feat/a"), "feat/none": branch("feat/none"), "feat/bad": branch("feat/bad") });
+  assert.deepEqual(answered.reviewMerged, { 8: number(8), 4: number(4) });
+  assert.equal(answered.reviewMerged[4], null);
+});
+
+test("answerFromList leaves for their own read what a cut list cannot answer", () => {
+  const full = Array.from({ length: MERGED_LIST_LIMIT }, (_, i) => ghItem(i + 1, `feat/n${i + 1}`));
+  const answered = answerFromList([tree("feat/n1"), tree("argus/review-2-abc", 2), tree("argus/review-500-abc", 500)], parseGhMergedFull(JSON.stringify(full)));
+  assert.deepEqual(answered.rest.map((worktree) => worktree.branch), ["feat/n1", "argus/review-500-abc"]);
+  assert.deepEqual(Object.keys(answered.reviewMerged), ["2"]);
+  assert.deepEqual(answered.merged, {});
+
+  const many = Array.from({ length: BRANCH_MERGED_LIMIT + 1 }, (_, i) => ghItem(i + 1, "feat/busy"));
+  assert.deepEqual(answerFromList([tree("feat/busy")], parseGhMergedFull(JSON.stringify(many))).rest.map((worktree) => worktree.branch), ["feat/busy"]);
+
+  assert.deepEqual(answerFromList([tree("feat/a"), tree("x", 3)], null).rest.length, 2);
+});
+
+test("answerFromList on GitLab matches the per-branch and per-number reads", () => {
+  const nodes = [
+    { iid: "3", sourceBranch: "feat/a", diffHeadSha: SHA_X, mergedAt: null, targetBranch: "main", sourceProjectId: 7, targetProjectId: 7 },
+    { iid: "4", sourceBranch: "feat/a", diffHeadSha: SHA_Y, mergedAt: "2026-11-02T00:00:00Z", targetBranch: "main", sourceProjectId: 8, targetProjectId: 7 },
+    { iid: "9", sourceBranch: "argus/review-9-abc", diffHeadSha: SHA_X, mergedAt: "2026-11-03T00:00:00Z", targetBranch: "main", sourceProjectId: 8, targetProjectId: 7 },
+  ];
+  const wrap = (list) => JSON.stringify({ data: { project: { mergeRequests: { nodes: list } } } });
+  const answered = answerFromList([tree("feat/a"), tree("argus/review-9-abc", 9)], parseGlMergedFull(wrap(nodes)));
+  assert.deepEqual(answered.rest, []);
+  assert.deepEqual(answered.merged["feat/a"], parseGlMerged(wrap(nodes.filter((node) => node.sourceBranch === "feat/a"))));
+  assert.deepEqual(answered.reviewMerged[9], parseGlMrState(JSON.stringify({ data: { project: { mergeRequest: { ...nodes[2], state: "merged" } } } })));
+});
+
+test("candidateSignature ignores order and changes with a head", async () => {
+  const { candidateSignature } = await import("../mods/argus-pull-requests/cleanup.js");
+  const a = { branch: "a", head: "1" };
+  const b = { branch: "b", head: "2" };
+  assert.equal(candidateSignature([a, b]), candidateSignature([b, a]));
+  assert.notEqual(candidateSignature([a, b]), candidateSignature([a, { ...b, head: "3" }]));
+  assert.notEqual(candidateSignature([a, b]), candidateSignature([a]));
+});
+
+test("mergedHeadsFresh reuses a list for the same worktrees within the window", async () => {
+  const { mergedHeadsFresh, MERGED_HEADS_TTL_MS } = await import("../mods/argus-pull-requests/cleanup.js");
+  const kept = { signature: "s", at: 1000, heads: [] };
+  assert.equal(mergedHeadsFresh(kept, "s", 1000 + MERGED_HEADS_TTL_MS - 1), true);
+  assert.equal(mergedHeadsFresh(kept, "s", 1000 + MERGED_HEADS_TTL_MS), false);
+  assert.equal(mergedHeadsFresh(kept, "other", 2000), false);
+  assert.equal(mergedHeadsFresh(undefined, "s", 2000), false);
+  assert.equal(mergedHeadsFresh(kept, "s", 500), false);
+});
+
+test("statusArgs lists untracked files too", () => {
+  assert.deepEqual(statusArgs(), ["status", "--porcelain", "--untracked-files=all"]);
 });

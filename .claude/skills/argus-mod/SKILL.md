@@ -36,7 +36,8 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 
 ## Match Herdr's UI
 
-- Use the building blocks that `lib/ui.js` exports, because they copy Herdr's values. Read the file for the current list. Do not draw a second version of a control that `lib/ui.js` already has.
+- Use the building blocks that `lib/ui.js` exports, because they copy Herdr's values. Read the file for the current list. It has settings fields (`commandField`, `forgeCommandFields`, `intervalPicker`), popup menus (`menuPopup` with `menuHeight` from `lib/menu.js`), board rows (`twoLineRow`) and pane parts (`paneHead`, `foldTitle`, `markdown`). Do not draw a second version of a control that `lib/ui.js` already has.
+- `lib/pane.js` opens a mod's pane (`openModPane`), shares its title (`shareTitle`), opens links with `cx.open_url` (`openInBrowser`) and makes text inputs that track focus (`createInputs`).
 - When Herdr has a control that `lib/ui.js` does not have, copy Herdr's values from its mod into a new block in `lib/ui.js`. Name the Herdr file and line in your report, not in the code comment.
 - Section titles use sentence case, for example "Ready to merge".
 - Popup menus use `menuRow` and the keys in `lib/menu.js` (↑ and ↓ move, Enter picks).
@@ -49,14 +50,16 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 
 ## Argus conventions
 
-- Shared code lives in `lib/`. `node scripts/sync-lib.mjs` copies each `lib/` file into the mods that import it. Run `node scripts/sync-lib.mjs --check` before every commit. Edit the `lib/` file, never the copy in a mod.
+- Before you write a helper, a parser, a CLI call or a control, look in `lib/`. Use the `lib/` module when it does the job. Extend it when it almost does. When a second mod needs code that one mod has, move that code to `lib/` and import it from both. Never copy a file or a function from one mod into another.
+- Shared code lives in `lib/`. `node scripts/sync-lib.mjs` copies each `lib/` file into the mods that import it, and the lib files that those files import. Run `node scripts/sync-lib.mjs --check` before every commit. Edit the `lib/` file, never the copy in a mod.
+- A forge board (GitHub and GitLab) builds on `lib/forge-cli.js`, `lib/forge-settings.js`, `lib/forge-runner.js`, `lib/forge-board.js`, `lib/board-sync.js` and `lib/remote.js`. Worktrees come from `lib/worktree.js` and `lib/worktree-runner.js`.
 - Run each shared CLI read through `lib/gate.js` and `lib/sync.js`, so several copies run one read.
 - Do not commit `gpui-kit.d.ts` or `jsconfig.json` in a mod folder.
 - Put logic in pure modules without Herdr imports, and test them with `node --test` (`npm test`). Write the test first and watch it fail.
 - Each mod has `README.md` (for people) and `RECIPE.md` (for an agent that rebuilds the mod). `RECIPE.md` has these sections in this order: `# Name`, one paragraph, `## What you see`, `## How it behaves`, `## Built from`, `## Watch out`.
-- `argus.json` in Herdr's app folder (`appHome()`) holds settings that people edit by hand. Today it holds `toolbar.order` and `toolbar.display`. Read the file with `readTextFile` and watch the folder with `watchFolder`. When the file is missing, use the defaults. When the file is not valid, show one toast and use the defaults.
+- `argus.json` in Herdr's app folder (`appHome()`) holds settings that people edit by hand. Today it holds `toolbar.order`, `toolbar.display`, and `pullRequests.review.instructions`, `pullRequests.review.promptFile` and `pullRequests.review.accounts`. Read the file with `readTextFile` and watch the folder with `watchFolder`. When the file is missing, use the defaults. When the file is not valid, show one toast and use the defaults.
 - A mod's own Settings view stores its values in one shared-state key named `<mod name>.settings`, for example `argus-tsk.settings`, `argus-claude-usage.settings` and `argus-pull-requests.settings`. The value is a small object that the mod normalizes when it reads it.
-- Shared-state keys start with the mod name, for example `argus-tsk.board`.
+- Shared-state keys start with the mod name, for example `argus-tsk.board`. Settings and keys that several mods share start with `argus.`, for example `argus.forge` (the `gh` and `glab` commands of every forge mod, through `lib/forge-settings.js`).
 - A mod that starts or reads Claude Code must support several Claude Code accounts. Find the profile folders (`~/.claude` and every `~/.claude-*`) and start each account with `env CLAUDE_CONFIG_DIR=<folder>` (no variable for the default `~/.claude`). Use the display names from `argus-claude-usage` when that mod is installed.
 - Do not include defaults that belong to one stack, company or skill. The mods are for anyone.
 
@@ -77,6 +80,9 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 ## Commits and releases
 
 - Conventional Commits with the mod name as the scope, for example `fix(argus-tsk): …`. Add no trailers and no attribution lines.
+- The scope is a mod name, or `lib`, `scripts`, `tests` or `skill` for a change outside one mod. A commit that changes no single area has no scope, for example `docs: …`.
+- Turn on the commit check once per clone with `git config core.hooksPath .githooks`. Worktrees share it. Before you hand off a branch, run `node scripts/check-commits.mjs`, which checks `main..HEAD`.
+- A brief for another agent links this file for the commit rules. It does not restate them.
 - `CHANGELOG.md` follows Keep a Changelog 1.1.0, with full-sentence entries under `## [Unreleased]`.
 - Tags are plain semver without `v`, for example `1.3.1`. A release bumps `package.json`, dates the CHANGELOG section and adds its compare link.
 - Never commit `docs/` or `.superpowers/`.

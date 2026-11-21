@@ -174,6 +174,22 @@ function extraOf(spend) {
   };
 }
 
+/**
+ * The entry to store for one folder after a fetch. A good reply replaces the
+ * entry. An error reply keeps a good previous reply that is not older than
+ * `maxAge`, and records the error beside it as `lastError`.
+ *
+ * @param {{ reply?: { state: string }, updatedAt?: number } | undefined} previous
+ * @param {{ state: string, reason?: string | null }} reply
+ * @param {number} now
+ * @param {number} maxAge
+ */
+export function mergeEntry(previous, reply, now, maxAge) {
+  const kept = previous?.reply?.state === "ok" && Number.isFinite(previous.updatedAt) && now - previous.updatedAt <= maxAge;
+  if (reply.state !== "error" || !kept) return { reply, updatedAt: now };
+  return { reply: previous.reply, updatedAt: previous.updatedAt, lastError: { message: reply.reason ?? "unknown error", at: now } };
+}
+
 function tryJson(text) {
   try {
     return JSON.parse(text);

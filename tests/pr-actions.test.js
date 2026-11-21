@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DRAFT_KEPT, DRAFT_TEXT, DRAFTS_UNREAD, LOGIN_TTL, NEEDS_BODY, NO_METHOD, NO_SHA, RUN_LIMIT, actionCommand, actionFailure, afterAction, bodyError, canAct, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, ownPr, ghMethodArgs, leavePr, mergePrompt, pendingDrafts, pickMergeMethod, runningOf, withRunning, withoutRunning } from "../mods/argus-pull-requests/actions.js";
+import { DRAFT_KEPT, DRAFT_TEXT, DRAFTS_UNREAD, HEAD_MOVED, HEAD_UNREAD, LOGIN_TTL, NEEDS_BODY, NO_METHOD, NO_SHA, RUN_LIMIT, actionCommand, ghHeadArgs, headRefusal, actionFailure, afterAction, bodyError, canAct, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, ownPr, ghMethodArgs, leavePr, mergePrompt, pendingDrafts, pickMergeMethod, runningOf, withRunning, withoutRunning } from "../mods/argus-pull-requests/actions.js";
 
 const GL_URL = "https://gitlab.example.com/example-group/example-sub/example-project";
 
@@ -37,11 +37,29 @@ const detail = (p) => ({
 const gh = detail(pr("github", "github.com", "example-org/example-repo"));
 const gl = detail(pr("gitlab", "gitlab.example.com", "example-group/example-sub/example-project"));
 
-test("gh approve", () => {
+test("gh approve reads the head first", () => {
   assert.deepEqual(actionCommand({ kind: "approve", detail: gh, body: "" }), {
     name: "gh",
     args: ["pr", "review", "12", "--repo", "example-org/example-repo", "--approve"],
+    check: ["pr", "view", "12", "--repo", "example-org/example-repo", "--json", "headRefOid"],
   });
+});
+
+test("gh request changes reads the head first; comment does not", () => {
+  assert.deepEqual(actionCommand({ kind: "request_changes", detail: gh, body: "Fix it" }).check, ghHeadArgs("example-org/example-repo", 12));
+  assert.equal(actionCommand({ kind: "comment", detail: gh, body: "Looks fine" }).check, undefined);
+  for (const kind of ["approve", "request_changes", "comment"]) {
+    assert.equal(actionCommand({ kind, detail: gl, body: "Text" }).check, undefined);
+  }
+});
+
+test("headRefusal compares the current head with the shown head", () => {
+  assert.equal(headRefusal("abc123", JSON.stringify({ headRefOid: "abc123" })), null);
+  assert.equal(headRefusal("abc123", JSON.stringify({ headRefOid: "def456" })), HEAD_MOVED);
+  assert.equal(headRefusal(null, JSON.stringify({ headRefOid: "def456" })), HEAD_MOVED);
+  for (const stdout of ["", "not json", "null", "[]", JSON.stringify({}), JSON.stringify({ headRefOid: "" }), JSON.stringify({ headRefOid: 7 })]) {
+    assert.equal(headRefusal("abc123", stdout), HEAD_UNREAD);
+  }
 });
 
 test("gh request changes and comment", () => {
@@ -89,10 +107,10 @@ test("GitLab merge follows the picked method", () => {
 });
 
 test("missing sha refuses", () => {
-  for (const [kind, d] of [["merge", gh], ["merge", gl], ["approve", gl]]) {
-    assert.deepEqual(actionCommand({ kind, detail: { ...d, headSha: null }, body: "", method: "merge" }), { error: NO_SHA });
+  for (const [kind, d] of [["merge", gh], ["merge", gl], ["approve", gl], ["approve", gh], ["request_changes", gh]]) {
+    assert.deepEqual(actionCommand({ kind, detail: { ...d, headSha: null }, body: "Text", method: "merge" }), { error: NO_SHA });
   }
-  assert.equal(actionCommand({ kind: "approve", detail: { ...gh, headSha: null }, body: "" }).name, "gh");
+  assert.equal(actionCommand({ kind: "comment", detail: { ...gh, headSha: null }, body: "Text" }).name, "gh");
 });
 
 test("gh merge without a method refuses", () => {

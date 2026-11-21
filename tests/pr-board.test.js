@@ -1,17 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  ageText,
   emptyMessage,
-  scopeRepos,
-  scopeProjects,
   mergedCounts,
   mergedInScope,
   mergedText,
   mergedListRead,
   openBranches,
-  followStatus,
-  withFolders,
   prPaneTitle,
   fetchedAtOf,
   keepStale,
@@ -29,9 +24,10 @@ import {
   reviewLabel,
   scopeItems,
   scopeTitle,
-  scopeWhereTitle,
   shortRepo,
 } from "../mods/argus-pull-requests/board.js";
+import { changesRequested, keptLists } from "../mods/argus-pull-requests/board.js";
+import { KEEP_RUNS_MS } from "../mods/argus-pull-requests/review.js";
 
 const checks = (passed, failed, running, total) => ({ passed, failed, running, total });
 
@@ -222,14 +218,6 @@ test("scopeTitle names Show, and In when it is not all repos", () => {
   assert.equal(scopeTitle({ show: "mine", where: "project", key: project.key }, board, null), "Mine · example-org/example-repo");
 });
 
-test("scopeWhereTitle names only the In part", () => {
-  const board = assembleBoard(input());
-  assert.equal(scopeWhereTitle({ show: "mine", where: "all" }, board, null), "All repos");
-  assert.equal(scopeWhereTitle({ show: "mine", where: "follow" }, board, project.key), "example-org/example-repo");
-  assert.equal(scopeWhereTitle({ show: "all", where: "follow" }, board, null), "Follow space");
-  assert.equal(scopeWhereTitle({ show: "mine", where: "project", key: "gitlab.example.com/example-group/example-project" }, board, null), "example-group/example-project");
-});
-
 test("matchesFilter", () => {
   const p = pr();
   assert.equal(matchesFilter(p, ""), true);
@@ -241,18 +229,6 @@ test("matchesFilter", () => {
   assert.equal(matchesFilter(p, "feature/one"), true);
   assert.equal(matchesFilter(p, "zzz"), false);
   assert.equal(matchesFilter(p, "#"), false);
-});
-
-test("ageText", () => {
-  const now = Date.parse("2026-06-01T00:00:00Z");
-  const ago = (s) => new Date(now - s * 1000).toISOString();
-  assert.equal(ageText(ago(30), now), "now");
-  assert.equal(ageText(ago(300), now), "5m");
-  assert.equal(ageText(ago(3 * 3600), now), "3h");
-  assert.equal(ageText(ago(2 * 86400), now), "2d");
-  assert.equal(ageText(ago(45 * 86400), now), "1mo");
-  assert.equal(ageText(ago(400 * 86400), now), "1y");
-  assert.equal(ageText("bad", now), "");
 });
 
 test("checksText", () => {
@@ -332,25 +308,6 @@ test("normalizeBoard drops review runs with a malformed run", () => {
   assert.deepEqual(normalizeBoard(board).reviews, {});
 });
 
-test("followStatus: followed, still being read, or not a repo", () => {
-  const board = { ...assembleBoard(input({})), folders: ["/home/test/code/example-repo", "/home/test/notes"] };
-  assert.equal(followStatus(board, "/home/test/code/example-repo", project.key), "followed");
-  // A folder the board has not read yet is still being read, not "not a repo".
-  assert.equal(followStatus(board, "/home/test/new-space", null), "pending");
-  assert.equal(followStatus(board, "/home/test/notes", null), "none");
-  // Before the first read, nothing is known yet.
-  assert.equal(followStatus({ ...board, readAt: 0 }, "/home/test/notes", null), "pending");
-  // With no folder to follow, there is nothing to read.
-  assert.equal(followStatus(board, null, null), "none");
-});
-
-test("withFolders adds folders the board has not listed, once", () => {
-  const board = { ...assembleBoard(input({})), folders: ["/a"] };
-  assert.deepEqual(withFolders(board, ["/a", "/b"]).folders, ["/a", "/b"]);
-  assert.equal(withFolders(board, ["/a"]), board);
-  assert.deepEqual(board.folders, ["/a"]);
-});
-
 test("emptyMessage: an empty list after failed reads does not claim there are no pull requests", () => {
   const board = assembleBoard(input({}));
   assert.equal(emptyMessage({ ...board, readAt: 0 }), "Loading…");
@@ -358,17 +315,6 @@ test("emptyMessage: an empty list after failed reads does not claim there are no
   assert.equal(emptyMessage({ ...board, notes: ["gh: error connecting to api.github.com"] }), "No pull requests could be read. See the messages above.");
   // A note that a list was cut is no failed read.
   assert.equal(emptyMessage({ ...board, notes: ["Showing the first 100 pull requests of example-org/example-repo."] }), "No pull requests here");
-});
-
-test("scopeRepos: the provider and host of the repos a scope shows", () => {
-  const lab = { ...project, key: "gitlab.example.com/example-group/example-project", provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project" };
-  const board = assembleBoard(input({ projects: [project, lab] }));
-  const all = { show: "all", where: "all" };
-  assert.deepEqual(scopeRepos(board, all, null), [{ provider: "github", host: "github.com" }, { provider: "gitlab", host: "gitlab.example.com" }]);
-  assert.deepEqual(scopeRepos(board, { show: "all", where: "project", key: lab.key }, null), [{ provider: "gitlab", host: "gitlab.example.com" }]);
-  assert.deepEqual(scopeRepos(board, { show: "mine", where: "follow" }, project.key), [{ provider: "github", host: "github.com" }]);
-  assert.deepEqual(scopeRepos(board, { show: "all", where: "follow" }, null), []);
-  assert.deepEqual(scopeRepos(board, { show: "all", where: "project", key: "unknown" }, null), []);
 });
 
 test("emptyMessage: only a failed read in the scope counts", () => {
@@ -389,15 +335,6 @@ test("emptyMessage: only a failed read in the scope counts", () => {
   assert.equal(emptyMessage(failedGl), "No pull requests could be read. See the messages above.");
   // A cut list never counts.
   assert.equal(emptyMessage({ ...board, notes: ["Showing the first 100 pull requests of example-org/example-repo."] }, gh), "No pull requests here");
-});
-
-test("scopeProjects: the projects a scope shows", () => {
-  const lab = { ...project, key: "gitlab.example.com/example-group/example-project", provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project" };
-  const board = assembleBoard(input({ projects: [project, lab] }));
-  assert.deepEqual(scopeProjects(board, { show: "all", where: "all" }, null).map((p) => p.key), [project.key, lab.key]);
-  assert.deepEqual(scopeProjects(board, { show: "all", where: "project", key: lab.key }, null).map((p) => p.key), [lab.key]);
-  assert.deepEqual(scopeProjects(board, { show: "mine", where: "follow" }, project.key).map((p) => p.key), [project.key]);
-  assert.deepEqual(scopeProjects(board, { show: "all", where: "follow" }, null), []);
 });
 
 test("openBranches: the head branches of a repo's open pull requests", () => {
@@ -454,11 +391,66 @@ test("mergedInScope sums the counts of the scope's projects", () => {
 
 test("mergedText: nothing at 0, singular and plural", () => {
   assert.equal(mergedText(0), null);
-  assert.equal(mergedText(1), "1 merged worktree can be removed");
-  assert.equal(mergedText(3), "3 merged worktrees can be removed");
+  assert.equal(mergedText(1), "1 merged worktree");
+  assert.equal(mergedText(3), "3 merged worktrees");
 });
 
 test("mergedListRead: a project whose worktree list failed keeps its count", () => {
   assert.deepEqual(mergedListRead([{ key: "a", count: 2 }], ["b"]), [{ key: "a", count: 2 }, { key: "b", count: null }]);
   assert.deepEqual(mergedCounts({ b: 4 }, { b: 10 }, mergedListRead([{ key: "a", count: 2 }], ["b"]), 20).merged, { a: 2, b: 4 });
+});
+
+test("groupOf: a reviewer's request for changes moves the pull request to Needs work", () => {
+  assert.equal(groupOf(pr({ reviewDecision: "approved", changesRequestedBy: ["review-user"] })), "needsWork");
+  assert.equal(groupOf(pr({ reviewDecision: null, changesRequestedBy: ["review-user"] })), "needsWork");
+  assert.equal(groupOf(pr({ isDraft: true, changesRequestedBy: ["review-user"] })), "draft");
+  assert.equal(groupOf(pr({ changesRequestedBy: [] })), "ready");
+  // A board saved before the field existed has none.
+  assert.equal(groupOf(pr()), "ready");
+  assert.equal(changesRequested(pr({ reviewDecision: "changes_requested" })), true);
+  assert.equal(changesRequested(pr({ changesRequestedBy: "review-user" })), false);
+});
+
+test("openBranches matches the repo without regard to case", () => {
+  const board = assembleBoard(input({ projectPrs: { [project.key]: [pr({ repo: "Example-Org/Example-Repo", headRef: "feat/a" })] } }));
+  assert.deepEqual([...openBranches(board, project)], ["feat/a"]);
+  assert.deepEqual([...openBranches(board, { ...project, repo: "EXAMPLE-ORG/example-repo" })], ["feat/a"]);
+  assert.deepEqual([...openBranches(board, { ...project, repo: "example-org/other-repo" })], []);
+  assert.deepEqual([...openBranches(board, { ...project, provider: "gitlab" })], []);
+});
+
+test("keptLists keeps a failed repo's pull requests from the previous board for KEEP_RUNS_MS", () => {
+  const other = pr({ repo: "example-org/search-only", number: 7 });
+  const previous = assembleBoard(
+    input({
+      projectPrs: { [project.key]: [pr({ number: 1 }), pr({ number: 2 })] },
+      needsReview: [other],
+      listedAt: { [project.key]: 1000, "github.com/example-org/search-only": 1000 },
+    }),
+  );
+  const kept = keptLists(previous, [project.key, "github.com/example-org/search-only"], 1000 + KEEP_RUNS_MS - 1);
+  assert.deepEqual(kept.prs.map((item) => item.number).sort(), [1, 2, 7]);
+  assert.deepEqual(Object.keys(kept.projectPrs), [project.key]);
+  assert.deepEqual(kept.projectPrs[project.key].map((item) => item.number), [1, 2]);
+  assert.deepEqual(kept.listedAt, { [project.key]: 1000, "github.com/example-org/search-only": 1000 });
+  // Too old, or never listed: nothing stays.
+  assert.deepEqual(keptLists(previous, [project.key], 1000 + KEEP_RUNS_MS), { prs: [], projectPrs: {}, listedAt: {} });
+  assert.deepEqual(keptLists(assembleBoard(input()), [project.key], 1000), { prs: [], projectPrs: {}, listedAt: {} });
+  // A repo that did not fail keeps nothing from the previous board.
+  assert.deepEqual(keptLists(previous, [], 1000), { prs: [], projectPrs: {}, listedAt: {} });
+});
+
+test("normalizeBoard keeps good listedAt times and drops bad ones", () => {
+  const board = assembleBoard(input({ listedAt: { [project.key]: 5 } }));
+  assert.deepEqual(normalizeBoard(board).listedAt, { [project.key]: 5 });
+  assert.deepEqual(normalizeBoard({ ...board, listedAt: { [project.key]: "5" } }).listedAt, {});
+  assert.deepEqual(normalizeBoard({ ...board, listedAt: undefined }).listedAt, {});
+});
+
+test("prSignature changes with the parts the pane shows", async () => {
+  const { prSignature } = await import("../mods/argus-pull-requests/board.js");
+  const row = { updatedAt: "t1", state: "open", isDraft: false, reviewDecision: null, mergeable: "mergeable", checks: { passed: 1, failed: 0, running: 0, total: 1 } };
+  assert.equal(prSignature(row), "t1|open|false||mergeable|1|0|0|1");
+  assert.notEqual(prSignature({ ...row, checks: { ...row.checks, failed: 1 } }), prSignature(row));
+  assert.equal(prSignature(null), null);
 });

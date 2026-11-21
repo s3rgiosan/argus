@@ -8,6 +8,8 @@ test("stampArgs asks a shell for the data file's modification time and size", ()
   assert.equal(args[0], "-c");
   assert.match(args[1], /stat -f "%Fm %z" "\$1"/);
   assert.match(args[1], /stat -c "%\.9Y %s" "\$1"/);
+  // GNU stat runs first: its `-f` reads the filesystem and can exit 0.
+  assert.ok(args[1].indexOf("stat -c") < args[1].indexOf("stat -f"));
   // The path is an argument, never part of the script text.
   assert.equal(args[2], "sh");
   assert.equal(args[3], "/tmp/example-store/tsk.json");

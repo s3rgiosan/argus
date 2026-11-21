@@ -21,19 +21,21 @@ A panel with Claude plan usage for every Claude Code account on this computer, o
 
 - Every open copy draws the usage kept in `shared` (`argus-claude-usage.data`). Every 30 s each copy checks whether the data is older than the interval (default 5 min) or a refresh was asked for; the copy that takes the lock (`argus-claude-usage.lock`, 2 min, renewed per account) finds the accounts and asks Claude Code for each one's usage, one at a time. At most one `claude` process runs. A copy that closes gives the lock back.
 - Data older than twice the interval plus a minute is not shown (after a restart, say).
+- A fetch stores its entry through `mergeEntry(previous, reply, now, maxAge)` (`usage.js`), with `maxAge` twice the interval plus a minute. A good reply replaces the entry. An error reply keeps a previous `ok` reply that is not older than `maxAge` and records `lastError { message, at }` beside it; the section shows `Last refresh failed · <message> · <ago>` (`errorLine`) right under the "Updated N ago" line. Without such a previous reply, the error reply replaces the entry.
+- Discovery runs again only when `force` is set, the extra folders changed (`extraKey`) or the last discovery is `DISCOVERY_TTL`, 1 hour, old; else the profiles of the last discovery are used.
 - Account states: usage; "Open Claude with this account to sign in" (Claude Code has no usable sign-in there); "No plan limits for this account"; "Usage unavailable · <reason>", where the reason is "No usage reply" (no reply in 15 s), "Claude Code not found", "Could not run Claude Code", "usage.sh exited with N", "Unreadable usage reply", or "Claude Code: <its error text>".
 - Clicking an account's header row folds it; folds and settings persist in `shared` (`argus-claude-usage.folded`, `argus-claude-usage.settings`).
 - Hiding a folder removes it and stops its requests; when another folder is signed in to the same Claude account, that folder shows instead (one section per account, the first visible folder). Added folders must be absolute (`~` allowed); adding one checks it for a profile at once.
 - A limit toast is keyed by account, window and reset minute: Claude reports the same reset with a different fraction of a second on each fetch.
-- A copy re-checks the lock after each `claude` run and writes only while it holds it; `finally` and `close()` clear `fetching` and free the lock when this copy holds it.
+- A copy re-checks the lock before and after each `claude` run and writes only while it holds it; before a run it writes the lock again only when less than half of its time is left (`lockNeedsRenewal`); `finally` and `close()` clear `fetching` and free the lock when this copy holds it.
 
 ## Built from
 
 - `mod.json`: `{ "place": "none", "title": "Claude usage", "overlay": { "width": 360, "height": 640 }, "panel": { "label": "Usage", "icon": "icons/chart-line.svg" } }`.
-- `gate.js` and `sync.js` are copies of `lib/gate.js` and `lib/sync.js` (one run at a time; which copy holds the lock).
-- `main.js`: the `View`; `exec`, `home`, `appHome`, `readTextFile`, `checking`, `theme`, `shared`, `setShared`, `props`, `run`, `closeOverlay`, `notify` from `herdr`; `readdir`, `readFile` from `fs/promises`; `randomUUID` from `crypto`; `InputState` from `gpui-base`; the rest of the UI from `ui.js`.
+- Copies of the files in `lib/`: `gate.js` and `sync.js` (one run at a time; which copy holds the lock), `ui.js` and `menu.js`, `icons.js`, `pane.js` (the Status page link opens with `cx.open_url` through `openInBrowser`; `createInputs`), `follow.js`, `paths.js`, `accounts.js` and `profile-io.js` (the profile search).
+- `main.js`: the `View`; `exec`, `home`, `appHome`, `readTextFile`, `checking`, `theme`, `shared`, `setShared`, `props`, `run`, `closeOverlay`, `notify` from `herdr`; `randomUUID` from `crypto`; the UI from `ui.js`. Every `cx.spawn` body starts with `await cx.sleep(0)`.
 - `accounts.js`: `discover` lists `~/.claude` (label file `~/.claude.json`) and each `~/.claude-*` folder or added folder with a `.claude.json`, label from its `oauthAccount`; `visibleProfiles` drops hidden folders, then keeps the first folder per `accountUuid`.
-- `usage.sh`: runs `claude -p --safe-mode --no-session-persistence --input-format stream-json --output-format stream-json --verbose`, writes `{"type":"control_request","request_id":"argus-claude-usage","request":{"subtype":"get_usage","skip_behaviors":true}}` to its stdin through a FIFO, prints the first `control_response` line. Exit 0 / 1 (no reply) / 127 (no `claude`). Run through `/usr/bin/env -u CLAUDE_CONFIG_DIR` for the default profile and `/usr/bin/env CLAUDE_CONFIG_DIR=<folder>` for the others, because `exec` sets neither stdin nor environment.
+- `usage.sh`: runs `claude -p --safe-mode --no-session-persistence --input-format stream-json --output-format stream-json --verbose`, writes `{"type":"control_request","request_id":"argus-claude-usage","request":{"subtype":"get_usage","skip_behaviors":true}}` to its stdin through a FIFO, prints the first `control_response` line. Exit 0 / 1 (no reply) / 127 (no `claude`). It removes only the stale `argus-claude-usage.*` temp folders (older than 60 minutes) that the current user owns (`find -user`), and checks for the reply twice a second until the timeout. Run through `/usr/bin/env -u CLAUDE_CONFIG_DIR` for the default profile and `/usr/bin/env CLAUDE_CONFIG_DIR=<folder>` for the others, because `exec` sets neither stdin nor environment.
 - `usage.js`: reads `rate_limits.limits[]` (`session`, `weekly_all`, `weekly_scoped` + `scope.model.display_name`), falls back to `five_hour` / `seven_day`, `seven_day_breakdown.rows[]`, `spend`. Pace: margin = % left − % of time left; run-out from the current rate.
 
 ## Watch out
@@ -43,6 +45,7 @@ A panel with Claude plan usage for every Claude Code account on this computer, o
 - Asking a profile whose sign-in is dead can leave its stored tokens empty; Claude Code does that, not the mod. Only real profile folders are asked.
 - Herdr app 0.1.16 does not load a symlinked mod folder: copy it.
 - Herdr 0.1.16 does not dock a new mod into its shipped `main` layout (tested with `"place": "right"`), its footer and tab bar have no extension points, and mods cannot add palette entries. The `Argus` layout (`scripts/build-layout.mjs`) gives it a toolbar button and a panel.
+- `moveOldKeys` does not run while `checking()` is true (`herdr-app check`).
 - Toasts appear only while a copy runs (the panel, a pane, even in a hidden tab, or the popup).
 - Props reach the mod through `props()` from `herdr`, not through `init`'s first argument.
 - macOS and Linux only.

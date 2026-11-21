@@ -3,8 +3,9 @@
 // State, reads and actions stay in main.js; handlers come in through `on`.
 
 import { div, svg } from "gpui-kit";
-import { h_flex, v_flex, TextView } from "gpui-base";
-import { frame, scrollArea, iconButton, chip, errorLine } from "./ui.js";
+import { h_flex, v_flex } from "gpui-base";
+import { frame, scrollArea, iconButton, chip, errorLine, foldTitle, paneHead, mutedText, markdown, nameLabel } from "./ui.js";
+import { uniqueKeys } from "./forge-board.js";
 
 /** The pane's sections, in order. */
 export const SECTIONS = [
@@ -35,33 +36,6 @@ function verdictTone(t, group) {
   }
 }
 
-/** Muted text inside a section, with no padding of its own, so it lines up with the other rows. */
-function muted(t, text) {
-  return div().text_color(t.muted).whitespace_normal().child(text);
-}
-
-/** Markdown from a comment or a description, as Herdr's TextView draws it. A link goes to `on.openLink`. */
-function markdown(t, id, text, on) {
-  return div().text_color(t.foreground).child(TextView.markdown(id, text).selectable(true).on_link_click((url, cx) => on.openLink(url, cx)));
-}
-
-/** A name with the login as its tooltip, so a display name cannot stand in for another login. */
-function nameView(t, id, view, login) {
-  let el = div().id(id).min_w(0).truncate().child(view.nameOf(login));
-  if (login !== "") el = el.tooltip(`@${login}`);
-  return el;
-}
-
-/** The keys made unique: a repeated key gets `~2`, `~3` and so on, in order. */
-function uniqueKeys(keys) {
-  const seen = new Map();
-  return keys.map((key) => {
-    const count = (seen.get(key) ?? 0) + 1;
-    seen.set(key, count);
-    return count === 1 ? key : `${key}~${count}`;
-  });
-}
-
 /** A key for a conversation item that does not depend on its place in the list. */
 function itemKey(item) {
   if (item.entry !== null) return item.entry.id ?? `${item.kind}:${item.at}:${item.entry.author}`;
@@ -87,27 +61,21 @@ export function prPane(t, view, on) {
   const { detail, verdict, position } = view;
   const pr = detail.pr;
   const color = verdictTone(t, verdict.group);
-  const head = v_flex()
-    .px(14)
-    .pt(12)
-    .gap(6)
-    .child(
-      h_flex()
-        .gap(6)
-        .items_center()
-        .child(svg(view.icon(pr.provider === "gitlab" ? "gitlab" : "github")).size(14).flex_none().text_color(t.muted))
-        .child(div().min_w(0).truncate().text_size(12).text_color(t.muted).child(`${pr.repo} · #${pr.number}`))
-        .child(div().flex_1())
-        .when(position !== null, (el) =>
-          el
-            .child(div().flex_none().text_size(12).text_color(t.dim).child(`${position.index} of ${position.total}`))
-            .child(iconButton(t, "pr-prev", view.icon("arrow-up"), (_e, cx) => on.prev(cx), { enabled: position.prev !== null, tooltip: "Previous pull request" }))
-            .child(iconButton(t, "pr-next", view.icon("arrow-down"), (_e, cx) => on.next(cx), { enabled: position.next !== null, tooltip: "Next pull request" })),
-        )
-        .child(iconButton(t, "pr-browser", view.icon("external-link"), (_e, cx) => on.openBrowser(cx), { tooltip: "Open in browser" }))
-        .child(iconButton(t, "pr-checkout", view.icon("git-branch"), (_e, cx) => on.checkOut(cx), { enabled: view.hasCheckout && !view.checkingOut, tooltip: "Check out in a worktree" })),
-    )
-    .child(div().text_size(16).font_semibold().whitespace_normal().child(pr.title))
+  const head = paneHead(t, {
+    provider: pr.provider,
+    place: `${pr.repo} · #${pr.number}`,
+    title: pr.title,
+    position,
+    noun: "pull request",
+    idPrefix: "pr",
+    icon: view.icon,
+    onPrev: on.prev,
+    onNext: on.next,
+    actions: [
+      iconButton(t, "pr-browser", view.icon("external-link"), (_e, cx) => on.openBrowser(cx), { tooltip: "Open in browser" }),
+      iconButton(t, "pr-checkout", view.icon("git-branch"), (_e, cx) => on.checkOut(cx), { enabled: view.hasCheckout && !view.checkingOut, tooltip: "Check out in a worktree" }),
+    ],
+  })
     .child(div().min_w(0).text_size(12).text_color(t.dim).whitespace_normal().child(`${pr.headRef} → ${pr.baseRef}`))
     .child(
       v_flex()
@@ -128,22 +96,7 @@ export function prPane(t, view, on) {
   const parts = [head];
   for (const [id, label] of SECTIONS) {
     const open = view.open.has(id);
-    parts.push(
-      h_flex()
-        .id(`sec-${id}`)
-        .mt(4)
-        .px(14)
-        .py(6)
-        .gap(6)
-        .items_center()
-        .cursor_pointer()
-        .hover((s) => s.bg(t.hover))
-        .on_click((_e, cx) => on.toggle(id, cx))
-        .child(svg(view.icon(open ? "chevron-down" : "chevron-right")).size(12).flex_none().text_color(t.dim))
-        .child(div().flex_none().text_size(11.5).font_medium().text_color(t.dim).child(label))
-        .child(div().flex_1())
-        .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(view.summaries[id] ?? "")),
-    );
+    parts.push(foldTitle(t, `sec-${id}`, { label, chevron: view.icon(open ? "chevron-down" : "chevron-right"), summary: view.summaries[id] ?? "", onToggle: (cx) => on.toggle(id, cx) }));
     // Every section body has the same inset and gap, so text, rows and notes line up.
     if (open) parts.push(v_flex().px(14).pt(4).pb(10).gap(8).children(sectionBody(t, id, view, on)));
   }
@@ -161,7 +114,7 @@ function sectionBody(t, id, view, on) {
   switch (id) {
     case "checks": {
       const { rows, passedLine } = view.checks;
-      if (rows.length === 0 && passedLine === null) return [muted(t, "No checks")];
+      if (rows.length === 0 && passedLine === null) return [mutedText(t, "No checks")];
       const out = rows.map((check, index) => checkRow(t, view, on, `check-${index}`, check));
       if (passedLine !== null) {
         out.push(
@@ -191,24 +144,24 @@ function sectionBody(t, id, view, on) {
       return [v_flex().id("checks-list").children(out)];
     }
     case "reviews":
-      if (detail.reviewers.length === 0) return [muted(t, "No reviewers")];
+      if (detail.reviewers.length === 0) return [mutedText(t, "No reviewers")];
       return detail.reviewers.map((reviewer, index) =>
         h_flex()
           .id(`reviewer-${index}`)
           .gap(8)
-          .child(nameView(t, `reviewer-name-${index}`, view, reviewer.name).flex_1())
+          .child(nameLabel(`reviewer-name-${index}`, view.nameOf(reviewer.name), reviewer.name).flex_1())
           .child(div().flex_none().text_color(reviewer.state === "changes_requested" ? t.blocked : reviewer.state === "approved" ? t.done : t.muted).child(REVIEWER_WORDS[reviewer.state] ?? reviewer.state)),
       );
     case "agent":
-      if (!view.hasCheckout) return [muted(t, "No local checkout, so no review agent can start here.")];
-      return view.agentRows.length > 0 ? view.agentRows : [muted(t, "No review agent yet. Review with agent starts one.")];
+      if (!view.hasCheckout) return [mutedText(t, "No local checkout, so no review agent can start here.")];
+      return view.agentRows.length > 0 ? view.agentRows : [mutedText(t, "No review agent yet. Review with agent starts one.")];
     case "description":
-      return [detail.body.trim() === "" ? muted(t, "No description") : markdown(t, "md-description", detail.body, on)];
+      return [detail.body.trim() === "" ? mutedText(t, "No description") : markdown(t, "md-description", detail.body, on.openLink)];
     default: {
       const rows = [];
       if (detail.threadsError) rows.push(div().text_size(11).text_color(t.blocked).whitespace_normal().child(`File comments could not be read: ${detail.threadsError}`));
       if (detail.threadsNote) rows.push(div().text_size(11).text_color(t.muted).child(detail.threadsNote));
-      if (view.items.length === 0) rows.push(muted(t, "No comments"));
+      if (view.items.length === 0) rows.push(mutedText(t, "No comments"));
       const keys = uniqueKeys(view.items.map(itemKey));
       view.items.forEach((item, index) => rows.push(itemView(t, view, on, item, keys[index])));
       return rows;
@@ -244,7 +197,7 @@ function itemView(t, view, on, item, key) {
   const label = entry === null ? "commented" : entry.kind === "review" ? (REVIEW_CHIPS[entry.state] ?? "reviewed") : "commented";
   const color = entry?.state === "changes_requested" ? t.blocked : entry?.state === "approved" ? t.done : t.muted;
   const parts = [];
-  if (entry !== null && entry.body.trim() !== "") parts.push(div().p(10).child(markdown(t, `md-item-${key}`, entry.body, on)));
+  if (entry !== null && entry.body.trim() !== "") parts.push(div().p(10).child(markdown(t, `md-item-${key}`, entry.body, on.openLink)));
   const threadKeys = uniqueKeys(item.threads.map(threadKey));
   item.threads.forEach((thread, n) => parts.push(threadSection(t, view, on, thread, `${key}|${threadKeys[n]}`, author, parts.length > 0)));
   return v_flex()
@@ -254,7 +207,7 @@ function itemView(t, view, on, item, key) {
       h_flex()
         .gap(6)
         .items_center()
-        .child(nameView(t, `item-name-${key}`, view, author).font_semibold())
+        .child(nameLabel(`item-name-${key}`, view.nameOf(author), author).font_semibold())
         .child(chip(t, `item-state-${key}`, label, color))
         .child(div().flex_1())
         .child(div().flex_none().text_size(11).text_color(t.dim).child(view.age(item.at, view.now))),
@@ -298,12 +251,12 @@ function threadSection(t, view, on, thread, key, author, divided) {
                     .gap(6)
                     .items_center()
                     .text_size(12)
-                    .child(nameView(t, `thread-name-${key}|${commentKeys[n]}`, view, comment.author).font_semibold())
+                    .child(nameLabel(`thread-name-${key}|${commentKeys[n]}`, view.nameOf(comment.author), comment.author).font_semibold())
                     .child(div().flex_1())
                     .child(div().flex_none().text_size(11).text_color(t.dim).child(view.age(comment.at, view.now))),
                 ),
               )
-              .when(comment.body.trim() !== "", (el) => el.child(markdown(t, `md-thread-${key}|${commentKeys[n]}`, comment.body, on))),
+              .when(comment.body.trim() !== "", (el) => el.child(markdown(t, `md-thread-${key}|${commentKeys[n]}`, comment.body, on.openLink))),
           ),
         ),
     );

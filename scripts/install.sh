@@ -34,6 +34,22 @@ fi
 
 mkdir -p "$target"
 
+# Copies the files of a mod folder into a new folder.
+copy_mod() {
+  (cd "$1" && find . -type f ! -name gpui-kit.d.ts ! -name jsconfig.json ! -name .DS_Store) | while IFS= read -r file; do
+    mkdir -p "$2/$(dirname "$file")" || exit 1
+    cp -p "$1/$file" "$2/$file" || exit 1
+  done
+}
+
+# Removes the folder or link at $dest that the checks above allowed to go.
+remove_old() {
+  case $old in
+    link) rm "$dest" ;;
+    dir) rm -rf "$dest" ;;
+  esac
+}
+
 for name in "$@"; do
   # Tab completion adds a trailing slash; with it, a test or rm on the
   # destination follows a symlink into this repo.
@@ -47,6 +63,7 @@ for name in "$@"; do
       ;;
   esac
 
+  old=
   src="$repo/mods/$name"
   dest="$target/$name"
   if [ ! -f "$src/main.js" ]; then
@@ -65,25 +82,31 @@ for name in "$@"; do
         fi
         ;;
     esac
-    rm "$dest"
+    old=link
   elif [ -e "$dest" ]; then
     if [ -z "$force" ] && [ ! -f "$dest/.installed-from-argus" ]; then
       echo "install.sh: $dest exists and was not installed by this script; use --force to replace it" >&2
       exit 1
     fi
-    rm -rf "$dest"
+    old=dir
   fi
 
   if [ -z "$link" ]; then
-    mkdir -p "$dest"
-    # The marker goes first, so a copy that fails halfway can be run again.
-    : > "$dest/.installed-from-argus"
-    (cd "$src" && find . -type f ! -name gpui-kit.d.ts ! -name jsconfig.json ! -name .DS_Store) | while IFS= read -r file; do
-      mkdir -p "$dest/$(dirname "$file")"
-      cp -p "$src/$file" "$dest/$file"
-    done
+    # Copy into a folder beside mods/ first, so Herdr never loads a half copy.
+    # The old folder stays until the copy is whole.
+    new=$(mktemp -d "${target%/*}/.argus-install.XXXXXX") || exit 1
+    trap 'rm -rf "$new"' EXIT
+    : > "$new/.installed-from-argus"
+    if ! copy_mod "$src" "$new"; then
+      echo "install.sh: could not copy $name; $dest is unchanged" >&2
+      exit 1
+    fi
+    remove_old
+    mv "$new" "$dest"
+    trap - EXIT
     echo "copied $name -> $dest"
   else
+    remove_old
     ln -s "$src" "$dest"
     echo "linked $name -> $dest"
   fi

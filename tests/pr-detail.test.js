@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkGroups, checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
+import { checkGroups, checkLayout, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, sectionOpen, sectionSummaries, shownOrder, summaryOf, verdictOf } from "../mods/argus-pull-requests/detail.js";
 import { NO_METHOD } from "../mods/argus-pull-requests/actions.js";
 import { assembleBoard } from "../mods/argus-pull-requests/board.js";
+import { groupOf } from "../mods/argus-pull-requests/board.js";
+import { parseGhDetail, parseGhPr } from "../mods/argus-pull-requests/model.js";
 
 const basePr = {
   provider: "github", host: "github.com", repo: "example-org/example-repo", number: 12, title: "Example", url: "", author: "octo-user",
@@ -59,13 +61,6 @@ test("conversationItems: threads under their review, by path then line; an orpha
 test("conversationItems: GitLab threads have no review and show by time", () => {
   const d = detail({ conversation: [entry("A", "2026-01-02")], threads: [thread("a.js", 2, "2026-01-01")] });
   assert.deepEqual(conversationItems(d, "oldest").map((i) => i.kind), ["thread", "comment"]);
-});
-
-test("positionIn", () => {
-  assert.deepEqual(positionIn(["a", "b", "c"], "b"), { index: 2, total: 3, prev: "a", next: "c" });
-  assert.deepEqual(positionIn(["a", "b", "c"], "a"), { index: 1, total: 3, prev: null, next: "b" });
-  assert.deepEqual(positionIn(["a", "b", "c"], "c").next, null);
-  assert.equal(positionIn(["a", "b", "c"], "z"), null);
 });
 
 test("shownOrder follows the board's groups: ready before draft", () => {
@@ -201,24 +196,6 @@ test("checkLayout: problems listed, passed ones in one line unless few and nothi
   assert.deepEqual(checkLayout([], false), { rows: [], passedLine: null });
 });
 
-test("displayName: the forge's name, else a known bot's name, else the login", () => {
-  assert.equal(displayName("octo-user", { "octo-user": "Octo User" }), "Octo User");
-  assert.equal(displayName("copilot-pull-request-reviewer", {}), "Copilot");
-  assert.equal(displayName("app/dependabot", {}), "Dependabot");
-  // Another app shows without the app/ prefix that gh adds.
-  assert.equal(displayName("app/example-bot", {}), "example-bot");
-  assert.equal(displayName("cli-triage", {}), "cli-triage");
-  assert.equal(displayName("octo-user", undefined), "octo-user");
-});
-
-test("displayName: a login that matches an Object property is a plain name", () => {
-  assert.equal(displayName("constructor", {}), "constructor");
-  assert.equal(displayName("constructor", { constructor: "C Name" }), "C Name");
-  assert.equal(displayName("app/constructor", undefined), "constructor");
-  assert.equal(displayName("__proto__", {}), "__proto__");
-  assert.equal(displayName("toString", {}), "toString");
-});
-
 test("verdictOf: changes requested by a reviewer move an undecided pull request to Needs work", () => {
   const d = detail({
     pr: { checks: sum(2, 0, 0), reviewDecision: "review_required" },
@@ -273,4 +250,21 @@ test("sectionOpen: a stored choice holds only while the default is what it was",
   assert.equal(sectionOpen({ open: false, defaultWas: false }, true), true);
   assert.equal(sectionOpen({ open: true, defaultWas: true }, false), false);
   assert.equal(sectionOpen(true, false), false);
+});
+
+test("the board and the pane group a GitHub pull request with one rule", () => {
+  const head = "0123456789abcdef0123456789abcdef01234567";
+  const cases = [
+    { reviewDecision: "APPROVED", latestReviews: [{ author: { login: "review-user" }, state: "CHANGES_REQUESTED" }] },
+    { reviewDecision: "REVIEW_REQUIRED", latestReviews: [{ author: { login: "review-user" }, state: "CHANGES_REQUESTED" }] },
+    { reviewDecision: "", latestReviews: [{ author: { login: "review-user" }, state: "APPROVED" }] },
+    { reviewDecision: "CHANGES_REQUESTED", latestReviews: [] },
+    { reviewDecision: "APPROVED", latestReviews: [], isDraft: true },
+  ];
+  for (const extra of cases) {
+    const raw = { number: 12, title: "Example", state: "OPEN", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", statusCheckRollup: [], headRefOid: head, ...extra };
+    const board = groupOf(parseGhPr(raw, "example-org/example-repo"));
+    const pane = verdictOf(parseGhDetail(JSON.stringify(raw), "example-org/example-repo")).group;
+    assert.equal(pane, board, JSON.stringify(extra));
+  }
 });

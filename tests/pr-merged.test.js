@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ghMergedArgs, ghPrStateArgs, ghDefaultBranchArgs, glabArgs, GL_MERGED_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY } from "../mods/argus-pull-requests/forge.js";
-import { parseGhMerged, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch } from "../mods/argus-pull-requests/model.js";
+import { ghMergedArgs, ghPrStateArgs, GL_MERGED_QUERY, GL_MR_STATE_QUERY } from "../mods/argus-pull-requests/forge.js";
+import { glabArgs } from "../lib/forge-cli.js";
+import { parseGhMerged, parseGhPrState, parseGlMerged, parseGlMrState } from "../mods/argus-pull-requests/model.js";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -68,12 +69,3 @@ test("a merged entry may have no merge time, and sorts last", () => {
   assert.deepEqual(parseGlMrState(state), { number: 7, headSha: A, mergedAt: null, base: "main" });
 });
 
-test("the default branch is read from the forge", () => {
-  assert.deepEqual(ghDefaultBranchArgs("example-org/example-repo"), ["repo", "view", "example-org/example-repo", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]);
-  assert.equal(parseGhDefaultBranch("main\n"), "main");
-  assert.equal(parseGhDefaultBranch("\n"), null);
-  assert.match(GL_DEFAULT_BRANCH_QUERY, /project\(fullPath: \$path\) \{ repository \{ rootRef \} \}/);
-  assert.equal(parseGlDefaultBranch(JSON.stringify({ data: { project: { repository: { rootRef: "main" } } } })), "main");
-  assert.equal(parseGlDefaultBranch(JSON.stringify({ data: { project: { repository: null } } })), null);
-  assert.equal(parseGlDefaultBranch(JSON.stringify({ data: { project: null } })), null);
-});

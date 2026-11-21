@@ -5,6 +5,74 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-11-21
+
+### Added
+
+- A new mod, `argus-issues`, shows GitHub and GitLab issues in an Issues panel. It reads through `gh` and `glab` and writes nothing to GitHub or GitLab.
+- The scope list of `argus-issues` has three choices. Show picks Assigned to me, Created by me, Mentions me or All open. In picks Follow space, All repos or one project of your open spaces. Group by picks Repo, Assignee or Label.
+- The `argus-issues` board groups issues by repo by default. Grouped by assignee or label, an issue shows under each of its assignees or labels, and issues without one show under "No assignee" or "No label". Each group heading has a count, issues show newest update first, and the filter field matches the title, number, author, labels and assignees.
+- Mentions me in `argus-issues` is GitHub only, because GitLab has no search for mentions. A line says so when the scope holds a GitLab project.
+- A click on a row of `argus-issues` opens the issue in a pane beside the terminals. The pane shows the state, who opened it and when, the assignees, labels and milestone, and folding Description and Comments sections rendered as Markdown.
+- Comments that GitHub hid show without their text in the `argus-issues` pane, and GitLab internal notes get an "internal" chip. Links open with Herdr's `cx.open_url`, only for http and https.
+- The `argus-issues` pane header shows the issue's place in the list, with arrows for the previous and next issue, and Open in browser.
+- New worktree in the `argus-issues` pane footer starts a worktree on the issue's branch (its number and a title slug) in the local checkout of its repo, and opens its space, as the Issue tab of the `argus-pull-requests` New worktree view does. Without a local checkout of the repo, the footer says so and the button is off.
+- `argus-issues` takes its `gh` and `glab` commands from the shared `argus.forge` key, and keeps its refresh interval and Conversation order in `argus-issues.settings`.
+
+- New mod `argus-agents`, labeled Overview: a board of the agents that need you, in sections for Needs you, Failed and Finished, with counts and the time each agent has been in its state. A click on a row shows the agent.
+- A finished agent stays on the board after you look at it, until it works again or you snooze it. Failed lists agents whose program reports an error status.
+- Snooze a row for 1 hour, 3 hours, until tomorrow morning or until the agent changes. A snooze also ends when the agent's state changes. Snoozed rows wait on a Snoozed shelf with their end time, and Reopen puts a row back.
+
+### Changed
+
+- The built-in review prompt of `argus-pull-requests` puts the title, author and branches between `<<<pull-request>>>` and `<<</pull-request>>>` lines. The quoted values also write `<`, `>` and some invisible and control Unicode characters as `\uXXXX`.
+- The built-in review prompt checks the head commit before and after the review, reads the pull request only at that commit, forbids git commands that change the worktree except `git fetch`, and stops without a review when a check or a command fails.
+- On GitHub, `{{viewCommand}}` of `argus-pull-requests` also asks for `baseRefOid`.
+- The `argus-pull-requests` board shows "1 merged worktree" or "N merged worktrees", without "can be removed".
+- The `argus-pull-requests` board puts a GitHub pull request in Needs work when a reviewer's latest review requests changes, and its row shows "changes requested". GitLab board lists carry no reviewer data.
+- The pull request pane of `argus-pull-requests` reads again when its board row changes. When no board copy reads, it reads on its own once each refresh interval.
+- The merged worktree count of `argus-pull-requests` reuses its merged pull request list for up to 15 minutes while the set of worktrees stays the same. The refresh button reads it again.
+- The Merged worktrees view of `argus-pull-requests` runs at most 4 commands at once and makes fewer forge calls, because the merged list of the project answers where it can.
+- A folder that was not a repo, or had no remote, is probed again on each scheduled read of `argus-pull-requests`. A repo is probed again after 10 minutes. A probe that timed out is tried again once each refresh interval.
+- A GitLab host other than `gitlab.com` needs a glab login in `argus-pull-requests`. Without it, the note "<host>: no glab login for this host" shows, the repos of that host leave the board, and glab makes no more calls for it until the refresh button is pressed.
+- A GitHub remote needs exactly `owner/repo` in `argus-pull-requests`. A host or a path part that starts with `-` is not a project.
+- The GitLab discussion limit note in `argus-pull-requests` reads "Showing the first 100 discussions.".
+- An account in `argus-claude-usage` keeps its last good usage after a failed refresh and adds the line "Last refresh failed · <reason> · <ago>". A good reply removes the line. A good reply older than twice the interval plus one minute is not kept.
+- `argus-claude-usage` keeps the accounts it found for 1 hour. The refresh button, a change of the extra folders and a forced refresh find them again.
+- `argus-toolbar` reads `argus.json` again only when a change touches that file.
+- `scripts/install.sh` copies a mod into a temporary folder beside `mods/` and then swaps it in, so a failed copy keeps the old install.
+- `scripts/sync-lib.mjs --check` fails on a lib copy that no module of the mod imports. The copy mode prints a warning.
+- The `gh` and `glab` commands of `argus-pull-requests` live in the shared-state key `argus.forge`, so other forge mods use the same commands. While that key is missing, the commands come from `argus-pull-requests.settings`, and the next save of the fields writes `argus.forge`.
+- Links in `argus-pull-requests` and `argus-claude-usage` open with Herdr's `cx.open_url`. The `open` and `xdg-open` commands are gone, and a link that does not open shows no error line.
+- The GitLab username for the New worktree Issue tab of `argus-pull-requests` is read once and kept until the refresh button.
+- `argus-claude-usage` writes its read lock again only when less than half of its time is left.
+- Shared code moves to `lib/`: the git remote and project helpers (`remote.js`), the `gh` and `glab` helpers (`forge-cli.js`, `forge-settings.js`, `forge-runner.js`), the forge board helpers and board sync (`forge-board.js`, `board-sync.js`), worktree planning and creation (`worktree.js`, `worktree-runner.js`), home path helpers (`paths.js`), the profile file access (`profile-io.js`), the process limiter (`pool.js`), the lock renewal and release (`sync.js`), and the popup menu, settings field, pane and row blocks (`menu.js`, `ui.js`, `pane.js`). `argus-pull-requests`, `argus-tsk` and `argus-claude-usage` use them in place of their own copies.
+- `scripts/sync-lib.mjs` also copies the lib files that a used lib file imports.
+- `argus-pull-requests` loads Herdr's own chevron-right and plus icons when Herdr ships them, and `lib/icons.js` lists clock for the mods that use it.
+- `lib/forge-board.js` also holds the board settings (refresh interval and Conversation order), the 15-minute keep time of failed lists, the item groups by several values, and the item pane title. `lib/forge-cli.js` also holds the string list check. `argus-pull-requests` uses them in place of its `locate.js` and its own copies. The pane order of `shownOrder` counts an item that shows in several groups once.
+
+### Fixed
+
+- Approve and Request changes on GitHub in `argus-pull-requests` read the head commit of the pull request first. When it moved, they stop with "The pull request has new commits. Review them, then try again.". When the read fails, they stop with "Could not read the head commit of the pull request.". Comment is not checked.
+- A repo of `argus-pull-requests` whose list fails keeps its pull requests from the last good read for up to 15 minutes, and the failure note still shows.
+- An unexpected read error in `argus-pull-requests` shows as the note "Could not read the pull requests: …".
+- The pane of `argus-pull-requests` clears the Start request from shared state when it takes it.
+- `argus-tsk` keeps its last rows and shows the error "tsk printed output that is not a JSON task list." when `tsk` exits with 0 and prints something else.
+- `argus-tsk` uses the first tsk install that is new enough, and reports "too old" only when none is.
+- `argus-tsk` refuses a project title that starts with a dash with "A title cannot start with a dash.".
+- The store change check of `argus-tsk` tries GNU `stat` first, so it works on Linux.
+- `usage.sh` in `argus-claude-usage` removes only the stale temp folders of the current user, and checks twice a second with the same timeout.
+- The old-key move of `argus-claude-usage` does not run during `herdr-app check`.
+- `scripts/build-layout.mjs` writes its files atomically and refuses an `argus-pane` or `argus-spaces` folder that is a symbolic link.
+- The `argus-stay-awake` README gives the right time the display stays awake after the last agent finishes: up to about 2 minutes.
+- The refresh and settings buttons of `argus-pull-requests` and the icon buttons of `argus-claude-usage` have tooltips.
+- Every task that `argus-tsk`, `argus-claude-usage` and `argus-toolbar` start with `cx.spawn` waits one tick first, as Herdr app 0.1.16 needs.
+- `tildePath` keeps a path as it is when there is no home folder, and ignores a trailing slash on the home folder, in every mod.
+
+### Security
+
+- Review prompt values of `argus-pull-requests` cannot close the pull request data block, because `<` and `>` are escaped in them.
+
 ## [1.12.0] - 2026-11-20
 
 ### Added
@@ -233,7 +301,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.12.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.13.0...HEAD
+[1.13.0]: https://github.com/s3rgiosan/argus/compare/1.12.0...1.13.0
 [1.12.0]: https://github.com/s3rgiosan/argus/compare/1.11.0...1.12.0
 [1.11.0]: https://github.com/s3rgiosan/argus/compare/1.10.0...1.11.0
 [1.10.0]: https://github.com/s3rgiosan/argus/compare/1.9.0...1.10.0

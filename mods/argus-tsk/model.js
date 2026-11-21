@@ -182,11 +182,11 @@ function json(text) {
 /**
  * Parse the output of `tsk list --json`.
  * @param {string} text
- * @returns {TaskRow[]} Empty when the text is not a JSON array; invalid rows are skipped.
+ * @returns {TaskRow[] | null} Null when the text is not a JSON array; invalid rows are skipped.
  */
 export function parseRows(text) {
   const data = json(text);
-  if (!Array.isArray(data)) return [];
+  if (!Array.isArray(data)) return null;
   return data.map(row).filter(Boolean);
 }
 

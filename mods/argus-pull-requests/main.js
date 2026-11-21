@@ -4,30 +4,36 @@
 // Reads go through `git`, `gh` and `glab`.
 
 import { div, svg, image, View } from "gpui-kit";
-import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
-import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
-import { readdir, readFile } from "fs/promises";
+import { h_flex, v_flex } from "gpui-base";
+import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
 import { randomUUID } from "crypto";
-import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
-import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
-import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
-import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghDefaultBranchArgs, ghIssuesArgs, glabArgs, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY, GL_ISSUES_QUERY, GL_USERNAME_QUERY } from "./forge.js";
-import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, parseGhIssues, parseGlIssues, parseGlUsername, prKey } from "./model.js";
-import { candidates, countMerged, freshForReview, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
-import { assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, followStatus, withFolders, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
+import { localFolders, followProjectKey, projectKey, localPathFor } from "./remote.js";
+import { GH_MISSING, GLAB_MISSING, cliError, missingNotes, glabArgs, limitNote, ghDefaultBranchArgs, GL_DEFAULT_BRANCH_QUERY, parseGhDefaultBranch, parseGlDefaultBranch } from "./forge-cli.js";
+import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, headRefusal, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
+import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghIssuesArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_ISSUES_QUERY } from "./forge.js";
+import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhMergedFull, parseGlMergedFull, parseGhPrState, parseGlMerged, parseGlMrState, parseGhIssues, parseGlIssues, prKey } from "./model.js";
+import { answerFromList, candidates, candidateSignature, mergedHeadsFresh, countMerged, freshForReview, rowsFor, branchStep, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
+import { prSignature, assembleBoard, normalizeBoard, emptyMessage, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, keptLists, changesRequested, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
-import { remoteHeadsArgs, parseRemoteHeads, branchRead, issueRead, remoteBranchPlan, issueBranch, issuePlan, filterItems, aheadBehind, localBranchStep, branchNote, fastForwardArgs, remoteBranchArgs, remoteHasBranch, refspecMissing, branchNameError, noticeFor, folderExistsMessage, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
-import { worktreeRoot, checkoutBranch, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
-import { createGate } from "./gate.js";
-import { mapPool } from "./pool.js";
+import { INTERVALS, ageText, displayName, followStatus, normalizeSettings, positionIn, rereadDue, scopeProjects, scopeRepos, scopeWhereTitle } from "./forge-board.js";
+import { branchRead, issueRead, noticeFor, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
+import { checkoutBranch, checkoutPlan, aheadCount, aheadRefusal } from "./checkout.js";
+import { gitError, defaultBranchArgs, defaultBranchOf, tipArgs, remoteHeadsArgs, parseRemoteHeads, issueBranch, filterItems, folderExistsMessage, worktreeListArgs } from "./worktree.js";
+import { createWorktreeRunner, GIT_LONG_TIMEOUT } from "./worktree-runner.js";
+import { createBoardSync } from "./board-sync.js";
+import { createLimiter, mapPool } from "./pool.js";
+import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT, GIT_TIMEOUT } from "./forge-runner.js";
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
-import { discover, expandHome, readFirst } from "./accounts.js";
-import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
+import { discover, usageSettings } from "./accounts.js";
+import { expandHome } from "./paths.js";
+import { openInBrowser, openModPane, shareTitle, createInputs } from "./pane.js";
+import { readForge, saveForge } from "./forge-settings.js";
+import { profileIO } from "./profile-io.js";
+import { checkLayout, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
-import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, row as listRow, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, row as listRow, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, forgeCommandFields, intervalPicker, menuPopup, twoLineRow } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
-import { menuKey, startAt } from "./menu.js";
+import { menuKey, menuHeight, startAt } from "./menu.js";
 
 const BOARD_KEY = "argus-pull-requests.board";
 const SCOPE_KEY = "argus-pull-requests.scope";
@@ -40,7 +46,8 @@ const TITLE_KEY = "argus-pull-requests.paneTitle";
 // The argus-claude-usage settings: account names and hidden accounts, read only.
 const USAGE_SETTINGS_KEY = "argus-claude-usage.settings";
 // A Start request from a Review with agent dialog, run by the pull request pane that opened it:
-// {id, owner, pr, argv, branch, extra}. The pane keeps running it when the dialog closes.
+// {id, owner, pr, argv, branch, extra}. The pane clears the key when it takes the request, and keeps
+// running it when the dialog closes.
 const REVIEW_START_KEY = "argus-pull-requests.reviewStart";
 // The state of each recent Start request, by id: {state: "running"|"done", error, at, seen}.
 const REVIEW_RESULT_KEY = "argus-pull-requests.reviewResult";
@@ -49,14 +56,8 @@ const REVIEW_TOAST_MS = 1_500;
 const REVIEW_WIDTH = 460;
 const REVIEW_HEIGHT = 600;
 const MOD = "argus-pull-requests";
-const CLI_TIMEOUT = 30_000;
-const GIT_TIMEOUT = 15_000;
 const POLL = 5_000;
 const AGE_TICK = 60_000;
-const LOCK_RETRY = 1_000;
-const GIT_LONG_TIMEOUT = 600_000;
-// How many gh or glab calls run at once when listing repos and filling in pull requests.
-const CLI_CONCURRENCY = 4;
 
 /** The most height, in px, of the area above the pane's footer row. */
 const BOTTOM_MAX_HEIGHT = 260;
@@ -72,15 +73,35 @@ export default class PullRequests extends View {
   init(_props, cx) {
     this.owner = randomUUID();
     this.view = props()?.view ?? "board";
-    this.gate = createGate();
-    this.force = false;
-    // The project keys that caused a forced read, or null when the force has no key list.
-    this.forceKeys = null;
-    this.probing = false;
     this.focused = null;
-    // Folder -> {folder, top, main, remote}, or null when the folder is not a repository.
-    this.repoCache = new Map();
-    this.located = { gh: null, glab: null };
+    // Makes the text inputs; each one tracks focus in `this.focused`.
+    this.input = createInputs(this);
+    // The gh, glab and folder reads, with what they found. Kept until the refresh button.
+    this.forge = createForgeRunner({ exec, home, settings: readForge });
+    // Starts worktrees and opens their spaces.
+    this.worktrees = createWorktreeRunner({ exec, readTextFile, appHome, home, run, spaces, panes, forge: this.forge });
+    // The board read: the lock, forced reads and the folder watch.
+    this.boardSync = createBoardSync({
+      boardKey: BOARD_KEY,
+      lockKey: LOCK_KEY,
+      owner: this.owner,
+      mod: MOD,
+      failure: "Could not read the pull requests",
+      shared,
+      setShared,
+      checking,
+      readBoard,
+      read: (startedAt) => this.readBoard(startedAt),
+      intervalMs: () => readSettings().interval * 60_000,
+      folders: () => localFolders(spaces(), panes()),
+      forge: this.forge,
+      fetchedAt: fetchedAtOf,
+      merge: keepStale,
+    });
+    // Project key -> the default branch (or null) read by git. Kept until the refresh button.
+    this.defaultBranches = new Map();
+    // Project key -> {heads, signature, at}: the merged heads list and the candidate worktrees it was read for.
+    this.mergedHeads = new Map();
     this.login = null;
     // The pane's read: {key, kind: "loading"|"ok"|"error", detail, error, readAt}.
     this.shown = null;
@@ -88,8 +109,6 @@ export default class PullRequests extends View {
     // The check out action: {key, running, error}.
     // PR key -> {running, error} for the check out action of each pull request.
     this.checkouts = new Map();
-    // The failed open in browser action: {key, text}, shown on that pull request only.
-    this.actionError = null;
     // PR key -> {running, error, confirm, text, draftText, menu, methods} for the review and merge actions of each pull
     // request. `draftText` is the comment this pane left as a pending GitLab draft.
     this.actions = new Map();
@@ -108,11 +127,9 @@ export default class PullRequests extends View {
     // The id of the last Start request this pane copy took.
     this.takenReview = null;
 
-    const settings = readSettings();
+    const forge = readForge();
     // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
     this.found = new Set();
-    // Whether this copy is reading the board now.
-    this.reading = false;
     // The scope list's highlighted row; null until a key moves it.
     this.at = null;
     this.handle = cx.focus_handle();
@@ -120,8 +137,8 @@ export default class PullRequests extends View {
     this.filterInput.on("change", (_e, cx) => cx.notify());
     this.worktreeFilter = this.input("worktree-filter", { placeholder: "Filter" }, (cx) => this.pickOnlyWorktreeRow(cx));
     this.worktreeFilter.on("change", (_e, cx) => cx.notify());
-    this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
-    this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
+    this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: forge.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
+    this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: forge.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     // The body of a review comment, for Request changes and Comment.
     this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Write a comment", rows: 4 }, (cx) => this.submitComment(cx), { multiline: true }) : null;
     // PR key -> {section: open} for the sections the person folded or opened, and the PR keys whose passed checks show.
@@ -148,157 +165,26 @@ export default class PullRequests extends View {
       cx.timer.every(POLL, (cx) => {
         const selected = readSelected();
         if (!selected || this.shown?.key !== selected.key) return;
-        const boardReadAt = readBoard().readAt;
-        if (boardReadAt > this.shown.readAt) this.loadPr(cx, selected);
+        const board = readBoard();
+        const row = board.prs.find((pr) => prKey(pr) === selected.key);
+        const due = rereadDue({ signature: prSignature(row), seen: this.shown.seen, boardReadAt: board.readAt, shownReadAt: this.shown.readAt, now: Date.now(), intervalMs: readSettings().interval * 60_000 });
+        if (due) this.loadPr(cx, selected);
       });
       return;
     }
     if (this.view !== "board") return;
 
-    this.startSync(cx);
+    this.boardSync.start(cx);
     cx.timer.every(POLL, (cx) => {
-      this.watchFolders(cx);
-      this.startSync(cx);
+      this.boardSync.watchFolders(cx);
+      this.boardSync.start(cx);
     });
     cx.timer.every(AGE_TICK, (cx) => cx.notify());
   }
 
-  /**
-   * A text input that tracks focus for its border. `onSubmit` runs on Enter, and on blur
-   * with `saveOnBlur`. A `multiline` input is a textarea: Return adds a line, and only ⌘Return submits.
-   */
-  input(id, options, onSubmit, { saveOnBlur = false, multiline = false } = {}) {
-    const state = multiline ? TextareaState.new(options) : InputState.new(options);
-    state.on("submit", (e, cx) => {
-      if (multiline && !e?.secondary) return;
-      onSubmit(cx);
-    });
-    state.on("focus", (_e, cx) => {
-      this.focused = id;
-      cx.notify();
-    });
-    state.on("blur", (_e, cx) => {
-      if (this.focused === id) this.focused = null;
-      if (saveOnBlur) onSubmit(cx);
-      cx.notify();
-    });
-    return state;
-  }
-
   /** Gives the lock back when this copy goes. */
   async close() {
-    this.releaseLock();
-  }
-
-  releaseLock() {
-    if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-    setShared(LOCK_KEY, { owner: this.owner, until: 0 });
-  }
-
-  /** Extends the lock while this copy still holds it. */
-  renewLock() {
-    if (holdsLock(shared(LOCK_KEY), this.owner, Date.now())) setShared(LOCK_KEY, takeLock(this.owner, Date.now()));
-  }
-
-  startSync(cx) {
-    cx.spawn(async (cx) => {
-      await cx.sleep(0);
-      await this.sync(cx);
-    });
-  }
-
-  /**
-   * Probes the folders the last read did not see, with git only. A project key the
-   * board does not have forces a read; any other folder waits for the next scheduled read.
-   */
-  watchFolders(cx) {
-    if (this.probing) return;
-    const known = new Set(readBoard().folders);
-    const unseen = localFolders(spaces(), panes()).filter((folder) => !known.has(folder));
-    if (unseen.length === 0) return;
-    this.probing = true;
-    cx.spawn(async (cx) => {
-      await cx.sleep(0);
-      try {
-        await mapPool(unseen.filter((folder) => !this.repoCache.has(folder)), CLI_CONCURRENCY, (folder) => this.probe(folder));
-        const entries = unseen.map((folder) => this.repoCache.get(folder) ?? null);
-        const fresh = newProjectKeys(entries, readBoard().projects);
-        if (fresh.length === 0) {
-          // No new project: the board lists the probed folders at once, so Follow space stops waiting on them.
-          const board = readBoard();
-          const listed = withFolders(board, unseen.filter((folder) => this.repoCache.has(folder)));
-          if (listed !== board) setShared(BOARD_KEY, listed);
-          return;
-        }
-        if (!this.force) this.forceKeys = [];
-        if (this.forceKeys !== null) this.forceKeys = [...new Set([...this.forceKeys, ...fresh])];
-        this.force = true;
-        this.startSync(cx);
-      } finally {
-        this.probing = false;
-      }
-    });
-  }
-
-  /** Asks for a read now, in this copy, even when the board looks fresh. */
-  refresh(cx) {
-    this.force = true;
-    this.forceKeys = null;
-    this.startSync(cx);
-    cx.notify();
-  }
-
-  /**
-   * Reads the board into `shared` when it is older than the interval (or a
-   * refresh was asked for) and no other copy holds the lock.
-   */
-  async sync(cx) {
-    if (checking() || !this.gate.start()) return;
-
-    let read = false;
-    try {
-      // Another copy may have read the project that asked for this force.
-      if (this.force && this.forceKeys !== null && missingProjectKeys(this.forceKeys, readBoard().projects).length === 0) {
-        this.force = false;
-        this.forceKeys = null;
-      }
-      const startedAt = Date.now();
-      const fetch = shouldFetch({
-        now: startedAt,
-        fetchedAt: fetchedAtOf(readBoard()),
-        lock: shared(LOCK_KEY),
-        intervalMs: readSettings().interval * 60_000,
-        owner: this.owner,
-        force: this.force,
-      });
-      if (!fetch) {
-        // Another copy is reading; check again once it is done.
-        if (this.force) cx.timer.after(LOCK_RETRY, (cx) => this.startSync(cx));
-        return;
-      }
-
-      setShared(LOCK_KEY, takeLock(this.owner, startedAt));
-      if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-      this.force = false;
-      this.forceKeys = null;
-      read = true;
-      this.reading = true;
-      cx.notify();
-
-      const folderedBefore = new Set(readBoard().folders);
-      const next = await this.readBoard(startedAt);
-      if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-      const current = readBoard();
-      // Folders that the folder watch added to the board during the read stay on it.
-      const added = current.folders.filter((folder) => !folderedBefore.has(folder));
-      setShared(BOARD_KEY, withFolders(keepStale(next, current, startedAt), added));
-    } finally {
-      this.reading = false;
-      this.releaseLock();
-      const again = this.gate.finish();
-      if (read) cx.notify();
-      if (again) this.startSync(cx);
-    }
+    this.boardSync.release();
   }
 
   /**
@@ -309,34 +195,36 @@ export default class PullRequests extends View {
     const notes = [];
     const folders = localFolders(spaces(), panes());
 
-    await mapPool(folders.filter((folder) => !this.repoCache.has(folder)), CLI_CONCURRENCY, (folder) => this.probe(folder));
-    const entries = folders.map((folder) => this.repoCache.get(folder)).filter((entry) => entry);
-    const projects = mergeProjects(entries);
-    this.renewLock();
+    const found = await this.forge.readProjects(folders);
+    this.boardSync.renew();
 
-    const gitHub = projects.filter((project) => project.provider === "github");
-    const gitLab = projects.filter((project) => project.provider === "gitlab");
+    const gitHub = found.filter((project) => project.provider === "github");
+    const gitLabFound = found.filter((project) => project.provider === "gitlab");
     // glab is only looked up when a project needs it.
-    const [gh, glab] = await Promise.all([this.locate("gh"), gitLab.length > 0 ? this.locate("glab") : null]);
+    const [gh, glab] = await Promise.all([this.forge.locate("gh"), gitLabFound.length > 0 ? this.forge.locate("glab") : null]);
+    // A host other than gitlab.com stays only when glab is signed in to it. Without glab, the note says glab is missing.
+    const gitLab = glab === null ? gitLabFound : await this.forge.signedInGitLab(glab, gitLabFound, notes);
+    const projects = found.filter((project) => project.provider === "github" || gitLab.includes(project));
+    this.boardSync.renew();
     notes.push(...missingNotes({ gh: gh !== null, glab: glab !== null, githubProjects: gitHub.length, gitlabProjects: gitLab.length }));
 
-    const result = { needsReview: [], mine: [], projectPrs: {} };
+    const result = { needsReview: [], mine: [], projectPrs: {}, listedAt: {} };
     if (gh !== null) {
       await this.readGitHub(gh, gitHub, result, notes);
-      this.renewLock();
+      this.boardSync.renew();
     }
     if (glab !== null && gitLab.length > 0) {
       await this.readGitLab(glab, gitLab, result, notes);
-      this.renewLock();
+      this.boardSync.renew();
     }
 
     const { reviews, listings, failed } = await this.readReviews(projects);
-    this.renewLock();
+    this.boardSync.renew();
     const counted = await this.readMergedCounts(listings, gh, glab);
     const previous = readBoard();
     const { merged, mergedSeen } = mergedCounts(previous.merged ?? {}, previous.mergedSeen ?? {}, mergedListRead(counted, failed.map((project) => project.key)), Date.now());
-    this.renewLock();
-    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged, mergedSeen });
+    this.boardSync.renew();
+    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged, mergedSeen, listedAt: result.listedAt });
   }
 
   /**
@@ -348,12 +236,12 @@ export default class PullRequests extends View {
     const listings = await mapPool(local, CLI_CONCURRENCY, async (project) => {
       let listing = null;
       try {
-        const reply = await exec("git", ["worktree", "list", "--porcelain"], { cwd: project.localPath, timeout: GIT_TIMEOUT });
+        const reply = await exec("git", worktreeListArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
         listing = reply.code === 0 ? { project, porcelain: reply.stdout } : null;
       } catch {
         listing = null;
       }
-      this.renewLock();
+      this.boardSync.renew();
       return listing;
     });
     const failed = local.filter((_project, index) => listings[index] === null);
@@ -371,8 +259,12 @@ export default class PullRequests extends View {
     return mapPool(listings, CLI_CONCURRENCY, async ({ project, porcelain }) => {
       let count = null;
       try {
-        const remoteHead = await exec("git", defaultBranchArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
-        const defaultBranch = remoteHead.code === 0 ? defaultBranchOf(remoteHead.stdout) : null;
+        let defaultBranch = this.defaultBranches.get(project.key);
+        if (defaultBranch === undefined) {
+          const remoteHead = await exec("git", defaultBranchArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
+          defaultBranch = remoteHead.code === 0 ? defaultBranchOf(remoteHead.stdout) : null;
+          this.defaultBranches.set(project.key, defaultBranch);
+        }
         const worktrees = candidates(porcelain, defaultBranch);
         if (worktrees.length === 0) {
           count = 0;
@@ -382,83 +274,24 @@ export default class PullRequests extends View {
           if (command !== null) {
             const label = github ? "gh" : `glab (${project.host})`;
             const args = github ? ghMergedListArgs(project.repo) : glabArgs(project.host, GL_MERGED_LIST_QUERY, { path: project.repo });
-            const heads = await this.attempt(label, command, args, github ? parseGhMergedList : parseGlMergedList, []);
+            const signature = candidateSignature(worktrees);
+            const kept = this.mergedHeads.get(project.key);
+            let heads = null;
+            if (mergedHeadsFresh(kept, signature, Date.now())) {
+              heads = kept.heads;
+            } else {
+              heads = await this.forge.attempt(label, command, args, github ? parseGhMergedList : parseGlMergedList, []);
+              if (heads !== null) this.mergedHeads.set(project.key, { heads, signature, at: Date.now() });
+            }
             if (heads !== null) count = countMerged(worktrees, heads, defaultBranch);
           }
         }
       } catch {
         count = null;
       }
-      this.renewLock();
+      this.boardSync.renew();
       return { key: project.key, count };
     });
-  }
-
-  /** Caches what `folder` is: a repository entry, or null. A rejected probe caches nothing. */
-  async probe(folder) {
-    let entry = null;
-    try {
-      const top = await exec("git", revParseArgs(), { cwd: folder, timeout: GIT_TIMEOUT });
-      const parsed = top.code === 0 ? parseRevParse(top.stdout) : null;
-      if (parsed) {
-        const origin = await exec("git", remoteArgs(), { cwd: folder, timeout: GIT_TIMEOUT });
-        const remote = origin.code === 0 ? origin.stdout.trim() : "";
-        entry = { folder, top: parsed.top, main: parsed.main, remote: remote === "" ? null : remote };
-      }
-    } catch {
-      // A probe that timed out or could not start is tried again on the next read.
-      return;
-    }
-    this.repoCache.set(folder, entry);
-  }
-
-  /**
-   * The command for `name` ("gh" or "glab"), or null when none runs. The first
-   * of the setting, the bare name and the install folders whose `--version`
-   * runs wins. The result, found or missing, is kept per setting value until the
-   * setting changes or the refresh button looks again.
-   */
-  locate(name) {
-    const setting = readSettings()[name];
-    const cached = this.located[name];
-    if (cached?.setting === setting) return cached.result;
-    const result = (async () => {
-      for (const command of commandCandidates(setting, name, home())) {
-        try {
-          const reply = await exec(command, ["--version"], { timeout: CLI_TIMEOUT });
-          if (reply.code === 0) return command;
-        } catch {
-          continue;
-        }
-      }
-      return null;
-    })();
-    this.located[name] = { setting, result };
-    return result;
-  }
-
-  /**
-   * Runs `command` with `args` and parses its output. A failed run or a parse
-   * error adds one note under `label` and gives null.
-   */
-  async attempt(label, command, args, parse, notes) {
-    let reply;
-    try {
-      reply = await exec(command, args, { timeout: CLI_TIMEOUT });
-    } catch (error) {
-      notes.push(`${label}: ${error?.message ?? error}`);
-      return null;
-    }
-    if (reply.code !== 0) {
-      notes.push(cliError(label, reply));
-      return null;
-    }
-    try {
-      return parse(reply.stdout);
-    } catch (error) {
-      notes.push(`${label}: ${error?.message ?? error}`);
-      return null;
-    }
   }
 
   /**
@@ -466,9 +299,9 @@ export default class PullRequests extends View {
    * keeps a failed read too, so the pane does not ask again before every detail read.
    */
   async ghLogin(gh, notes, keepFailure = false) {
-    const setting = readSettings().gh;
+    const setting = readForge().gh;
     if (loginFresh(this.login, setting, Date.now())) return this.login.value;
-    const value = await this.attempt("gh", gh, ghLoginArgs(), (text) => {
+    const value = await this.forge.attempt("gh", gh, ghLoginArgs(), (text) => {
       const login = text.trim();
       if (login === "") throw new Error("no login returned");
       return login;
@@ -477,15 +310,18 @@ export default class PullRequests extends View {
     return value;
   }
 
-  /** Searches, lists and fills in GitHub pull requests into `result`. */
+  /**
+   * Searches, lists and fills in GitHub pull requests into `result`. A repo whose list fails keeps
+   * the pull requests of the previous board (`keptLists`), and its note shows.
+   */
   async readGitHub(gh, projects, result, notes) {
     const login = await this.ghLogin(gh, notes);
-    this.renewLock();
+    this.boardSync.renew();
     const [needsPairs, minePairs] = await Promise.all([
-      this.attempt("gh", gh, ghSearchArgs("needsReview"), parseGhSearch, notes),
-      login === null ? null : this.attempt("gh", gh, ghSearchArgs("mine", login), parseGhSearch, notes),
+      this.forge.attempt("gh", gh, ghSearchArgs("needsReview"), parseGhSearch, notes),
+      login === null ? null : this.forge.attempt("gh", gh, ghSearchArgs("mine", login), parseGhSearch, notes),
     ]);
-    this.renewLock();
+    this.boardSync.renew();
     const searchNotes = [
       [needsPairs, "pull requests that need your review"],
       [minePairs, "pull requests you opened"],
@@ -502,9 +338,10 @@ export default class PullRequests extends View {
     for (const pair of pairs) if (!repos.has(projectKey(pair))) repos.set(projectKey(pair), pair.repo);
     const listed = await mapPool([...repos], CLI_CONCURRENCY, async ([key, repo]) => [
       key,
-      await this.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes),
+      await this.forge.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes),
     ]);
-    this.renewLock();
+    this.boardSync.renew();
+    const listedAt = Date.now();
     const all = [];
     const failed = new Set();
     for (const [key, prs] of listed) {
@@ -512,31 +349,40 @@ export default class PullRequests extends View {
         failed.add(key);
         continue;
       }
+      result.listedAt[key] = listedAt;
       const note = limitNote(`pull requests of ${repos.get(key)}`, prs.length);
       if (note !== null) notes.push(note);
       all.push(...prs);
       if (projects.some((project) => project.key === key)) result.projectPrs[key] = prs;
     }
+    const kept = keptLists(readBoard(), [...failed], listedAt);
+    all.push(...kept.prs);
+    for (const [key, prs] of Object.entries(kept.projectPrs)) if (projects.some((project) => project.key === key)) result.projectPrs[key] = prs;
+    Object.assign(result.listedAt, kept.listedAt);
 
     const pick = async (list) => {
       const { found, missing } = pickPairs(all, list);
       const wanted = withoutFailedRepos(missing, failed);
       const filled = await mapPool(wanted, CLI_CONCURRENCY, (pair) =>
-        this.attempt("gh", gh, ghViewArgs(pair.repo, pair.number), (text) => parseGhDetail(text, pair.repo).pr, notes),
+        this.forge.attempt("gh", gh, ghViewArgs(pair.repo, pair.number), (text) => parseGhDetail(text, pair.repo).pr, notes),
       );
-      this.renewLock();
+      this.boardSync.renew();
       return [...found, ...filled.filter((pr) => pr !== null)];
     };
     result.needsReview.push(...(await pick(needsPairs ?? [])));
     result.mine.push(...(await pick(minePairs ?? [])));
   }
 
-  /** Reads GitLab merge requests per host and per project into `result`. */
+  /**
+   * Reads GitLab merge requests per host and per project into `result`. A project whose list
+   * fails keeps the merge requests of the previous board (`keptLists`), and its note shows.
+   */
   async readGitLab(glab, projects, result, notes) {
     const hosts = [...new Set(projects.map((project) => project.host))];
+    const failed = [];
     await Promise.all([
       ...hosts.map(async (host) => {
-        const user = await this.attempt(`glab (${host})`, glab, glabArgs(host, GL_USER_QUERY), (text) => parseGlabUser(text, host), notes);
+        const user = await this.forge.attempt(`glab (${host})`, glab, glabArgs(host, GL_USER_QUERY), (text) => parseGlabUser(text, host), notes);
         if (user === null) return;
         for (const [found, what] of [
           [user.needsReview, `merge requests on ${host} that need your review`],
@@ -549,38 +395,41 @@ export default class PullRequests extends View {
         result.mine.push(...user.mine);
       }),
       mapPool(projects, CLI_CONCURRENCY, async (project) => {
-        const prs = await this.attempt(
+        const prs = await this.forge.attempt(
           `glab (${project.host})`,
           glab,
           glabArgs(project.host, GL_PROJECT_QUERY, { path: project.repo }),
           (text) => parseGlabProject(text, project.host),
           notes,
         );
-        if (prs === null) return;
+        if (prs === null) {
+          failed.push(project.key);
+          return;
+        }
+        result.listedAt[project.key] = Date.now();
         const note = limitNote(`merge requests of ${project.repo}`, prs.length);
         if (note !== null) notes.push(note);
         result.projectPrs[project.key] = prs;
       }),
     ]);
-    this.renewLock();
+    const kept = keptLists(readBoard(), failed, Date.now());
+    Object.assign(result.projectPrs, kept.projectPrs);
+    Object.assign(result.listedAt, kept.listedAt);
+    this.boardSync.renew();
   }
 
   openSettings(cx) {
-    // Another copy may have changed these since this copy last drew them.
-    const settings = readSettings();
-    this.ghInput.set_value(settings.gh);
-    this.glabInput.set_value(settings.glab);
+    // Another copy or another forge mod may have changed these since this copy last drew them.
+    const forge = readForge();
+    this.ghInput.set_value(forge.gh);
+    this.glabInput.set_value(forge.glab);
     this.view = "settings";
     cx.notify();
   }
 
-  /** Saves both command fields; a changed command forces a read. */
+  /** Saves both command fields for every forge mod; a changed command forces a read. */
   saveSettings(cx) {
-    const current = readSettings();
-    const next = normalizeSettings({ ...current, gh: this.ghInput.value(), glab: this.glabInput.value() });
-    if (next.gh === current.gh && next.glab === current.glab) return;
-    setShared(SETTINGS_KEY, next);
-    this.refresh(cx);
+    if (saveForge(this.ghInput.value(), this.glabInput.value())) this.boardSync.refresh(cx);
   }
 
   render(cx) {
@@ -623,14 +472,15 @@ export default class PullRequests extends View {
       ICON("refresh-cw"),
       (_e, cx) => {
         // Looks for gh and glab again too, in case they were installed or updated.
-        this.located = { gh: null, glab: null };
+        this.forge.clear();
         this.login = null;
-        this.repoCache.clear();
-        this.refresh(cx);
+        this.defaultBranches.clear();
+        this.mergedHeads.clear();
+        this.boardSync.refresh(cx);
       },
-      { busy: this.reading },
+      { busy: this.boardSync.reading, tooltip: "Refresh" },
     );
-    const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx));
+    const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx), { tooltip: "Settings" });
     const head = header(t, "Pull requests", [scopeButton, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
 
     const parts = board.notes.map((message, index) => errorLine(t, message).id(`note-${index}`));
@@ -657,7 +507,7 @@ export default class PullRequests extends View {
       .child(
         footer(t)
           .child(field(t, "filter", this.filterInput, this.focused === "filter"))
-          .child(iconButton(t, "new-worktree", ICON("plus"), (_e, cx) => this.openNewWorktree(cx), { tooltip: "New worktree" })),
+          .child(iconButton(t, "new-worktree", icon("plus"), (_e, cx) => this.openNewWorktree(cx), { tooltip: "New worktree" })),
       );
   }
 
@@ -712,27 +562,21 @@ export default class PullRequests extends View {
     items.where.forEach((entry, index) => parts.push(item(entry, items.show.length + index)));
     // Each project is one more In choice, indented under All repos.
     items.projects.forEach((entry, index) => parts.push(item(entry, items.show.length + items.where.length + index, true)));
-    // A popup is as tall as its content, up to the height it was opened with,
-    // so the list gets an explicit height for its rows and section titles.
-    const titles = 2;
-    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + entries.length * MENU_ROW + titles * 30);
-    return v_flex()
-      .id("argus-pull-requests-scopes")
-      .track_focus(this.handle)
-      .w_full()
-      .h(height)
-      .bg(t.popover)
-      .text_color(t.foreground)
-      .text_size(12.8)
-      .on_key_down((e, cx) => {
+    return menuPopup(t, {
+      id: "argus-pull-requests-scopes",
+      listId: "argus-pull-requests-scope-list",
+      handle: this.handle,
+      height: menuHeight(entries.length, 2, { max: SCOPES_HEIGHT }),
+      parts,
+      onKey: (e, cx) => {
         const next = menuKey(active, e.key, entries.length);
         if (!next.handled) return;
         this.at = next.at;
         if (next.action === "pick") pickScope(entries[next.at].scope);
         else if (next.action === "close") closeOverlay(props()?.overlay);
         cx.notify();
-      })
-      .child(scrollArea("argus-pull-requests-scope-list", parts, { padding: MENU_PAD }));
+      },
+    });
   }
 
   /** Lists the agents for the dialog: Herdr's installed agents, with Claude Code once per account. */
@@ -746,10 +590,10 @@ export default class PullRequests extends View {
       } catch (caught) {
         error = `Could not list the agents: ${caught?.message ?? String(caught)}`;
       }
-      const usage = usageSettings();
+      const usage = usageSettings(shared(USAGE_SETTINGS_KEY));
       let profiles = [];
       try {
-        profiles = await discover(discoveryIO(), { extra: usage.extra });
+        profiles = await discover(profileIO(), { extra: usage.extra });
       } catch {
         // Without the profiles, Claude Code shows once with its plain command.
       }
@@ -821,6 +665,8 @@ export default class PullRequests extends View {
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       setShared(REVIEW_RESULT_KEY, withResult(shared(REVIEW_RESULT_KEY), request.id, "running", null, Date.now()));
+      // This copy holds the request now, so its agent command and text leave shared state.
+      if (shared(REVIEW_START_KEY)?.id === request.id) setShared(REVIEW_START_KEY, null);
       let error;
       try {
         error = await this.runReview(request.pr, request.argv, request.branch, request.extra);
@@ -838,7 +684,7 @@ export default class PullRequests extends View {
 
   /** Runs a review: reads the settings and the pull request, adds the worktree, opens the space. Gives an error text, or null. */
   async runReview(pr, argv, branch, extra) {
-    const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
+    const resolved = await this.worktrees.root();
     if ("error" in resolved) return resolved.error;
     const configured = reviewInstructions(await readTextFile(`${appHome()}/argus.json`), home());
     if (configured.error !== null) return configured.error;
@@ -1001,7 +847,7 @@ export default class PullRequests extends View {
         h_flex()
           .flex_wrap()
           .gap(8)
-          .child(button(t, `run-open-${index}`, "Open space", () => openRun(reviewRun), { enabled: !reviewRun.prunable }))
+          .child(button(t, `run-open-${index}`, "Open space", () => this.worktrees.openWorktreeSpace(reviewRun.path), { enabled: !reviewRun.prunable }))
           .child(button(t, `run-remove-${index}`, "Remove worktree", (_e, cx) => set({ confirm: "plain", error: null }, cx), { enabled: !state.running && state.confirm === null && !reviewRun.locked })),
       )
       .when(Boolean(reviewRun.locked), (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Locked. Run git worktree unlock on it to remove it.")))
@@ -1086,8 +932,10 @@ export default class PullRequests extends View {
         } else {
           const github = projects.some((project) => project.provider === "github");
           const gitlab = projects.some((project) => project.provider === "gitlab");
-          const [gh, glab] = await Promise.all([github ? this.locate("gh") : null, gitlab ? this.locate("glab") : null]);
-          const read = await mapPool(projects, CLI_CONCURRENCY, (project) => this.cleanupGroup(project, board, project.provider === "github" ? gh : glab));
+          const [gh, glab] = await Promise.all([github ? this.forge.locate("gh") : null, gitlab ? this.forge.locate("glab") : null]);
+          // One limiter for the whole read, so at most CLI_CONCURRENCY processes run at once.
+          const limit = createLimiter(CLI_CONCURRENCY);
+          const read = await mapPool(projects, CLI_CONCURRENCY, (project) => this.cleanupGroup(project, board, project.provider === "github" ? gh : glab, limit));
           const notes = [...new Set(read.flatMap((entry) => entry.notes))];
           const groups = read.map((entry) => entry.group).filter((group) => group !== null && group.rows.length > 0);
           const ticked = tickedByDefault(groups.flatMap((group) => group.rows));
@@ -1102,16 +950,18 @@ export default class PullRequests extends View {
 
   /**
    * One project's rows. A failed worktree list, a missing gh or glab, or a failed forge read
-   * leaves the project out and gives notes that name the repo.
+   * leaves the project out and gives notes that name the repo. Every command runs through `limit`.
+   * The project's merged list answers the worktrees it can (`answerFromList`); the other
+   * worktrees get their own forge read.
    * @returns {Promise<{group: {project: object, rows: object[]}|null, notes: string[]}>}
    */
-  async cleanupGroup(project, board, command) {
-    const git = (args, cwd) => exec("git", args, { cwd, timeout: GIT_TIMEOUT });
+  async cleanupGroup(project, board, command, limit) {
+    const git = (args, cwd) => limit(() => exec("git", args, { cwd, timeout: GIT_TIMEOUT }));
     let listing = null;
     let remoteHead = null;
     let failure = "";
     try {
-      [listing, remoteHead] = await Promise.all([git(["worktree", "list", "--porcelain"], project.localPath), git(defaultBranchArgs(), project.localPath)]);
+      [listing, remoteHead] = await Promise.all([git(worktreeListArgs(), project.localPath), git(defaultBranchArgs(), project.localPath)]);
     } catch (caught) {
       failure = caught?.message ?? String(caught);
       listing = null;
@@ -1124,14 +974,17 @@ export default class PullRequests extends View {
 
     const github = project.provider === "github";
     const label = github ? "gh" : `glab (${project.host})`;
+    const ask = (args, parse, notes) => limit(() => this.forge.attempt(label, command, args, parse, notes));
     if (defaultBranch === null) {
       // A failed read leaves the default branch unknown: any base then counts.
       const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
-      defaultBranch = await this.attempt(label, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
+      defaultBranch = await ask(args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
       if (defaultBranch !== null) worktrees = candidates(listing.stdout, defaultBranch);
       if (worktrees.length === 0) return { group: null, notes: [] };
     }
 
+    // The merged list reads beside the checks. A failed list read gives null, so every worktree gets its own read.
+    const listRead = ask(github ? ghMergedListArgs(project.repo) : glabArgs(project.host, GL_MERGED_LIST_QUERY, { path: project.repo }), github ? parseGhMergedFull : parseGlMergedFull, []);
     // A worktree whose checks cannot be read counts as one with changes.
     const dirty = new Set();
     const ignored = {};
@@ -1164,17 +1017,18 @@ export default class PullRequests extends View {
     const inSpace = worktreesInSpaces(worktrees, spaces(), panes());
 
     const notes = [];
-    const merged = {};
-    const reviewMerged = {};
-    await mapPool(worktrees, CLI_CONCURRENCY, async (worktree) => {
+    const answered = answerFromList(worktrees, await listRead);
+    const merged = answered.merged;
+    const reviewMerged = answered.reviewMerged;
+    await mapPool(answered.rest, CLI_CONCURRENCY, async (worktree) => {
       // The project stops reading after its first failed forge read.
       if (notes.length > 0) return;
       if (worktree.review !== null) {
         const args = github ? ghPrStateArgs(project.repo, worktree.review) : glabArgs(project.host, GL_MR_STATE_QUERY, { path: project.repo, iid: String(worktree.review) });
-        reviewMerged[worktree.review] = await this.attempt(label, command, args, github ? parseGhPrState : parseGlMrState, notes);
+        reviewMerged[worktree.review] = await ask(args, github ? parseGhPrState : parseGlMrState, notes);
       } else {
         const args = github ? ghMergedArgs(project.repo, worktree.branch) : glabArgs(project.host, GL_MERGED_QUERY, { path: project.repo, branch: worktree.branch });
-        merged[worktree.branch] = (await this.attempt(label, command, args, github ? parseGhMerged : parseGlMerged, notes)) ?? [];
+        merged[worktree.branch] = (await ask(args, github ? parseGhMerged : parseGlMerged, notes)) ?? [];
       }
     });
     // A failed read could hide a merged pull request or mark one wrongly, so the project is left out.
@@ -1435,41 +1289,29 @@ export default class PullRequests extends View {
   async readBranches(project) {
     const [heads, list] = await Promise.all([
       exec("git", remoteHeadsArgs(), { cwd: project.localPath, timeout: CLI_TIMEOUT }),
-      exec("git", ["worktree", "list", "--porcelain"], { cwd: project.localPath, timeout: GIT_TIMEOUT }),
+      exec("git", worktreeListArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT }),
     ]);
     if (heads.code !== 0) return { error: gitError(heads) };
     if (list.code !== 0) return { error: gitError(list) };
-    const defaultBranch = await this.defaultBranchFor(project);
+    const defaultBranch = await this.worktrees.defaultBranch(project);
     return branchRead(parseRemoteHeads(heads.stdout), defaultBranch, list.stdout);
   }
 
   /** The open issues assigned to the signed-in user. Gives `{error}` when gh or glab fails. */
   async readIssues(project) {
     const github = project.provider === "github";
-    const command = await this.locate(github ? "gh" : "glab");
+    const command = await this.forge.locate(github ? "gh" : "glab");
     if (command === null) return { error: github ? GH_MISSING : GLAB_MISSING };
     const label = github ? "gh" : `glab (${project.host})`;
     const notes = [];
     let issues = null;
     if (github) {
-      issues = await this.attempt(label, command, ghIssuesArgs(project.repo), parseGhIssues, notes);
+      issues = await this.forge.attempt(label, command, ghIssuesArgs(project.repo), parseGhIssues, notes);
     } else {
-      const user = await this.attempt(label, command, glabArgs(project.host, GL_USERNAME_QUERY), parseGlUsername, notes);
-      if (user !== null) issues = await this.attempt(label, command, glabArgs(project.host, GL_ISSUES_QUERY, { path: project.repo, user }), parseGlIssues, notes);
+      const user = await this.forge.glUsername(command, project.host, notes);
+      if (user !== null) issues = await this.forge.attempt(label, command, glabArgs(project.host, GL_ISSUES_QUERY, { path: project.repo, user }), parseGlIssues, notes);
     }
     return issues === null ? { error: notes[0] ?? `${label}: could not read the issues` } : issueRead(issues);
-  }
-
-  /** The default branch of a project: the remote's HEAD, else the forge's answer, else null. */
-  async defaultBranchFor(project) {
-    const head = await exec("git", defaultBranchArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
-    const local = head.code === 0 ? defaultBranchOf(head.stdout) : null;
-    if (local !== null) return local;
-    const github = project.provider === "github";
-    const command = await this.locate(github ? "gh" : "glab");
-    if (command === null) return null;
-    const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
-    return this.attempt(github ? "gh" : `glab (${project.host})`, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
   }
 
   /**
@@ -1503,132 +1345,6 @@ export default class PullRequests extends View {
       }
       cx.notify();
     });
-  }
-
-  /** Selects the space that shows a worktree folder, or opens one. */
-  openWorktreeSpace(path) {
-    const id = spaceFor(spaces(), panes(), path);
-    if (id !== null) run("space.select", { id });
-    else run("space.new", { folder: path });
-  }
-
-  /** The worktrees folder and the worktree list of a clone; gives an error text instead when either fails. */
-  async worktreeContext(localPath) {
-    const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
-    if ("error" in resolved) return { error: resolved.error };
-    const list = await exec("git", ["worktree", "list", "--porcelain"], { cwd: localPath, timeout: GIT_TIMEOUT });
-    if (list.code !== 0) return { error: gitError(list) };
-    return { root: resolved.root, porcelain: list.stdout };
-  }
-
-  /** Whether something is at `path`, a dangling link included. */
-  async folderTaken(path) {
-    const found = await exec("test", ["-e", path], { timeout: GIT_TIMEOUT });
-    if (found.code === 0) return true;
-    const link = await exec("test", ["-L", path], { timeout: GIT_TIMEOUT });
-    return link.code === 0;
-  }
-
-  /** Runs `worktree add`. A failed add deletes the branch it made; gives an error text, or null on success. */
-  async addWorktree(git, plan) {
-    const added = await git(plan.add);
-    if (added.code === 0) return null;
-    if (plan.newBranch) await git(["branch", "-D", plan.branch]);
-    return gitError(added);
-  }
-
-  /** Starts a worktree from a remote branch; gives {error, note}. */
-  async runBranchWorktree(project, branch) {
-    const fail = (error) => ({ error, note: null });
-    const context = await this.worktreeContext(project.localPath);
-    if ("error" in context) return fail(context.error);
-    const exists = await exec("git", tipArgs(branch), { cwd: project.localPath, timeout: GIT_TIMEOUT });
-    const plan = remoteBranchPlan({ branch, localPath: project.localPath, root: context.root, porcelain: context.porcelain, localExists: exists.code === 0 });
-    if (plan.kind === "open") {
-      this.openWorktreeSpace(plan.path);
-      return { error: null, note: null };
-    }
-    const git = (args) => exec("git", args, { cwd: project.localPath, timeout: GIT_LONG_TIMEOUT });
-    const invalid = branchNameError(branch, await git(plan.check));
-    if (invalid !== null) return fail(invalid);
-    if (await this.folderTaken(plan.path)) return fail(folderExistsMessage(plan.path));
-    if (plan.prune !== null) {
-      const pruned = await git(plan.prune);
-      if (pruned.code !== 0) return fail(gitError(pruned));
-    }
-    const fetched = await git(plan.fetch);
-    if (fetched.code !== 0) return fail(gitError(fetched));
-    let note = null;
-    if (plan.compare !== null) {
-      const counted = await git(plan.compare);
-      if (counted.code !== 0) return fail(gitError(counted));
-      const counts = aheadBehind(counted.stdout);
-      if (counts === null) return fail(`git: could not compare the local branch ${branch} with origin/${branch}`);
-      const step = localBranchStep(counts);
-      if (step === "note") note = branchNote(branch, counts);
-      if (step === "fastForward") {
-        const local = await git(tipArgs(branch));
-        const origin = await git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]);
-        if (local.code !== 0 || origin.code !== 0) return fail(`git: could not read the tips of ${branch}`);
-        const moved = await git(fastForwardArgs(branch, origin.stdout.trim(), local.stdout.trim()));
-        if (moved.code !== 0) return fail(gitError(moved));
-      }
-    }
-    const failed = await this.addWorktree(git, plan);
-    if (failed !== null) return fail(failed);
-    if (plan.track !== null) {
-      // The upstream is set by hand: `--track` fails in a single-branch or shallow clone.
-      const specs = await git(plan.refspecs);
-      const steps = [...plan.track];
-      if (refspecMissing(specs.stdout, branch)) steps.push(["config", "--add", "remote.origin.fetch", plan.refspec]);
-      for (const step of steps) {
-        const set = await git(step);
-        if (set.code === 0) continue;
-        await git(["worktree", "remove", "--force", plan.path]);
-        await git(["branch", "-D", branch]);
-        return fail(gitError(set));
-      }
-    }
-    run("space.new", { folder: plan.path });
-    return { error: null, note };
-  }
-
-  /** Starts a worktree on a branch for an issue; gives {error, note}. */
-  async runIssueWorktree(project, issue) {
-    const fail = (error) => ({ error, note: null });
-    const context = await this.worktreeContext(project.localPath);
-    if ("error" in context) return fail(context.error);
-    const branch = issueBranch(issue.number, issue.title);
-    const exists = await exec("git", tipArgs(branch), { cwd: project.localPath, timeout: GIT_TIMEOUT });
-    if (exists.code !== 0) {
-      // A branch of that name on the remote is used as it is; no new branch is cut.
-      const remote = await exec("git", remoteBranchArgs(branch), { cwd: project.localPath, timeout: GIT_LONG_TIMEOUT });
-      if (remote.code !== 0) return fail(gitError(remote));
-      if (remoteHasBranch(remote.stdout, branch)) return this.runBranchWorktree(project, branch);
-    }
-    const defaultBranch = await this.defaultBranchFor(project);
-    if (defaultBranch === null) return fail("Could not read the default branch of the repo.");
-    const plan = issuePlan({ ...issue, defaultBranch, localPath: project.localPath, root: context.root, porcelain: context.porcelain, localExists: exists.code === 0 });
-    if (plan.kind === "open") {
-      this.openWorktreeSpace(plan.path);
-      return { error: null, note: null };
-    }
-    const git = (args) => exec("git", args, { cwd: project.localPath, timeout: GIT_LONG_TIMEOUT });
-    const invalid = branchNameError(branch, await git(plan.check));
-    if (invalid !== null) return fail(invalid);
-    if (await this.folderTaken(plan.path)) return fail(folderExistsMessage(plan.path));
-    if (plan.prune !== null) {
-      const pruned = await git(plan.prune);
-      if (pruned.code !== 0) return fail(gitError(pruned));
-    }
-    if (plan.fetch !== null) {
-      const fetched = await git(plan.fetch);
-      if (fetched.code !== 0) return fail(gitError(fetched));
-    }
-    const failed = await this.addWorktree(git, plan);
-    if (failed !== null) return fail(failed);
-    run("space.new", { folder: plan.path });
-    return { error: null, note: null };
   }
 
   renderNewWorktree(t) {
@@ -1795,7 +1511,7 @@ export default class PullRequests extends View {
           slot,
           marked: item.path !== null,
           running: false,
-          pick: (cx) => this.createWorktree(cx, project, "branch", slot, () => this.runBranchWorktree(project, item.branch)),
+          pick: (cx) => this.createWorktree(cx, project, "branch", slot, () => this.worktrees.branchWorktree(project, item.branch)),
         };
       });
       return { total: all.length, entries };
@@ -1809,7 +1525,7 @@ export default class PullRequests extends View {
         slot,
         marked: holdsWorktree(held, issueBranch(item.number, item.title)),
         running: false,
-        pick: (cx) => this.createWorktree(cx, project, "issue", slot, () => this.runIssueWorktree(project, item)),
+        pick: (cx) => this.createWorktree(cx, project, "issue", slot, () => this.worktrees.createIssueWorktree(project, item)),
       };
     });
     return { total: all.length, entries };
@@ -1856,25 +1572,8 @@ export default class PullRequests extends View {
       cx.notify();
     };
     const parts = [
-      sectionTitle(t, "gh command"),
-      h_flex().px(8).py(4).child(field(t, "gh", this.ghInput, this.focused === "gh")),
-      hint(t, "Leave empty to use gh from PATH, else its usual install folders.").px(8),
-      sectionTitle(t, "glab command"),
-      h_flex().px(8).py(4).child(field(t, "glab", this.glabInput, this.focused === "glab")),
-      hint(t, "Leave empty to use glab from PATH, else its usual install folders. Both fields save on Enter or when you leave them.").px(8),
-      sectionTitle(t, "Refresh every"),
-      h_flex()
-        .px(8)
-        .py(4)
-        .child(
-          segmented(
-            t,
-            "interval",
-            INTERVALS.map((minutes) => ({ value: minutes, label: `${minutes} min` })),
-            settings.interval,
-            (minutes) => setShared(SETTINGS_KEY, { ...readSettings(), interval: minutes }),
-          ),
-        ),
+      ...forgeCommandFields(t, { gh: this.ghInput, glab: this.glabInput }, this.focused),
+      ...intervalPicker(t, INTERVALS, settings.interval, (minutes) => writeSettings({ interval: minutes })),
       sectionTitle(t, "Conversation"),
       h_flex()
         .px(8)
@@ -1888,7 +1587,7 @@ export default class PullRequests extends View {
               { value: "newest", label: "Newest first" },
             ],
             settings.conversation,
-            (order) => setShared(SETTINGS_KEY, { ...readSettings(), conversation: order }),
+            (order) => writeSettings({ conversation: order }),
           ),
         ),
       sectionTitle(t, "Worktrees"),
@@ -1906,12 +1605,13 @@ export default class PullRequests extends View {
   loadPr(cx, selected) {
     const seq = ++this.prSeq;
     const readAt = Date.now();
+    // The board row as it is when this read starts; a later change of the row asks for a new read.
+    const seen = prSignature(readBoard().prs.find((pr) => prKey(pr) === selected.key));
     const switched = this.shown?.key !== selected.key;
     if (switched) {
-      this.shown = { key: selected.key, kind: "loading", detail: null, error: null, readAt };
-      this.actionError = null;
+      this.shown = { key: selected.key, kind: "loading", detail: null, error: null, readAt, seen };
     } else {
-      this.shown = { ...this.shown, readAt };
+      this.shown = { ...this.shown, readAt, seen };
     }
     if (checking()) return;
     cx.spawn(async (cx) => {
@@ -1924,7 +1624,7 @@ export default class PullRequests extends View {
         next = { kind: "error", detail: null, error: error?.message ?? String(error) };
       }
       if (seq !== this.prSeq) return;
-      this.shown = { key: selected.key, readAt, ...next };
+      this.shown = { key: selected.key, readAt, seen, ...next };
       cx.notify();
     });
   }
@@ -1933,7 +1633,7 @@ export default class PullRequests extends View {
   async readDetail(selected) {
     const gitLab = selected.provider === "gitlab";
     const name = gitLab ? "glab" : "gh";
-    const command = await this.locate(name);
+    const command = await this.forge.locate(name);
     if (command === null) throw new Error(gitLab ? GLAB_MISSING : GH_MISSING);
     const args = gitLab
       ? glabArgs(selected.host, GL_DETAIL_QUERY, { path: selected.repo, iid: String(selected.number) })
@@ -1960,31 +1660,10 @@ export default class PullRequests extends View {
     }
   }
 
-  openInBrowser(cx, pr, url = pr.url) {
-    const key = prKey(pr);
-    this.actionError = null;
-    // Draw again, so an old error goes away.
-    cx.notify();
-    const open = openArgs(window().platform, url);
-    if (open === null) return;
-    cx.spawn(async (cx) => {
-      await cx.sleep(0);
-      try {
-        const reply = await exec(open[0], open[1]);
-        if (reply.code === 0) return;
-        this.actionError = { key, text: cliError(open[0], reply) };
-      } catch (error) {
-        this.actionError = { key, text: error?.message ?? String(error) };
-      }
-      cx.notify();
-    });
-  }
-
   /** Opens the space of the pull request's worktree, creating the worktree first when needed. */
   checkOut(cx, pr, localPath) {
     const key = prKey(pr);
     if (this.checkouts.get(key)?.running) return;
-    this.actionError = null;
     this.checkouts.set(key, { running: true, error: null });
     cx.notify();
     cx.spawn(async (cx) => {
@@ -2002,14 +1681,12 @@ export default class PullRequests extends View {
 
   /** Runs the check out plan; gives an error text, or null on success. */
   async runCheckout(pr, localPath) {
-    const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
-    if ("error" in resolved) return resolved.error;
-    const list = await exec("git", ["worktree", "list", "--porcelain"], { cwd: localPath, timeout: GIT_TIMEOUT });
-    if (list.code !== 0) return gitError(list);
-    const plan = checkoutPlan({ pr, localPath, root: resolved.root, porcelain: list.stdout });
+    const found = await this.worktrees.context(localPath);
+    if ("error" in found) return found.error;
+    const plan = checkoutPlan({ pr, localPath, root: found.root, porcelain: found.porcelain });
     if (plan.kind === "create") {
       const git = (args) => exec("git", args, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
-      if (await this.folderTaken(plan.path)) return folderExistsMessage(plan.path);
+      if (await this.worktrees.folderTaken(plan.path)) return folderExistsMessage(plan.path);
       if (plan.prune !== null) {
         const pruned = await git(plan.prune);
         if (pruned.code !== 0) return gitError(pruned);
@@ -2032,9 +1709,7 @@ export default class PullRequests extends View {
       run("space.new", { folder: plan.path });
       return null;
     }
-    const id = spaceFor(spaces(), panes(), plan.path);
-    if (id !== null) run("space.select", { id });
-    else run("space.new", { folder: plan.path });
+    this.worktrees.openWorktreeSpace(plan.path);
     return null;
   }
 
@@ -2120,7 +1795,7 @@ export default class PullRequests extends View {
       await cx.sleep(0);
       let methods;
       try {
-        const gh = await this.locate("gh");
+        const gh = await this.forge.locate("gh");
         if (gh === null) {
           methods = { error: GH_MISSING };
         } else {
@@ -2174,12 +1849,17 @@ export default class PullRequests extends View {
       let draftText = kept;
       let drafted = false;
       try {
-        const cli = await this.locate(command.name);
+        const cli = await this.forge.locate(command.name);
         if (cli === null) {
           error = command.name === "glab" ? GLAB_MISSING : GH_MISSING;
         } else {
           let run = command;
-          if (draftStep) {
+          // gh pr review has no head pin, so the head is read and compared first.
+          if (command.check) {
+            const head = await exec(cli, command.check, { timeout: CLI_TIMEOUT });
+            error = head.code === 0 ? headRefusal(detail.headSha, head.stdout) : cliError(command.name, head);
+          }
+          if (error === null && draftStep) {
             const list = await exec(cli, draftListArgs(detail), { timeout: CLI_TIMEOUT });
             const plan = list.code === 0 ? draftPlan(list.stdout, kept, body) : { error: cliError(command.name, list) };
             if ("error" in plan) {
@@ -2225,6 +1905,15 @@ export default class PullRequests extends View {
     });
   }
 
+  /** The conversation items of `detail`. The last result is kept while the detail and the order stay the same. */
+  conversationFor(detail, order) {
+    const memo = this.conversationMemo;
+    if (memo && memo.detail === detail && memo.order === order) return memo.items;
+    const items = conversationItems(detail, order);
+    this.conversationMemo = { detail, order, items };
+    return items;
+  }
+
   /** The pull request pane: header, actions and the five sections. */
   renderPr(t, cx) {
     // A Start request from the Review with agent dialog this pane opened runs here.
@@ -2234,14 +1923,15 @@ export default class PullRequests extends View {
       this.runRequest(cx, request);
     }
     const selected = readSelected();
+    const board = readBoard();
     // A new selection arrives as a re-render; the read runs as a task.
     if (selected && this.shown?.key !== selected.key && !checking()) this.loadPr(cx, selected);
     if (!checking()) {
       // The board comes first, because every pane copy sees the same board; a pane's own read
       // can lag, and two copies with different titles would overwrite each other.
-      const listed = selected ? (readBoard().prs.find((pr) => prKey(pr) === selected.key) ?? null) : null;
+      const listed = selected ? (board.prs.find((pr) => prKey(pr) === selected.key) ?? null) : null;
       const read = this.shown?.key === selected?.key ? (this.shown?.detail?.pr ?? null) : null;
-      shareTitle(cx, prPaneTitle(listed ?? read));
+      shareTitle(cx, TITLE_KEY, prPaneTitle(listed ?? read));
     }
 
     const empty = (text) => frame(t, "argus-pull-requests-pr").rounded_none().border_0().child(note(t, text));
@@ -2258,7 +1948,6 @@ export default class PullRequests extends View {
 
     const detail = shown.detail;
     const pr = detail.pr;
-    const board = readBoard();
     const key = shown.key;
     const localPath = localPathFor(board.projects, pr.host, pr.repo);
     const checkout = this.checkouts.get(key) ?? { running: false, error: null };
@@ -2292,14 +1981,14 @@ export default class PullRequests extends View {
       checks: checkLayout(detail.checks, this.passedOpen.has(key)),
       // The display name the forge gives a login, a known bot's name, else the login.
       nameOf: (login) => displayName(login, detail.names),
-      items: conversationItems(detail, readSettings().conversation),
+      items: this.conversationFor(detail, readSettings().conversation),
       position,
       hasCheckout: localPath !== null,
       checkingOut: checkout.running,
-      error: (this.actionError?.key === key ? this.actionError.text : null) ?? checkout.error,
+      error: checkout.error,
       now: Date.now(),
       age: ageText,
-      icon: ICON,
+      icon: iconResolver(MOD, this.found),
       agentRows,
       bottom: this.bottomBar(t, key, detail, localPath, checkout.running),
     };
@@ -2315,11 +2004,11 @@ export default class PullRequests extends View {
       },
       prev: () => go(position?.prev ?? null),
       next: () => go(position?.next ?? null),
-      openBrowser: (cx) => this.openInBrowser(cx, pr),
-      // A check's run or job page; an error shows under the header like Open in browser's.
-      openCheck: (url, cx) => this.openInBrowser(cx, pr, url),
+      openBrowser: (cx) => openInBrowser(cx, pr.url),
+      // A check's run or job page.
+      openCheck: (url, cx) => openInBrowser(cx, url),
       // A link in a comment or the description; only http and https open.
-      openLink: (url, cx) => this.openInBrowser(cx, pr, url),
+      openLink: (url, cx) => openInBrowser(cx, url),
       checkOut: (cx) => this.checkOut(cx, pr, localPath ?? ""),
     };
     return prPane(t, view, on);
@@ -2427,7 +2116,7 @@ export default class PullRequests extends View {
       }
       rows.push(
         menuRow(t, "more-checkout", { label: "Check out in a worktree", enabled: localPath !== null && !checkingOut, tick, onClick: pick((cx) => this.checkOut(cx, pr, localPath ?? "")) }),
-        menuRow(t, "more-browser", { label: "Open in browser", tick, onClick: pick((cx) => this.openInBrowser(cx, pr)) }),
+        menuRow(t, "more-browser", { label: "Open in browser", tick, onClick: pick((cx) => openInBrowser(cx, pr.url)) }),
       );
       above.push(menuBox("more-menu", rows));
     }
@@ -2458,50 +2147,27 @@ export default class PullRequests extends View {
 
 }
 
-function prState(pr) {
-  if (pr.state === "merged") return "Merged";
-  if (pr.state === "closed") return "Closed";
-  return pr.isDraft ? "Draft" : "Open";
-}
-
 /** A 44 px board row, two lines. Click opens the pull request pane. `reviewed` adds a dot when a review agent worktree exists. */
 function prRow(t, id, pr, selected, now, reviewed) {
   const checks = checksText(pr.checks);
   let checksColor = t.muted;
   if (checks.startsWith("✗")) checksColor = t.blocked;
   else if (checks.startsWith("●")) checksColor = t.working;
-  const review = reviewLabel(pr.reviewDecision);
-  return v_flex()
-    .id(id)
-    .h(44)
-    .flex_none()
-    .px(8)
-    .gap(2)
-    .justify_center()
-    .rounded(7)
-    .cursor_pointer()
-    .when(selected, (el) => el.bg(t.selected))
-    .hover((s) => s.bg(t.hover))
-    .on_click(() => openPr(pr))
-    .child(
-      h_flex()
-        .gap(8)
-        .items_center()
-        .child(div().flex_none().text_size(12).text_color(t.muted).child(`#${pr.number}`))
-        .child(div().flex_1().min_w(0).truncate().child(pr.title))
-        .when(checks !== "", (el) => el.child(div().flex_none().text_size(11).text_color(checksColor).child(checks)))
-        .child(div().flex_none().text_size(11).text_color(t.dim).child(ageText(pr.updatedAt, now))),
-    )
-    .child(
-      h_flex()
-        .gap(8)
-        .items_center()
-        .text_size(11)
-        .text_color(t.dim)
-        .child(div().flex_1().min_w(0).truncate().child(`${shortRepo(pr.repo)} · ${pr.headRef}`))
-        .when(review !== null, (el) => el.child(div().flex_none().text_color(pr.reviewDecision === "changes_requested" ? t.blocked : t.dim).child(review ?? "")))
-        .when(reviewed, (el) => el.child(div().id(`${id}-agent`).size(6).flex_none().rounded_full().bg(t.accent).tooltip("Review agent worktree"))),
-    );
+  const changes = changesRequested(pr);
+  const review = changes ? reviewLabel("changes_requested") : reviewLabel(pr.reviewDecision);
+  const tail = [];
+  if (review !== null) tail.push(div().flex_none().text_color(changes ? t.blocked : t.dim).child(review));
+  if (reviewed) tail.push(div().id(`${id}-agent`).size(6).flex_none().rounded_full().bg(t.accent).tooltip("Review agent worktree"));
+  return twoLineRow(t, id, {
+    number: pr.number,
+    title: pr.title,
+    age: ageText(pr.updatedAt, now),
+    detail: `${shortRepo(pr.repo)} · ${pr.headRef}`,
+    selected,
+    marks: checks !== "" ? [div().flex_none().text_size(11).text_color(checksColor).child(checks)] : [],
+    tail,
+    onClick: () => openPr(pr),
+  });
 }
 
 /**
@@ -2514,40 +2180,6 @@ function openReview(pr, localPath, owner) {
   openOverlay({ mod: MOD, props: { view: "review", pr: target, owner }, kind: "dialog", modal: true, width: REVIEW_WIDTH, height: REVIEW_HEIGHT });
 }
 
-/** Shows a review run's space: the one that holds its worktree, else a new one there. */
-function openRun(reviewRun) {
-  const id = spaceFor(spaces(), panes(), reviewRun.path);
-  if (id !== null) run("space.select", { id });
-  else run("space.new", { folder: reviewRun.path });
-}
-
-/** The argus-claude-usage settings this mod reads: account names, hidden and extra profile folders. */
-function usageSettings() {
-  const value = shared(USAGE_SETTINGS_KEY);
-  const v = value && typeof value === "object" ? value : {};
-  const strings = (list) => (Array.isArray(list) ? list.filter((item) => typeof item === "string") : []);
-  const names = v.names && typeof v.names === "object" && !Array.isArray(v.names) ? Object.fromEntries(Object.entries(v.names).filter(([, name]) => typeof name === "string" && name.trim() !== "")) : {};
-  return { names, hidden: strings(v.hidden), extra: strings(v.extra) };
-}
-
-/** File access for the Claude Code profile search, as argus-claude-usage does it. */
-function discoveryIO() {
-  const dir = home();
-  return {
-    home: dir,
-    async listHome() {
-      try {
-        const entries = await readdir(dir, { withFileTypes: true });
-        return entries.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory() }));
-      } catch {
-        return [];
-      }
-    },
-    // readTextFile reads up to 1 MiB; .claude.json can grow past that.
-    readText: (path) => readFirst([readTextFile, (p) => readFile(p, "utf8")], path),
-  };
-}
-
 function openScopes() {
   openOverlay({ mod: MOD, props: { view: "scopes" }, kind: "popup", width: SCOPES_WIDTH, height: SCOPES_HEIGHT });
 }
@@ -2557,33 +2189,31 @@ function pickScope(scope) {
   setShared(SCOPE_KEY, scope);
 }
 
-/**
- * Selects a pull request and shows it: focuses this mod's pane in the shown tab,
- * or splits the tab's focused pane to the right to open one.
- */
 /** Makes `pr` the selected pull request, which every pull request pane shows. */
 function selectPr(pr) {
   setShared(SELECTED_KEY, { key: prKey(pr), provider: pr.provider, host: pr.host, repo: pr.repo, number: pr.number });
 }
 
+/**
+ * Selects a pull request and shows it: focuses this mod's pane in the shown tab,
+ * or splits the tab's focused pane to the right to open one.
+ */
 export function openPr(pr) {
   selectPr(pr);
-  const tab = spaces()
-    .find((space) => space.active)
-    ?.tabs.find((candidate) => candidate.active);
-  if (!tab) return;
-  const inTab = panes().filter((pane) => pane.tab === tab.id);
-  const own = inTab.find((pane) => pane.mod === MOD);
-  if (own) {
-    run("pane.focus", { pane: own.pane });
-    return;
-  }
-  const target = inTab.find((pane) => pane.focused) ?? inTab[0];
-  run("pane.split", { ...(target ? { pane: target.pane } : {}), direction: "right", mod: MOD, props: { view: "pr" } });
+  openModPane(MOD, { view: "pr" });
 }
 
 function readSettings() {
   return normalizeSettings(shared(SETTINGS_KEY));
+}
+
+/**
+ * Changes the board's own settings. Fields this mod no longer reads stay as they are: the old
+ * gh and glab commands are the fallback of the shared forge settings until those are saved.
+ */
+function writeSettings(patch) {
+  const stored = shared(SETTINGS_KEY);
+  setShared(SETTINGS_KEY, { ...(stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {}), ...patch });
 }
 
 function readScope() {
@@ -2608,14 +2238,3 @@ function readBoard() {
   return normalizeBoard(shared(BOARD_KEY));
 }
 
-/**
- * Shares the title the Argus pane header shows for this mod's panes. A write
- * renders every mod again, so only a changed title is written, after this render.
- */
-function shareTitle(cx, title) {
-  if (shared(TITLE_KEY) === title) return;
-  cx.spawn(async (cx) => {
-    await cx.sleep(0);
-    if (shared(TITLE_KEY) !== title) setShared(TITLE_KEY, title);
-  });
-}

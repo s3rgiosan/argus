@@ -5,7 +5,7 @@ import { HERDR_ICONS, herdrIconPath, resolveIcon, iconResolver, probeIcons } fro
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
 
 test("HERDR_ICONS lists the icons with the same geometry as Herdr's", () => {
-  assert.deepEqual(HERDR_ICONS, ["chevron-left", "chevron-down", "settings", "panel-right", "check", "x", "square-pen"]);
+  assert.deepEqual(HERDR_ICONS, ["chevron-left", "chevron-down", "chevron-right", "settings", "panel-right", "check", "x", "square-pen", "clock", "plus"]);
 });
 
 test("herdrIconPath points into the workspace-chrome mod", () => {
@@ -38,8 +38,8 @@ test("probeIcons reads each file once and keeps the names whose file is an svg",
     return SVG;
   };
   const found = await probeIcons(read, "/home/app");
-  assert.deepEqual([...found].sort(), ["check", "chevron-down", "square-pen"]);
-  assert.equal(reads.length, 7);
+  assert.deepEqual([...found].sort(), ["check", "chevron-down", "chevron-right", "clock", "plus", "square-pen"]);
+  assert.equal(reads.length, 10);
   assert.ok(reads.every((path) => path.startsWith("/home/app/mods/workspace-chrome/")));
 });
 

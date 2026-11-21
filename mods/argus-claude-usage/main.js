@@ -3,19 +3,21 @@
 // mod never touches a sign-in token.
 
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState } from "gpui-base";
+import { v_flex, h_flex } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, closeOverlay, notify } from "herdr";
-import { readdir, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
-import { discover, visibleProfiles, expandHome, tildePath, readFirst } from "./accounts.js";
-import { parseReply, pace, paceText } from "./usage.js";
+import { discover, visibleProfiles } from "./accounts.js";
+import { expandHome, tildePath } from "./paths.js";
+import { openInBrowser, createInputs } from "./pane.js";
+import { profileIO } from "./profile-io.js";
+import { parseReply, mergeEntry, pace, paceText } from "./usage.js";
 import { formatDuration, formatAgo } from "./format.js";
 import { normalizeSettings, isHidden, toggleHidden, addExtra, removeExtra, setName, pendingMoves, INTERVALS } from "./settings.js";
 import { createGate } from "./gate.js";
-import { shouldFetch, takeLock, holdsLock } from "./sync.js";
+import { shouldFetch, takeLock, holdsLock, lockNeedsRenewal, releasedLock } from "./sync.js";
 import { accountTitle } from "./title.js";
 import { dueAlerts } from "./alerts.js";
-import { frame, header, subHeader, iconButton, fieldLabel, hint, row, scrollArea, field, button, footer, sectionTitle, note, meter, toggle, segmented } from "./ui.js";
+import { frame, header, subHeader, iconButton, fieldLabel, row, scrollArea, field, button, footer, sectionTitle, note, errorLine, meter, toggle, commandField, intervalPicker } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 
 const SETTINGS_KEY = "argus-claude-usage.settings";
@@ -24,6 +26,7 @@ const DATA_KEY = "argus-claude-usage.data";
 const LOCK_KEY = "argus-claude-usage.lock";
 const MINUTE = 60_000;
 const TICK = 30_000;
+const DISCOVERY_TTL = 60 * MINUTE;
 const EXEC_TIMEOUT = 25_000;
 const STATUS_URL = "https://status.anthropic.com";
 const ALERTS_KEY = "argus-claude-usage.alerts";
@@ -39,7 +42,6 @@ const ICON = (name) => `mods/${MOD}/icons/${name}.svg`;
  */
 export default class ClaudeUsage extends View {
   init(_props, cx) {
-    moveOldKeys();
     this.owner = randomUUID();
     this.view = "usage";
     this.gate = createGate();
@@ -47,6 +49,8 @@ export default class ClaudeUsage extends View {
     this.nameInputs = new Map();
 
     this.focused = null;
+    // Makes the text inputs; each one tracks focus in `this.focused`.
+    this.input = createInputs(this);
 
     this.folderInput = this.input("folder", { placeholder: "~/path/to/profile" }, (cx) => this.addFolder(cx));
     this.claudeInput = this.input("claude", { placeholder: "claude (from PATH)", value: readSettings().claude }, (cx) => this.saveClaudeCommand(cx), {
@@ -56,37 +60,19 @@ export default class ClaudeUsage extends View {
     // The icons Herdr ships that this panel can load; the panel's own copies show until the probe ends.
     this.found = new Set();
     if (checking()) return;
+    moveOldKeys();
 
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       this.found = await probeIcons(readTextFile, appHome());
       cx.notify();
     });
-    cx.spawn(async (cx) => this.sync(cx));
+    this.startSync(cx);
     cx.timer.every(TICK, (cx) => {
       if (this.view === "settings" && this.ensureNameInputs()) cx.notify();
-      cx.spawn(async (cx) => this.sync(cx));
+      this.startSync(cx);
     });
     cx.timer.every(MINUTE, (cx) => cx.notify());
-  }
-
-  /**
-   * A text input that tracks focus for its border. `onSubmit` runs on Enter,
-   * and also when focus leaves with `saveOnBlur`.
-   */
-  input(id, options, onSubmit, { saveOnBlur = false } = {}) {
-    const state = InputState.new(options);
-    state.on("submit", (_e, cx) => onSubmit(cx));
-    state.on("focus", (_e, cx) => {
-      this.focused = id;
-      cx.notify();
-    });
-    state.on("blur", (_e, cx) => {
-      if (this.focused === id) this.focused = null;
-      if (saveOnBlur) onSubmit(cx);
-      cx.notify();
-    });
-    return state;
   }
 
   /** Gives the lock back when this copy goes, so another copy can fetch at once. */
@@ -98,7 +84,15 @@ export default class ClaudeUsage extends View {
   releaseLock() {
     if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
     writeData({ fetching: null });
-    setShared(LOCK_KEY, { owner: this.owner, until: 0 });
+    setShared(LOCK_KEY, releasedLock(this.owner));
+  }
+
+  /** Starts a sync in a task. */
+  startSync(cx) {
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      await this.sync(cx);
+    });
   }
 
   /**
@@ -131,31 +125,39 @@ export default class ClaudeUsage extends View {
       this.force = false;
 
       fetched = true;
-      const profiles = await discover(discoveryIO(), { extra: settings.extra });
+      // A forced refresh reads the profiles again; so does a change of the extra folders.
+      const extraKey = JSON.stringify(settings.extra ?? []);
+      if (force || this.discovered?.extraKey !== extraKey || startedAt - this.discovered.at >= DISCOVERY_TTL) {
+        this.discovered = { extraKey, at: startedAt, profiles: await discover(profileIO(), { extra: settings.extra }) };
+      }
+      const profiles = this.discovered.profiles;
       const folders = new Set(profiles.map((profile) => profile.folder));
       const kept = Object.fromEntries(Object.entries(readData().byFolder).filter(([folder]) => folders.has(folder)));
       writeData({ profiles, byFolder: kept });
       if (this.view === "settings" && this.ensureNameInputs()) cx.notify();
 
       for (const profile of visibleProfiles(profiles, settings.hidden, home())) {
-        if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-        setShared(LOCK_KEY, takeLock(this.owner, Date.now()));
+        const checkedAt = Date.now();
+        if (!holdsLock(shared(LOCK_KEY), this.owner, checkedAt)) return;
+        if (lockNeedsRenewal(shared(LOCK_KEY), this.owner, checkedAt)) setShared(LOCK_KEY, takeLock(this.owner, checkedAt));
         writeData({ fetching: profile.folder });
 
         const reply = await fetchUsage(profile, settings);
         // Another copy may have taken over while Claude Code ran.
         if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-        writeData({ fetching: null, byFolder: { ...readData().byFolder, [profile.folder]: { reply, updatedAt: Date.now() } } });
+        const now = Date.now();
+        const entry = mergeEntry(readData().byFolder[profile.folder], reply, now, settings.interval * MINUTE * 2 + MINUTE);
+        writeData({ fetching: null, byFolder: { ...readData().byFolder, [profile.folder]: entry } });
       }
 
       writeData({ fetchedAt: startedAt, fetching: null });
-      setShared(LOCK_KEY, { owner: this.owner, until: 0 });
+      setShared(LOCK_KEY, releasedLock(this.owner));
       announce(settings);
     } finally {
       this.releaseLock();
       const again = this.gate.finish();
       if (fetched) cx.notify();
-      if (again) cx.spawn(async (cx) => this.sync(cx));
+      if (again) this.startSync(cx);
     }
   }
 
@@ -163,7 +165,7 @@ export default class ClaudeUsage extends View {
   requestRefresh(cx) {
     this.force = true;
     writeData({ requestedAt: Date.now() });
-    cx.spawn(async (cx) => this.sync(cx));
+    this.startSync(cx);
     cx.notify();
   }
 
@@ -176,16 +178,16 @@ export default class ClaudeUsage extends View {
     const fetching = Boolean(readData().fetching);
     const icon = iconResolver(MOD, this.found);
     const actions = [
-      iconButton(t, "refresh", ICON("refresh-cw"), (_e, cx) => this.requestRefresh(cx), { busy: fetching }),
-      ...(props()?.overlay ? [iconButton(t, "as-pane", icon("panel-right"), () => openAsPane())] : []),
-      iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx)),
+      iconButton(t, "refresh", ICON("refresh-cw"), (_e, cx) => this.requestRefresh(cx), { busy: fetching, tooltip: "Refresh" }),
+      ...(props()?.overlay ? [iconButton(t, "as-pane", icon("panel-right"), () => openAsPane(), { tooltip: "Open as a pane" })] : []),
+      iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx), { tooltip: "Settings" }),
     ];
     const link = (id, label, url) =>
       row(t, id)
         .cursor_pointer()
         .text_size(12)
         .text_color(t.muted)
-        .on_click((_e, cx) => cx.open_url(url))
+        .on_click((_e, cx) => openInBrowser(cx, url))
         .child(label);
 
     return frame(t, "argus-claude-usage")
@@ -246,7 +248,9 @@ export default class ClaudeUsage extends View {
     if (isFolded) return section;
     if (!reply) return section.child(note(t, "Loading…"));
     if (reply.state !== "ok") return section.child(div().px(8).text_size(12).text_color(t.muted).child(longState(reply)));
-    return section.children(renderUsage(t, reply, entry.updatedAt, loading));
+    const parts = renderUsage(t, reply, entry.updatedAt, loading);
+    if (entry.lastError) parts.splice(1, 0, errorLine(t, `Last refresh failed · ${entry.lastError.message} · ${formatAgo(Date.now() - entry.lastError.at)}`));
+    return section.children(parts);
   }
 
   openSettings(cx) {
@@ -386,25 +390,8 @@ export default class ClaudeUsage extends View {
         .child(button(t, "add-folder", "Add", (_e, cx) => this.addFolder(cx))),
     );
 
-    parts.push(sectionTitle(t, "Refresh every"));
-    parts.push(
-      h_flex()
-        .px(8)
-        .py(4)
-        .child(
-          segmented(
-            t,
-            "interval",
-            INTERVALS.map((minutes) => ({ value: minutes, label: `${minutes} min` })),
-            settings.interval,
-            (minutes, cx) => this.saveSettings({ ...readSettings(), interval: minutes }, cx),
-          ),
-        ),
-    );
-
-    parts.push(sectionTitle(t, "Claude command"));
-    parts.push(h_flex().px(8).py(4).child(field(t, "claude", this.claudeInput, this.focused === "claude")));
-    parts.push(hint(t, "Leave empty to use claude from PATH. Saved on Enter or when you leave the field.").px(8));
+    parts.push(...intervalPicker(t, INTERVALS, settings.interval, (minutes, cx) => this.saveSettings({ ...readSettings(), interval: minutes }, cx)));
+    parts.push(...commandField(t, "claude", "Claude command", this.claudeInput, this.focused === "claude", "Leave empty to use claude from PATH. Saved on Enter or when you leave the field."));
 
     return frame(t, "argus-claude-usage-settings")
       .child(subHeader(t, back, "Settings", icon("chevron-left")))
@@ -588,23 +575,6 @@ async function fetchUsage(profile, settings) {
 
 function errorReply(reason) {
   return { state: "error", reason, plan: null, windows: [], surfaces: [], extra: null };
-}
-
-function discoveryIO() {
-  const dir = home();
-  return {
-    home: dir,
-    async listHome() {
-      try {
-        const entries = await readdir(dir, { withFileTypes: true });
-        return entries.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory() }));
-      } catch {
-        return [];
-      }
-    },
-    // readTextFile reads up to 1 MiB; .claude.json can grow past that.
-    readText: (path) => readFirst([readTextFile, (p) => readFile(p, "utf8")], path),
-  };
 }
 
 function readFolded() {

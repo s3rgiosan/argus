@@ -3,32 +3,12 @@
 
 import { branchDelete, linkedWorktrees, reviewNumber } from "./review.js";
 import { localFolders } from "./remote.js";
+import { byMergedAt } from "./model.js";
 
 /** @typedef {{number: number, headSha: string, mergedAt: string|null, base: string|null}} Merged */
 /** @typedef {{path: string, branch: string, head: string|null, locked: boolean, prunable: boolean, review: number|null}} Worktree */
 /** @typedef {null|"locked"|"has changes"|"has submodules"|"has unsaved commits"|"open in a space"|"has an open pull request"|`merged into ${string}`|"not at the merged commit"} Reason */
 /** @typedef {{path: string, branch: string, number: number, mergedAt: string|null, headSha: string, review: boolean, reason: Reason, ignored: string[], prunable: boolean}} Row */
-
-/** The arguments that print the remote's default branch, for example `origin/main`. */
-export function defaultBranchArgs() {
-  return ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"];
-}
-
-/**
- * The default branch from `defaultBranchArgs` output: `origin/main` gives `main`.
- * @param {string} stdout
- * @returns {string|null}
- */
-export function defaultBranchOf(stdout) {
-  const ref = String(stdout ?? "").trim();
-  const slash = ref.indexOf("/");
-  return slash < 0 || slash === ref.length - 1 ? null : ref.slice(slash + 1);
-}
-
-/** The arguments that print a branch's tip commit, or fail when the branch is gone. */
-export function tipArgs(branch) {
-  return ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`];
-}
 
 /**
  * The arguments that list a worktree's changes; empty output means it has none. `--untracked-files=all`
@@ -261,6 +241,34 @@ export function countMerged(worktrees, heads, defaultBranch) {
   return count;
 }
 
+/** How long a merged heads list stays in use while the candidate worktrees stay the same. */
+export const MERGED_HEADS_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * A text that is the same for the same set of candidate worktrees: each branch with its head.
+ * @param {Array<{branch: string, head?: string|null}>} worktrees
+ * @returns {string}
+ */
+export function candidateSignature(worktrees) {
+  return worktrees
+    .map((worktree) => `${worktree.branch}@${worktree.head ?? ""}`)
+    .sort()
+    .join("\n");
+}
+
+/**
+ * True when a kept merged heads list may answer a count: it was read less than MERGED_HEADS_TTL_MS
+ * ago for the same candidate worktrees.
+ * @param {{signature: string, at: number}|undefined|null} cached
+ * @param {string} signature
+ * @param {number} now
+ * @returns {boolean}
+ */
+export function mergedHeadsFresh(cached, signature, now) {
+  if (!cached) return false;
+  return cached.signature === signature && now - cached.at >= 0 && now - cached.at < MERGED_HEADS_TTL_MS;
+}
+
 /**
  * The view state the board's Review link keeps: a list that has no removal results goes, so the
  * view reads again and shows the merged worktrees the board counted. Running work and results stay.
@@ -271,4 +279,51 @@ export function freshForReview(state) {
   if (state === null) return null;
   const results = Object.keys(state.results ?? {}).length;
   return state.phase === "list" && results === 0 ? null : state;
+}
+
+/** How many items the project's merged list asks for (`ghMergedListArgs`, `GL_MERGED_LIST_QUERY`). */
+export const MERGED_LIST_LIMIT = 100;
+
+/** How many merged pull requests the per-branch read asks for (`ghMergedArgs`, `GL_MERGED_QUERY`). */
+export const BRANCH_MERGED_LIMIT = 10;
+
+/**
+ * The forge answers that the project's merged list gives for the Merged worktrees view, and the
+ * worktrees that still need their own read. The answers are the same as the per-worktree reads:
+ * - A review worktree is answered when its number is in the list. A list below its limit is
+ *   complete, so a number that is not in it has no merged pull request.
+ * - Any other worktree is answered only from a complete list, and only when the list has at most
+ *   BRANCH_MERGED_LIMIT entries for its branch. Its entries leave out forks and are sorted newest merge first.
+ * @param {Worktree[]} worktrees
+ * @param {import("./model.js").MergedList|null} list Null when the list read failed.
+ * @returns {{merged: Record<string, Merged[]>, reviewMerged: Record<number, Merged|null>, rest: Worktree[]}}
+ */
+export function answerFromList(worktrees, list) {
+  /** @type {Record<string, Merged[]>} */
+  const merged = {};
+  /** @type {Record<number, Merged|null>} */
+  const reviewMerged = {};
+  /** @type {Worktree[]} */
+  const rest = [];
+  if (list === null) return { merged, reviewMerged, rest: [...worktrees] };
+  const complete = list.total < MERGED_LIST_LIMIT;
+  for (const worktree of worktrees) {
+    if (worktree.review !== null) {
+      const entry = list.entries.find((item) => item.number === worktree.review);
+      if (entry !== undefined) reviewMerged[worktree.review] = entry.merged;
+      else if (complete) reviewMerged[worktree.review] = null;
+      else rest.push(worktree);
+      continue;
+    }
+    const forBranch = list.entries.filter((item) => item.branch === worktree.branch);
+    if (!complete || forBranch.length > BRANCH_MERGED_LIMIT) {
+      rest.push(worktree);
+      continue;
+    }
+    merged[worktree.branch] = forBranch
+      .filter((item) => !item.cross && item.merged !== null)
+      .map((item) => /** @type {Merged} */ (item.merged))
+      .sort(byMergedAt);
+  }
+  return { merged, reviewMerged, rest };
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { shouldFetch, takeLock, holdsLock, LOCK_MS } from "../mods/argus-claude-usage/sync.js";
+import { shouldFetch, takeLock, holdsLock, lockNeedsRenewal, releasedLock, LOCK_MS } from "../lib/sync.js";
 
 const now = 1_000_000;
 const base = { now, intervalMs: 300_000, owner: "a", force: false, lock: null };
@@ -33,4 +33,22 @@ test("takeLock and holdsLock", () => {
   assert.equal(holdsLock(lock, "b", now), false);
   assert.equal(holdsLock(lock, "a", now + LOCK_MS), false);
   assert.equal(holdsLock(null, "a", now), false);
+});
+
+test("lockNeedsRenewal writes only in the second half of the lock", () => {
+  const now = 1_000_000;
+  assert.equal(lockNeedsRenewal({ owner: "a", until: now + LOCK_MS }, "a", now), false);
+  assert.equal(lockNeedsRenewal({ owner: "a", until: now + LOCK_MS / 2 }, "a", now), false);
+  assert.equal(lockNeedsRenewal({ owner: "a", until: now + LOCK_MS / 2 - 1 }, "a", now), true);
+  assert.equal(lockNeedsRenewal({ owner: "b", until: now + 1 }, "a", now), false);
+  assert.equal(lockNeedsRenewal({ owner: "a", until: now - 1 }, "a", now), false);
+  assert.equal(lockNeedsRenewal(null, "a", now), false);
+  assert.equal(lockNeedsRenewal({ owner: "a", until: now + 10 }, "a", now, 30), true);
+});
+
+test("releasedLock keeps the owner and ends the lock", () => {
+  const lock = releasedLock("a");
+  assert.deepEqual(lock, { owner: "a", until: 0 });
+  assert.equal(holdsLock(lock, "a", 1), false);
+  assert.equal(shouldFetch({ now: 1, fetchedAt: 0, lock, intervalMs: 0, owner: "b" }), true);
 });

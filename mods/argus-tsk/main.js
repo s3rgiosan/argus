@@ -3,23 +3,25 @@
 // beside the terminals) and the status list (a popup). Every change goes through the `tsk` CLI.
 
 import { div, svg, View } from "gpui-kit";
-import { h_flex, v_flex, Input, InputState, TextareaState } from "gpui-base";
+import { h_flex, v_flex, Input } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder, layout, focused } from "herdr";
 import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
-import { commandCandidates, expandHome, normalizeSettings, storeDir, tildePath, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
+import { commandCandidates, normalizeSettings, storeDir, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
+import { expandHome, tildePath } from "./paths.js";
 import { parseRows, parseError } from "./model.js";
-import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, taskPaneTitle, titleChange } from "./board.js";
+import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, taskPaneTitle, titleChange, titleError } from "./board.js";
 import { answerBlock, applyOptimistic, flowOutcome, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, blockChange, changeFor, CHECK_LABELS, detailState, fieldSave, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
 import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
-import { shouldFetch, takeLock, holdsLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, chip as tint, dropdownButton, fieldLabel, hint, errorLine, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { shouldFetch, takeLock, holdsLock, releasedLock } from "./sync.js";
+import { frame, header, subHeader, badge, iconButton, chip as tint, dropdownButton, fieldLabel, hint, errorLine, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, commandField, menuPopup } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
-import { menuKey, startAt } from "./menu.js";
+import { menuKey, menuHeight, startAt } from "./menu.js";
+import { openModPane, shareTitle, createInputs } from "./pane.js";
 
 const BOARD_KEY = "argus-tsk.board";
 const SCOPE_KEY = "argus-tsk.scope";
@@ -60,6 +62,8 @@ export default class Tasks extends View {
     // A read is due while the shared board is older than this time.
     this.since = Date.now();
     this.focused = null;
+    // Makes the text inputs; each one tracks focus in `this.focused`.
+    this.input = createInputs(this);
     this.located = null;
     this.envStore = null;
     this.watchToken = null;
@@ -72,7 +76,7 @@ export default class Tasks extends View {
     this.renaming = null;
     this.reload = debounce(
       (cx) => {
-        cx.spawn(async (cx) => this.sync(cx));
+        this.startSync(cx);
         if (this.view === "task") this.loadTask(cx, readSelected());
       },
       DEBOUNCE,
@@ -127,41 +131,18 @@ export default class Tasks extends View {
     }
 
     this.startWatch(cx);
-    cx.spawn(async (cx) => this.sync(cx));
+    this.startSync(cx);
     if (this.view === "task") this.loadTask(cx, readSelected());
     cx.timer.every(POLL, (cx) => {
       if (!this.polling) return;
       this.since = Math.max(this.since, Date.now() - POLL / 2);
-      cx.spawn(async (cx) => this.sync(cx));
+      this.startSync(cx);
     });
   }
 
   /** The path to load for icon `name`: Herdr's file when it has one, else this mod's copy. */
   icon(name) {
     return iconResolver(MOD, this.found)(name);
-  }
-
-  /**
-   * A text input that tracks focus for its border. `onSubmit` runs on Enter,
-   * and also when focus leaves with `saveOnBlur`. A `multiline` input is a
-   * textarea: Return adds a line, and only ⌘Return submits.
-   */
-  input(id, options, onSubmit, { saveOnBlur = false, multiline = false } = {}) {
-    const state = multiline ? TextareaState.new(options) : InputState.new(options);
-    state.on("submit", (e, cx) => {
-      if (multiline && !e?.secondary) return;
-      onSubmit(cx);
-    });
-    state.on("focus", (_e, cx) => {
-      this.focused = id;
-      cx.notify();
-    });
-    state.on("blur", (_e, cx) => {
-      if (this.focused === id) this.focused = null;
-      if (saveOnBlur) onSubmit(cx);
-      cx.notify();
-    });
-    return state;
   }
 
   /** Stops the watch and gives the lock back when this copy goes. */
@@ -174,7 +155,7 @@ export default class Tasks extends View {
 
   releaseLock() {
     if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-    setShared(LOCK_KEY, { owner: this.owner, until: 0 });
+    setShared(LOCK_KEY, releasedLock(this.owner));
   }
 
   /**
@@ -206,6 +187,7 @@ export default class Tasks extends View {
     const setting = readSettings().tsk;
     if (this.located?.setting === setting) return this.located.result;
     const result = (async () => {
+      let old = null;
       for (const command of commandCandidates(setting, home())) {
         let reply;
         try {
@@ -216,8 +198,10 @@ export default class Tasks extends View {
         if (reply.code !== 0) continue;
         const version = reply.stdout.trim();
         if (versionOk(version)) return { ok: true, command, version };
-        return { ok: false, error: { kind: "old", message: `${version || command} is too old. This board needs tsk ${MIN_VERSION} or newer.` } };
+        // Keep the first old version and try the later candidates.
+        old ??= { ok: false, error: { kind: "old", message: `${version || command} is too old. This board needs tsk ${MIN_VERSION} or newer.` } };
       }
+      if (old !== null) return old;
       return { ok: false, error: { kind: "missing", message: `tsk not found. Install tsk ${MIN_VERSION} or newer, or set the tsk command in settings.` } };
     })();
     this.located = { setting, result };
@@ -269,6 +253,7 @@ export default class Tasks extends View {
     this.watch?.cancel();
     this.watch = null;
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       const dir = await this.storePath();
       let stamp = await this.storeStamp(dir);
       // What the last batch asks for, checked once the next watch is in place
@@ -313,8 +298,16 @@ export default class Tasks extends View {
   refresh(cx) {
     this.force = true;
     this.since = Date.now();
-    cx.spawn(async (cx) => this.sync(cx));
+    this.startSync(cx);
     cx.notify();
+  }
+
+  /** Starts a sync in a task. */
+  startSync(cx) {
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      await this.sync(cx);
+    });
   }
 
   /**
@@ -332,7 +325,7 @@ export default class Tasks extends View {
       const fetch = shouldFetch({ now: startedAt, fetchedAt: board.readAt, lock: shared(LOCK_KEY), intervalMs: Infinity, owner: this.owner, force: due });
       if (!fetch) {
         // Another copy is reading; check again once it is done.
-        if (due) cx.timer.after(LOCK_RETRY, (cx) => cx.spawn(async (cx) => this.sync(cx)));
+        if (due) cx.timer.after(LOCK_RETRY, (cx) => this.startSync(cx));
         return;
       }
 
@@ -351,7 +344,7 @@ export default class Tasks extends View {
       this.releaseLock();
       const again = this.gate.finish();
       if (read) cx.notify();
-      if (again) cx.spawn(async (cx) => this.sync(cx));
+      if (again) this.startSync(cx);
     }
   }
 
@@ -360,7 +353,12 @@ export default class Tasks extends View {
     try {
       const reply = await this.runTsk(listArgs({ kind: "all" }, LIVE));
       if (reply.code !== 0) return { ...readBoard(), readAt: startedAt, error: parseError(reply.stderr, reply.code) };
-      return { rows: parseRows(reply.stdout), readAt: startedAt, error: null };
+      const rows = parseRows(reply.stdout);
+      if (rows === null) {
+        const error = { kind: "unexpected", exit: reply.code, message: "tsk printed output that is not a JSON task list." };
+        return { ...readBoard(), readAt: startedAt, error };
+      }
+      return { rows, readAt: startedAt, error: null };
     } catch (error) {
       return { ...readBoard(), readAt: startedAt, error };
     }
@@ -374,6 +372,7 @@ export default class Tasks extends View {
     this.captureError = null;
     cx.notify();
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       try {
         const scope = effectiveScope(readScope(), followedOf(readBoard().rows));
         const reply = await this.runTsk(addArgs({ title, ...captureTarget(scope) }));
@@ -467,10 +466,17 @@ export default class Tasks extends View {
       this.cancelRename(cx);
       return;
     }
+    const refusal = titleError(change.title);
+    if (refusal !== null) {
+      rename.error = refusal;
+      cx.notify();
+      return;
+    }
     rename.saving = true;
     rename.error = null;
     cx.notify();
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       try {
         await this.tskWrite(projectTitleArgs(rename.project, change.title));
         if (this.renaming === rename) this.cancelRename(cx);
@@ -635,6 +641,7 @@ export default class Tasks extends View {
     }
     cx.notify();
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       try {
         await this.tskWrite(args);
         done?.(cx);
@@ -748,6 +755,7 @@ export default class Tasks extends View {
     this.flowError = null;
     cx.notify();
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       try {
         const result = task.status === "blocked" ? await answerBlock(this.flowApi(), task, text) : await sendBack(this.flowApi(), task, text);
         this.finishFlow(number, result, false);
@@ -767,6 +775,7 @@ export default class Tasks extends View {
     this.busy = true;
     cx.notify();
     cx.spawn(async (cx) => {
+      await cx.sleep(0);
       try {
         this.finishFlow(task.number, await retryStatus(this.flowApi(), task), true);
       } finally {
@@ -970,18 +979,13 @@ export default class Tasks extends View {
       parts.push(sectionTitle(t, title));
       for (const entry of list) parts.push(item(entry, index++));
     }
-    // A popup is as tall as its content, up to the height it was opened with,
-    // so the list gets an explicit height for its rows and section titles.
-    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + index * MENU_ROW + groups.length * 30 + extra);
-    return v_flex()
-      .id("argus-tsk-scopes")
-      .track_focus(this.handle)
-      .w_full()
-      .h(height)
-      .bg(t.popover)
-      .text_color(t.foreground)
-      .text_size(12.8)
-      .on_key_down((e, cx) => {
+    return menuPopup(t, {
+      id: "argus-tsk-scopes",
+      listId: "argus-tsk-scope-list",
+      handle: this.handle,
+      height: menuHeight(index, groups.length, { extra, max: SCOPES_HEIGHT }),
+      parts,
+      onKey: (e, cx) => {
         // Keys in the rename field belong to the field, while the field shows.
         if (renaming) return;
         const next = menuKey(active, e.key, entries.length);
@@ -990,8 +994,8 @@ export default class Tasks extends View {
         if (next.action === "pick") pickScope(entries[next.at].scope);
         else if (next.action === "close") closeOverlay(props()?.overlay);
         cx.notify();
-      })
-      .child(scrollArea("argus-tsk-scope-list", parts, { padding: MENU_PAD }));
+      },
+    });
   }
 
   /**
@@ -1039,7 +1043,7 @@ export default class Tasks extends View {
       // The board comes first, because every pane copy sees the same board; a pane's own read
       // can lag, and two copies with different titles would overwrite each other.
       const title = readBoard().rows.find((r) => r.number === selected)?.title ?? this.shownTask()?.title ?? null;
-      shareTitle(cx, taskPaneTitle(selected, title));
+      shareTitle(cx, TITLE_KEY, taskPaneTitle(selected, title));
     }
 
     const empty = (text) => paneFrame(t).child(header(t, "Task")).child(note(t, text));
@@ -1282,23 +1286,21 @@ export default class Tasks extends View {
         },
       }),
     );
-    return v_flex()
-      .id("argus-tsk-status")
-      .track_focus(this.handle)
-      .w_full()
-      .h(statusHeight(rows.length))
-      .bg(t.popover)
-      .text_color(t.foreground)
-      .text_size(12.8)
-      .on_key_down((e, cx) => {
+    return menuPopup(t, {
+      id: "argus-tsk-status",
+      listId: "argus-tsk-status-list",
+      handle: this.handle,
+      height: menuHeight(rows.length),
+      parts: rows,
+      onKey: (e, cx) => {
         const next = menuKey(active, e.key, choices.length);
         if (!next.handled) return;
         this.at = next.at;
         if (next.action === "pick" && pickable(choices[next.at])) pickStatus(p, choices[next.at].status);
         else if (next.action === "close") closeOverlay(p.overlay);
         cx.notify();
-      })
-      .child(scrollArea("argus-tsk-status-list", rows, { padding: MENU_PAD }));
+      },
+    });
   }
 
   renderSettings(t) {
@@ -1307,12 +1309,8 @@ export default class Tasks extends View {
       cx.notify();
     };
     const parts = [
-      sectionTitle(t, "tsk command"),
-      h_flex().px(8).py(4).child(field(t, "tsk", this.tskInput, this.focused === "tsk")),
-      hint(t, "Leave empty to use tsk from PATH, else its usual install folders.").px(8),
-      sectionTitle(t, "Store folder"),
-      h_flex().px(8).py(4).child(field(t, "store", this.storeInput, this.focused === "store")),
-      hint(t, "Leave empty to use TSK_STATE_DIR, else ~/.tsk. Both fields save on Enter or when you leave them.").px(8),
+      ...commandField(t, "tsk", "tsk command", this.tskInput, this.focused === "tsk", "Leave empty to use tsk from PATH, else its usual install folders."),
+      ...commandField(t, "store", "Store folder", this.storeInput, this.focused === "store", "Leave empty to use TSK_STATE_DIR, else ~/.tsk. Both fields save on Enter or when you leave them."),
     ];
     return frame(t, "argus-tsk-settings")
       .child(subHeader(t, back, "Settings", this.icon("chevron-left")))
@@ -1418,13 +1416,8 @@ function openScopes() {
  * this mod, so it gets the pane's choices, task number and owner in its props.
  */
 function openStatusMenu(owner, number, choices) {
-  const height = statusHeight(choices.length);
+  const height = menuHeight(choices.length);
   openOverlay({ mod: MOD, props: { view: "status", owner, number, choices }, kind: "popup", width: STATUS_WIDTH, height });
-}
-
-/** Height of the status dropdown for `count` rows. */
-function statusHeight(count) {
-  return 2 * MENU_PAD + count * MENU_ROW;
 }
 
 /** Hands a picked status to the pane that opened the popup, then closes the popup. */
@@ -1444,18 +1437,7 @@ function pickScope(scope) {
  */
 function openTask(number) {
   setShared(SELECTED_KEY, { number });
-  const tab = spaces()
-    .find((space) => space.active)
-    ?.tabs.find((candidate) => candidate.active);
-  if (!tab) return;
-  const inTab = panes().filter((pane) => pane.tab === tab.id);
-  const own = inTab.find((pane) => pane.mod === MOD);
-  if (own) {
-    run("pane.focus", { pane: own.pane });
-    return;
-  }
-  const target = inTab.find((pane) => pane.focused) ?? inTab[0];
-  run("pane.split", { ...(target ? { pane: target.pane } : {}), direction: "right", mod: MOD, props: { view: "task" } });
+  openModPane(MOD, { view: "task" });
 }
 
 function readSettings() {
@@ -1492,14 +1474,3 @@ function readBoard() {
   };
 }
 
-/**
- * Shares the title the Argus pane header shows for this mod's panes. A write
- * renders every mod again, so only a changed title is written, after this render.
- */
-function shareTitle(cx, title) {
-  if (shared(TITLE_KEY) === title) return;
-  cx.spawn(async (cx) => {
-    await cx.sleep(0);
-    if (shared(TITLE_KEY) !== title) setShared(TITLE_KEY, title);
-  });
-}
