@@ -22,7 +22,10 @@ export default class Toolbar extends View {
     this.warned = undefined;
     this.failed = false;
     if (checking()) return;
-    cx.spawn(async (cx) => this.follow(cx));
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      await this.follow(cx);
+    });
   }
 
   /**
