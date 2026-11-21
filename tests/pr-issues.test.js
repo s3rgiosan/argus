@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ghIssuesArgs, GL_ISSUES_QUERY, GL_USERNAME_QUERY, glabArgs } from "../mods/argus-pull-requests/forge.js";
-import { parseGhIssues, parseGlIssues, parseGlUsername } from "../mods/argus-pull-requests/model.js";
+import { ghIssuesArgs, GL_ISSUES_QUERY } from "../mods/argus-pull-requests/forge.js";
+import { GL_USERNAME_QUERY, glabArgs } from "../lib/forge-cli.js";
+import { parseGhIssues, parseGlIssues } from "../mods/argus-pull-requests/model.js";
 
 test("ghIssuesArgs", () => {
   assert.deepEqual(ghIssuesArgs("example-org/example-repo"), ["issue", "list", "--repo", "example-org/example-repo", "--assignee", "@me", "--state", "open", "--limit", "50", "--json", "number,title,updatedAt"]);
@@ -54,8 +55,3 @@ test("parseGlIssues reads iid strings, drops invalid ones, newest first", () => 
   assert.throws(() => parseGlIssues("nope"));
 });
 
-test("parseGlUsername", () => {
-  assert.equal(parseGlUsername(JSON.stringify({ data: { currentUser: { username: "octo-user" } } })), "octo-user");
-  assert.throws(() => parseGlUsername(JSON.stringify({ data: { currentUser: null } })));
-  assert.throws(() => parseGlUsername("nope"));
-});

@@ -4,7 +4,8 @@
 import { compareNames } from "./follow.js";
 import { branchSlug, findWorktree, gitError, parseWorktrees } from "./worktree.js";
 import { titleSlug } from "./review.js";
-import { ISSUE_LIMIT, limitNote } from "./forge.js";
+import { ISSUE_LIMIT } from "./forge.js";
+import { limitNote } from "./forge-cli.js";
 
 /** The note of a Branch tab read that could not find the default branch. */
 export const DEFAULT_BRANCH_NOTE = "Could not read the default branch, so it is listed too.";

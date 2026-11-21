@@ -1,5 +1,7 @@
 // Turns forge CLI output into the pull request model.
 
+import { isObject, parseJson, unexpected, glReply, glNodes, webUrl } from "./forge-cli.js";
+
 /** @typedef {import("./remote.js").Provider} Provider */
 /** @typedef {{passed: number, failed: number, running: number, total: number}} Checks */
 /** @typedef {{provider: Provider, host: string, repo: string, number: number, title: string, url: string, author: string, headRef: string, baseRef: string, isDraft: boolean, state: "open"|"closed"|"merged", reviewDecision: "approved"|"changes_requested"|"review_required"|null, checks: Checks, mergeable: "mergeable"|"conflicting"|"blocked"|"unknown", updatedAt: string, localPath: string|null, changesRequestedBy: string[]}} Pr */
@@ -41,22 +43,6 @@ const GH_MERGE_REASONS = Object.assign(Object.create(null), {
   UNKNOWN: "GitHub is still checking.",
 });
 
-function unexpected() {
-  return new Error("unexpected gh output");
-}
-
-function parseJson(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw unexpected();
-  }
-}
-
-function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
  * @param {{host: string, repo: string, number: number}} pr
  * @returns {string}
@@ -90,8 +76,8 @@ export function parsePrUrl(url) {
  * @returns {Array<{host: string, repo: string, number: number}>}
  */
 export function parseGhSearch(text) {
-  const raw = parseJson(text);
-  if (!Array.isArray(raw)) throw unexpected();
+  const raw = parseJson(text, "gh");
+  if (!Array.isArray(raw)) throw unexpected("gh");
   const found = [];
   for (const item of raw) {
     const ref = isObject(item) ? parsePrUrl(item.url) : null;
@@ -124,15 +110,6 @@ export function ghCheckList(rollup) {
     }
   }
   return checks;
-}
-
-/**
- * An http or https URL, or null for anything else.
- * @param {unknown} value
- * @returns {string|null}
- */
-function webUrl(value) {
-  return typeof value === "string" && /^https?:\/\//.test(value) && !/\s/.test(value) ? value : null;
 }
 
 /**
@@ -220,7 +197,7 @@ function ghChangesRequestedBy(latestReviews) {
  * @returns {Pr}
  */
 export function parseGhPr(raw, repo) {
-  if (!isObject(raw) || typeof raw.number !== "number") throw unexpected();
+  if (!isObject(raw) || typeof raw.number !== "number") throw unexpected("gh");
   return {
     provider: "github",
     host: GH_HOST,
@@ -248,8 +225,8 @@ export function parseGhPr(raw, repo) {
  * @returns {Pr[]}
  */
 export function parseGhList(text, repo) {
-  const raw = parseJson(text);
-  if (!Array.isArray(raw)) throw unexpected();
+  const raw = parseJson(text, "gh");
+  if (!Array.isArray(raw)) throw unexpected("gh");
   return raw.map((item) => parseGhPr(item, repo));
 }
 
@@ -298,11 +275,11 @@ function ghConversation(raw) {
  * @returns {{threads: Thread[], truncated: boolean, names: Record<string, string>}}
  */
 export function parseGhThreads(text) {
-  const raw = parseJson(text);
-  if (!isObject(raw)) throw unexpected();
+  const raw = parseJson(text, "gh");
+  if (!isObject(raw)) throw unexpected("gh");
   if (Array.isArray(raw.errors) && raw.errors.length > 0) throw new Error(String(raw.errors[0]?.message ?? "unexpected gh output"));
   const nodes = raw.data?.repository?.pullRequest?.reviewThreads?.nodes;
-  if (!Array.isArray(nodes)) throw unexpected();
+  if (!Array.isArray(nodes)) throw unexpected("gh");
   const threads = [];
   for (const node of nodes) {
     if (!isObject(node) || typeof node.path !== "string") continue;
@@ -352,8 +329,8 @@ export function mergeThreads(detail, read, error) {
  * @returns {Detail}
  */
 export function parseGhDetail(text, repo) {
-  const raw = parseJson(text);
-  if (!isObject(raw)) throw unexpected();
+  const raw = parseJson(text, "gh");
+  if (!isObject(raw)) throw unexpected("gh");
   const pr = parseGhPr(raw, repo);
   return {
     pr,
@@ -413,37 +390,12 @@ const GL_MERGE_REASONS = Object.assign(Object.create(null), {
   SECURITY_POLICY_PIPELINE_CHECK: "All security policy pipelines must succeed.",
 });
 
-function glUnexpected() {
-  return new Error("unexpected glab output");
-}
-
 function upper(value) {
   return typeof value === "string" ? value.toUpperCase() : "";
 }
 
 function lookup(table, key) {
   return Object.hasOwn(table, key) ? table[key] : undefined;
-}
-
-/** Parses a GraphQL reply and throws the first reported error. */
-function glReply(text) {
-  let raw;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    throw glUnexpected();
-  }
-  if (!isObject(raw)) throw glUnexpected();
-  if (Array.isArray(raw.errors) && raw.errors.length > 0) {
-    throw new Error(String(raw.errors[0]?.message ?? "unexpected glab output"));
-  }
-  if (!isObject(raw.data)) throw glUnexpected();
-  return raw.data;
-}
-
-function glNodes(connection) {
-  if (!isObject(connection) || !Array.isArray(connection.nodes)) throw glUnexpected();
-  return connection.nodes;
 }
 
 /** The merge requests of a list connection; one without a usable iid is left out. */
@@ -513,7 +465,7 @@ function glIid(node) {
  */
 export function parseGlabMr(node, host) {
   const number = isObject(node) ? glIid(node) : null;
-  if (number === null) throw glUnexpected();
+  if (number === null) throw unexpected("glab");
   return {
     provider: "gitlab",
     host,
@@ -545,7 +497,7 @@ export function parseGlabMr(node, host) {
 export function parseGlabUser(text, host) {
   const data = glReply(text);
   if (data.currentUser === null) throw new Error("not signed in");
-  if (!isObject(data.currentUser)) throw glUnexpected();
+  if (!isObject(data.currentUser)) throw unexpected("glab");
   const user = data.currentUser;
   return {
     needsReview: glMergeRequests(user.reviewRequestedMergeRequests, host),
@@ -561,7 +513,7 @@ export function parseGlabUser(text, host) {
 export function parseGlabProject(text, host) {
   const data = glReply(text);
   if (data.project === null) throw new Error("project not found");
-  if (!isObject(data.project)) throw glUnexpected();
+  if (!isObject(data.project)) throw unexpected("glab");
   return glMergeRequests(data.project.mergeRequests, host);
 }
 
@@ -664,7 +616,7 @@ function withReviewerNames(discussions, node) {
 export function parseGlabDetail(text, host) {
   const data = glReply(text);
   if (data.project === null) throw new Error("project not found");
-  if (!isObject(data.project)) throw glUnexpected();
+  if (!isObject(data.project)) throw unexpected("glab");
   if (data.project.mergeRequest === null) throw new Error("project not found");
   const node = data.project.mergeRequest;
   const pr = parseGlabMr(node, host);
@@ -779,26 +731,6 @@ export function parseGlMrState(text) {
   return mergedEntry(node.iid, node.diffHeadSha, node.mergedAt, node.targetBranch);
 }
 
-/**
- * `ghDefaultBranchArgs` output: the branch name.
- * @param {string} stdout
- * @returns {string|null}
- */
-export function parseGhDefaultBranch(stdout) {
-  const name = String(stdout ?? "").trim();
-  return name === "" ? null : name;
-}
-
-/**
- * `GL_DEFAULT_BRANCH_QUERY` output: the project's root ref.
- * @param {string} text
- * @returns {string|null}
- */
-export function parseGlDefaultBranch(text) {
-  const name = JSON.parse(text)?.data?.project?.repository?.rootRef;
-  return typeof name === "string" && name !== "" ? name : null;
-}
-
 /** @typedef {{number: number, title: string, updatedAt: string}} Issue */
 
 /**
@@ -823,8 +755,8 @@ function issueList(items) {
  * @returns {Issue[]}
  */
 export function parseGhIssues(text) {
-  const raw = parseJson(text);
-  if (!Array.isArray(raw)) throw unexpected();
+  const raw = parseJson(text, "gh");
+  if (!Array.isArray(raw)) throw unexpected("gh");
   return issueList(raw);
 }
 
@@ -837,19 +769,8 @@ export function parseGlIssues(text) {
   const data = glReply(text);
   if (data.project === null) throw new Error("project not found");
   const nodes = data.project?.issues?.nodes;
-  if (!Array.isArray(nodes)) throw glUnexpected();
+  if (!Array.isArray(nodes)) throw unexpected("glab");
   return issueList(nodes.map((node) => (isObject(node) && /^\d+$/.test(String(node.iid)) ? { ...node, number: Number(node.iid) } : null)));
-}
-
-/**
- * `GL_USERNAME_QUERY` output.
- * @param {string} text
- * @returns {string}
- */
-export function parseGlUsername(text) {
-  const name = glReply(text).currentUser?.username;
-  if (typeof name !== "string" || name === "") throw glUnexpected();
-  return name;
 }
 
 /** @typedef {{number: number, branch: string, headSha: string, base: string|null}} MergedHead */
@@ -908,8 +829,8 @@ export function parseGlMergedList(text) {
  * @returns {MergedList}
  */
 export function parseGhMergedFull(text) {
-  const raw = parseJson(text);
-  if (!Array.isArray(raw)) throw unexpected();
+  const raw = parseJson(text, "gh");
+  if (!Array.isArray(raw)) throw unexpected("gh");
   const entries = [];
   for (const item of raw) {
     if (!isObject(item) || !Number.isInteger(item.number) || item.number <= 0) continue;
