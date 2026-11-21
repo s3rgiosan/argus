@@ -13,7 +13,7 @@ import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leave
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghDefaultBranchArgs, ghIssuesArgs, glabArgs, glabAuthArgs, glabLoginNote, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY, GL_ISSUES_QUERY, GL_USERNAME_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhMergedFull, parseGlMergedFull, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, parseGhIssues, parseGlIssues, parseGlUsername, prKey } from "./model.js";
 import { answerFromList, candidates, candidateSignature, mergedHeadsFresh, countMerged, freshForReview, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
-import { lockNeedsRenewal, prRereadDue, prSignature, assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, followStatus, withFolders, withNote, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, keptLists, changesRequested, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
+import { prRereadDue, prSignature, assembleBoard, normalizeBoard, emptyMessage, scopeRepos, scopeProjects, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, followStatus, withFolders, withNote, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, keptLists, changesRequested, normalizeScope, prsInScope, scopeItems, scopeTitle, scopeWhereTitle, buildGroups, matchesFilter, ageText, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { remoteHeadsArgs, parseRemoteHeads, branchRead, issueRead, remoteBranchPlan, issueBranch, issuePlan, filterItems, aheadBehind, localBranchStep, branchNote, fastForwardArgs, remoteBranchArgs, remoteHasBranch, refspecMissing, branchNameError, noticeFor, folderExistsMessage, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
 import { worktreeRoot, checkoutBranch, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
@@ -25,7 +25,7 @@ import { expandHome } from "./paths.js";
 import { profileIO } from "./pane.js";
 import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
-import { shouldFetch, takeLock, holdsLock } from "./sync.js";
+import { shouldFetch, takeLock, holdsLock, lockNeedsRenewal, releasedLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, row as listRow, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
@@ -206,7 +206,7 @@ export default class PullRequests extends View {
 
   releaseLock() {
     if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-    setShared(LOCK_KEY, { owner: this.owner, until: 0 });
+    setShared(LOCK_KEY, releasedLock(this.owner));
   }
 
   /** Extends the lock while this copy holds it and less than half of its time is left. */

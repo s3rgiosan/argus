@@ -17,7 +17,7 @@ import { debounce } from "./timing.js";
 import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
-import { shouldFetch, takeLock, holdsLock } from "./sync.js";
+import { shouldFetch, takeLock, holdsLock, releasedLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, chip as tint, dropdownButton, fieldLabel, hint, errorLine, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
@@ -175,7 +175,7 @@ export default class Tasks extends View {
 
   releaseLock() {
     if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-    setShared(LOCK_KEY, { owner: this.owner, until: 0 });
+    setShared(LOCK_KEY, releasedLock(this.owner));
   }
 
   /**

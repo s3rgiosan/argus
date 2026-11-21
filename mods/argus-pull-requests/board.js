@@ -5,7 +5,6 @@ import { compareNames } from "./follow.js";
 import { prKey } from "./model.js";
 import { localPathFor, projectKey } from "./remote.js";
 import { KEEP_RUNS_MS } from "./review.js";
-import { LOCK_MS, holdsLock } from "./sync.js";
 
 export { compareNames };
 
@@ -671,19 +670,6 @@ export function mergedText(count) {
  */
 export function mergedListRead(counts, failedKeys) {
   return [...counts, ...failedKeys.map((key) => ({ key, count: null }))];
-}
-
-/**
- * True when the lock that `owner` holds ends in less than half of `lockMs`. Only then does a
- * read write the lock again, so a long read does not render every mod after each project.
- * @param {{owner: string, until: number}|null|undefined} lock
- * @param {string} owner
- * @param {number} now
- * @param {number} [lockMs]
- * @returns {boolean}
- */
-export function lockNeedsRenewal(lock, owner, now, lockMs = LOCK_MS) {
-  return holdsLock(lock, owner, now) && lock.until - now < lockMs / 2;
 }
 
 /**

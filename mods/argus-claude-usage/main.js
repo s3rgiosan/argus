@@ -13,7 +13,7 @@ import { parseReply, mergeEntry, pace, paceText } from "./usage.js";
 import { formatDuration, formatAgo } from "./format.js";
 import { normalizeSettings, isHidden, toggleHidden, addExtra, removeExtra, setName, pendingMoves, INTERVALS } from "./settings.js";
 import { createGate } from "./gate.js";
-import { shouldFetch, takeLock, holdsLock } from "./sync.js";
+import { shouldFetch, takeLock, holdsLock, lockNeedsRenewal, releasedLock } from "./sync.js";
 import { accountTitle } from "./title.js";
 import { dueAlerts } from "./alerts.js";
 import { frame, header, subHeader, iconButton, fieldLabel, hint, row, scrollArea, field, button, footer, sectionTitle, note, errorLine, meter, toggle, segmented } from "./ui.js";
@@ -100,7 +100,7 @@ export default class ClaudeUsage extends View {
   releaseLock() {
     if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
     writeData({ fetching: null });
-    setShared(LOCK_KEY, { owner: this.owner, until: 0 });
+    setShared(LOCK_KEY, releasedLock(this.owner));
   }
 
   /**
@@ -145,8 +145,9 @@ export default class ClaudeUsage extends View {
       if (this.view === "settings" && this.ensureNameInputs()) cx.notify();
 
       for (const profile of visibleProfiles(profiles, settings.hidden, home())) {
-        if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-        setShared(LOCK_KEY, takeLock(this.owner, Date.now()));
+        const checkedAt = Date.now();
+        if (!holdsLock(shared(LOCK_KEY), this.owner, checkedAt)) return;
+        if (lockNeedsRenewal(shared(LOCK_KEY), this.owner, checkedAt)) setShared(LOCK_KEY, takeLock(this.owner, checkedAt));
         writeData({ fetching: profile.folder });
 
         const reply = await fetchUsage(profile, settings);
@@ -158,7 +159,7 @@ export default class ClaudeUsage extends View {
       }
 
       writeData({ fetchedAt: startedAt, fetching: null });
-      setShared(LOCK_KEY, { owner: this.owner, until: 0 });
+      setShared(LOCK_KEY, releasedLock(this.owner));
       announce(settings);
     } finally {
       this.releaseLock();

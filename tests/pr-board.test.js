@@ -518,18 +518,6 @@ test("withNote adds a note once", () => {
   assert.deepEqual(withNote(board, "Could not read").notes, ["gh: boom", "Could not read"]);
 });
 
-test("lockNeedsRenewal writes only in the second half of the lock", async () => {
-  const { lockNeedsRenewal } = await import("../mods/argus-pull-requests/board.js");
-  const { LOCK_MS } = await import("../mods/argus-pull-requests/sync.js");
-  const now = 1_000_000;
-  assert.equal(lockNeedsRenewal({ owner: "a", until: now + LOCK_MS }, "a", now), false);
-  assert.equal(lockNeedsRenewal({ owner: "a", until: now + LOCK_MS / 2 }, "a", now), false);
-  assert.equal(lockNeedsRenewal({ owner: "a", until: now + LOCK_MS / 2 - 1 }, "a", now), true);
-  assert.equal(lockNeedsRenewal({ owner: "b", until: now + 1 }, "a", now), false);
-  assert.equal(lockNeedsRenewal({ owner: "a", until: now - 1 }, "a", now), false);
-  assert.equal(lockNeedsRenewal(null, "a", now), false);
-});
-
 test("prRereadDue reads again only for a changed row or a silent board", async () => {
   const { prRereadDue, prSignature } = await import("../mods/argus-pull-requests/board.js");
   const row = { updatedAt: "t1", state: "open", isDraft: false, reviewDecision: null, mergeable: "mergeable", checks: { passed: 1, failed: 0, running: 0, total: 1 } };
