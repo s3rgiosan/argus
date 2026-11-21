@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -388,4 +388,22 @@ test("both copies: a copy folder it cannot read keeps that shipped mod, and the 
   assert.match(r.stderr, /^build-layout: cannot read .*argus-spaces.*; the layout uses Herdr's sidebar/m);
   assert.doesNotMatch(r.stderr, /\n\s+at /);
   assert.deepEqual(bothMods(dir), ["spaces", "argus-pane"]);
+});
+
+test("pane header: a copy folder that is a symbolic link is left alone", () => {
+  const dir = withHeader();
+  const elsewhere = mkdtempSync(join(tmpdir(), "argus-elsewhere-"));
+  symlinkSync(elsewhere, join(dir, "mods", "argus-pane"));
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /argus-pane is a symbolic link; the layout uses Herdr's pane header/);
+  assert.deepEqual(readdirSync(elsewhere), []);
+  assert.equal(headerMod(dir), "pane");
+});
+
+test("a written layout leaves no temporary file behind", () => {
+  const dir = withHeader();
+  assert.equal(run(dir).status, 0);
+  assert.deepEqual(readdirSync(join(dir, "layouts")).filter((f) => f.endsWith(".tmp")), []);
+  assert.deepEqual(readdirSync(join(dir, "mods", "argus-pane")).filter((f) => f.endsWith(".tmp")), []);
 });

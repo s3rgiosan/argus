@@ -3,7 +3,7 @@
 // modules from its own folder only, so each mod carries its own copy.
 //
 //   node scripts/sync-lib.mjs           copy
-//   node scripts/sync-lib.mjs --check   exit 1 when a copy differs
+//   node scripts/sync-lib.mjs --check   exit 1 when a copy differs or a copy is not imported
 
 import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -29,7 +29,14 @@ for (const mod of mods) {
     .map((entry) => readFileSync(join(repo, "mods", mod, entry.name), "utf8"));
   const uses = (name) => sources.some((source) => source.includes(`"./${name}"`) || source.includes(`'./${name}'`));
   for (const name of libs) {
-    if (!uses(name)) continue;
+    if (!uses(name)) {
+      // A copy that no module of the mod imports is left in place.
+      if (existsSync(join(repo, "mods", mod, name))) {
+        console.error(`${check ? "" : "warning: "}mods/${mod}/${name} is not imported by the mod; remove it`);
+        if (check) stale++;
+      }
+      continue;
+    }
     const source = readFileSync(join(repo, "lib", name), "utf8");
     const target = join(repo, "mods", mod, name);
     const current = existsSync(target) ? readFileSync(target, "utf8") : null;
