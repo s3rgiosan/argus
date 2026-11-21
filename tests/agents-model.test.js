@@ -7,6 +7,7 @@ import {
   buildSections,
   cleanTitle,
   duration,
+  OLDER_MS,
   holdActive,
   normalizeHolds,
   normalizeTrack,
@@ -69,6 +70,29 @@ test("working then idle is finished, and stays finished after done turns idle", 
   assert.equal(looked.changed, false);
   assert.equal(looked.track.t1.s, "finished");
   assert.equal(looked.track.t1.at, NOW);
+});
+
+test("a finish while the pane is focused is idle, and stays idle", () => {
+  let track = advance({}, [item({ status: "working", focused: true })], NOW).track;
+  track = advance(track, [item({ status: "idle", focused: true })], NOW + MIN).track;
+  assert.equal(track.t1.s, "idle");
+  assert.equal(track.t1.gen, 1);
+  // Focus lost later: still idle.
+  const away = advance(track, [item({ status: "idle", focused: false })], NOW + 2 * MIN);
+  assert.equal(away.changed, false);
+  // A watched "done" is idle too.
+  const done = advance({ t1: { s: "working", at: NOW, gen: 0, turn: null } }, [item({ status: "done", focused: true })], NOW + MIN).track;
+  assert.equal(done.t1.s, "idle");
+});
+
+test("a finish while the pane is not focused is finished, and stays finished after focus", () => {
+  let track = advance({}, [item({ status: "working" })], NOW).track;
+  track = advance(track, [item({ status: "idle" })], NOW + MIN).track;
+  assert.equal(track.t1.s, "finished");
+  const focus = advance(track, [item({ status: "idle", focused: true })], NOW + 2 * MIN);
+  assert.equal(focus.changed, false);
+  assert.equal(focus.track.t1.s, "finished");
+  assert.equal(focus.track.t1.at, NOW + MIN);
 });
 
 test("working again ends finished; blocked then idle is idle", () => {
@@ -228,8 +252,32 @@ test("buildSections groups, sorts newest first with pinned on top, and shelves s
   assert.deepEqual(s.failed.map((r) => r.address), ["g"]);
   assert.deepEqual(s.finished.map((r) => r.address), ["c"]);
   assert.deepEqual(s.snoozed.map((r) => [r.address, r.kind, r.until]), [["d", "finished", null]]);
-  assert.equal(s.working, 1);
+  assert.deepEqual(s.working.map((r) => r.address), ["e"]);
+  assert.deepEqual(s.idle.map((r) => r.address), ["f"]);
+  assert.deepEqual(s.older, []);
   assert.equal(s.waiting[0].since, NOW - HOUR);
+});
+
+test("buildSections moves finished rows older than OLDER_MS to older, and keeps the boundary in finished", () => {
+  const items = ["a", "b", "c"].map((address) => ({ address, status: "idle", pinned: false }));
+  const track = {
+    a: { s: "finished", at: NOW - OLDER_MS, gen: 1, turn: null },
+    b: { s: "finished", at: NOW - OLDER_MS - 1, gen: 1, turn: null },
+    c: { s: "finished", at: NOW - 5 * HOUR, gen: 1, turn: null },
+  };
+  const s = buildSections(items, track, {}, NOW);
+  assert.deepEqual(s.finished.map((r) => r.address), ["a"]);
+  assert.deepEqual(s.older.map((r) => r.address), ["b", "c"]);
+});
+
+test("a snoozed older row goes to snoozed, and returns to older on reopen", () => {
+  const items = [{ address: "a", status: "idle", pinned: false }];
+  const track = { a: { s: "finished", at: NOW - 3 * HOUR, gen: 2, turn: null } };
+  const held = buildSections(items, track, { a: { until: null, gen: 2 } }, NOW);
+  assert.deepEqual(held.snoozed.map((r) => [r.address, r.kind]), [["a", "finished"]]);
+  assert.deepEqual(held.older, []);
+  const reopened = buildSections(items, track, {}, NOW);
+  assert.deepEqual(reopened.older.map((r) => r.address), ["a"]);
 });
 
 test("untilLabel names the wake time", () => {

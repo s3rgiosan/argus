@@ -1,6 +1,6 @@
 // The agents board without Herdr imports, so Node can test it: what each
-// agent needs (waiting, failed, finished), the tracker that remembers it,
-// snooze holds, and the board's sections and labels.
+// agent needs (waiting, failed, finished, working, idle), the tracker that
+// remembers it, snooze holds, and the board's sections and labels.
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -8,6 +8,9 @@ const DAY = 24 * HOUR;
 
 /** Tracker entries of agents that are gone are dropped after this time. */
 export const KEEP_GONE_MS = 7 * DAY;
+
+/** A finished row older than this moves from Finished to the Older fold. */
+export const OLDER_MS = HOUR;
 
 /** The categories the tracker stores. */
 const KINDS = new Set(["waiting", "failed", "finished", "working", "idle"]);
@@ -122,7 +125,9 @@ function turnOf(terminal) {
 /**
  * The category of an agent now, from its status, its raw terminal word and
  * the tracker's last entry. Idle after work, or after its turn count went
- * up, is finished.
+ * up, is finished. A finish while the agent's pane is the focused pane (the
+ * person watched it) is idle: `row.focused` is read at the moment of the
+ * change, and a finished entry stays finished after a later focus.
  */
 function kindOf(row, prev) {
   if (row.raw === "error") return "failed";
@@ -132,10 +137,11 @@ function kindOf(row, prev) {
     case "working":
       return "working";
     case "done":
-      return "finished";
+      return prev?.s === "working" && row.focused ? "idle" : "finished";
     case "idle": {
-      if (prev && (prev.s === "working" || prev.s === "finished")) return "finished";
-      return turnWentUp(row, prev) ? "finished" : "idle";
+      if (prev?.s === "finished") return "finished";
+      if (prev?.s === "working" || turnWentUp(row, prev)) return row.focused ? "idle" : "finished";
+      return "idle";
     }
     default:
       return "idle";
@@ -153,7 +159,7 @@ function turnWentUp(row, prev) {
  * a change too, because a whole working phase came and went.
  *
  * @param {Record<string, object>} track
- * @param {{ address: string, status: string, raw: string | null, turn: number | null }[]} rows
+ * @param {{ address: string, status: string, raw: string | null, turn: number | null, focused?: boolean }[]} rows
  * @param {number} now
  * @returns {{ track: Record<string, object>, changed: boolean }}
  */
@@ -275,22 +281,27 @@ export function pruneHolds(holds, track, now) {
 /**
  * The board's sections. Each row gets `kind`, `since` (when its state
  * started) and, when snoozed, `until`. Sections list pinned rows first, then
- * the newest change first. Working agents are only counted.
+ * the newest change first. `finished` holds the finished rows that are not
+ * older than `OLDER_MS`; `older` holds the rest. A snoozed row goes to
+ * `snoozed`, whatever its age. Working and idle rows take no snooze.
  */
 export function buildSections(rows, track, holds, now) {
-  const sections = { waiting: [], failed: [], finished: [], snoozed: [], working: 0 };
+  const sections = { waiting: [], failed: [], finished: [], working: [], idle: [], older: [], snoozed: [] };
   for (const row of rows) {
     const entry = track[row.address];
     if (!entry) continue;
-    if (entry.s === "working") sections.working++;
-    if (entry.s !== "waiting" && entry.s !== "failed" && entry.s !== "finished") continue;
-    const hold = holds[row.address];
     const shown = { ...row, kind: entry.s, since: entry.at };
+    if (entry.s === "working" || entry.s === "idle") {
+      sections[entry.s].push(shown);
+      continue;
+    }
+    const hold = holds[row.address];
     if (holdActive(hold, entry, now)) sections.snoozed.push({ ...shown, until: hold.until });
+    else if (entry.s === "finished" && now - entry.at > OLDER_MS) sections.older.push(shown);
     else sections[entry.s].push(shown);
   }
   const order = (x, y) => Number(y.pinned) - Number(x.pinned) || y.since - x.since;
-  for (const key of ["waiting", "failed", "finished", "snoozed"]) sections[key].sort(order);
+  for (const list of Object.values(sections)) list.sort(order);
   return sections;
 }
 
