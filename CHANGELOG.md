@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A GitHub repo that has issues turned off shows no issues in `argus-issues` and adds no failure note.
 - An empty list in `argus-issues` and `argus-pull-requests` says that the issues or pull requests could not be read only when no read that fills the scope worked. When one repo fails and the other reads work, the list shows "No open issues here" or "No pull requests here" under the failure note.
 - The pane header of `argus-issues`, `argus-pull-requests` and `argus-tsk` shows the number and title of the picked item as soon as the pane switches to it. The title comes from the board row, so it shows while the item loads.
+- The snooze menu of `argus-agents` is 250 px wide, as Herdr's new-tab menu, so "Tomorrow morning" shows in full next to its wake time.
 
 ### Security
 

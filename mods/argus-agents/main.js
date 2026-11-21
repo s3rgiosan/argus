@@ -30,7 +30,8 @@ const HOLDS_KEY = "argus-agents.holds";
 // How often the tracker looks at the agents, and how often the times redraw.
 const TICK = 1_000;
 const CLOCK = 30_000;
-const SNOOZE_WIDTH = 220;
+// Wide enough for the longest label and its wake time on one row.
+const SNOOZE_WIDTH = 250;
 const SNOOZE_HEIGHT = menuHeight(SNOOZES.length);
 
 const SECTIONS = [
