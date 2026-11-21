@@ -8,14 +8,14 @@ import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, 
 import { readdir, readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { discover, visibleProfiles, expandHome, tildePath, readFirst } from "./accounts.js";
-import { parseReply, pace, paceText } from "./usage.js";
+import { parseReply, mergeEntry, pace, paceText } from "./usage.js";
 import { formatDuration, formatAgo } from "./format.js";
 import { normalizeSettings, isHidden, toggleHidden, addExtra, removeExtra, setName, pendingMoves, INTERVALS } from "./settings.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock } from "./sync.js";
 import { accountTitle } from "./title.js";
 import { dueAlerts } from "./alerts.js";
-import { frame, header, subHeader, iconButton, fieldLabel, hint, row, scrollArea, field, button, footer, sectionTitle, note, meter, toggle, segmented } from "./ui.js";
+import { frame, header, subHeader, iconButton, fieldLabel, hint, row, scrollArea, field, button, footer, sectionTitle, note, errorLine, meter, toggle, segmented } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 
 const SETTINGS_KEY = "argus-claude-usage.settings";
@@ -24,6 +24,7 @@ const DATA_KEY = "argus-claude-usage.data";
 const LOCK_KEY = "argus-claude-usage.lock";
 const MINUTE = 60_000;
 const TICK = 30_000;
+const DISCOVERY_TTL = 60 * MINUTE;
 const EXEC_TIMEOUT = 25_000;
 const STATUS_URL = "https://status.anthropic.com";
 const ALERTS_KEY = "argus-claude-usage.alerts";
@@ -39,7 +40,6 @@ const ICON = (name) => `mods/${MOD}/icons/${name}.svg`;
  */
 export default class ClaudeUsage extends View {
   init(_props, cx) {
-    moveOldKeys();
     this.owner = randomUUID();
     this.view = "usage";
     this.gate = createGate();
@@ -56,6 +56,7 @@ export default class ClaudeUsage extends View {
     // The icons Herdr ships that this panel can load; the panel's own copies show until the probe ends.
     this.found = new Set();
     if (checking()) return;
+    moveOldKeys();
 
     cx.spawn(async (cx) => {
       await cx.sleep(0);
@@ -131,7 +132,12 @@ export default class ClaudeUsage extends View {
       this.force = false;
 
       fetched = true;
-      const profiles = await discover(discoveryIO(), { extra: settings.extra });
+      // A forced refresh reads the profiles again; so does a change of the extra folders.
+      const extraKey = JSON.stringify(settings.extra ?? []);
+      if (force || this.discovered?.extraKey !== extraKey || startedAt - this.discovered.at >= DISCOVERY_TTL) {
+        this.discovered = { extraKey, at: startedAt, profiles: await discover(discoveryIO(), { extra: settings.extra }) };
+      }
+      const profiles = this.discovered.profiles;
       const folders = new Set(profiles.map((profile) => profile.folder));
       const kept = Object.fromEntries(Object.entries(readData().byFolder).filter(([folder]) => folders.has(folder)));
       writeData({ profiles, byFolder: kept });
@@ -145,7 +151,9 @@ export default class ClaudeUsage extends View {
         const reply = await fetchUsage(profile, settings);
         // Another copy may have taken over while Claude Code ran.
         if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-        writeData({ fetching: null, byFolder: { ...readData().byFolder, [profile.folder]: { reply, updatedAt: Date.now() } } });
+        const now = Date.now();
+        const entry = mergeEntry(readData().byFolder[profile.folder], reply, now, settings.interval * MINUTE * 2 + MINUTE);
+        writeData({ fetching: null, byFolder: { ...readData().byFolder, [profile.folder]: entry } });
       }
 
       writeData({ fetchedAt: startedAt, fetching: null });
@@ -246,7 +254,9 @@ export default class ClaudeUsage extends View {
     if (isFolded) return section;
     if (!reply) return section.child(note(t, "Loading…"));
     if (reply.state !== "ok") return section.child(div().px(8).text_size(12).text_color(t.muted).child(longState(reply)));
-    return section.children(renderUsage(t, reply, entry.updatedAt, loading));
+    const parts = renderUsage(t, reply, entry.updatedAt, loading);
+    if (entry.lastError) parts.splice(1, 0, errorLine(t, `Last refresh failed · ${entry.lastError.message} · ${formatAgo(Date.now() - entry.lastError.at)}`));
+    return section.children(parts);
   }
 
   openSettings(cx) {
