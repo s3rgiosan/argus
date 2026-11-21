@@ -17,7 +17,7 @@ import { readForge, saveForge } from "./forge-settings.js";
 import { mapPool } from "./pool.js";
 import { ghSearchArgs, ghListArgs, ghViewArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { issueKey, parseGhSearch, parseGhList, parseGhView, parseGlUser, parseGlProject, parseGlDetail } from "./model.js";
-import { GROUPINGS, assembleBoard, normalizeBoard, normalizeScope, normalizeGrouping, issuesInScope, scopeItems, scopeTitle, mentionsNote, buildGroups, shownOrder, matchesFilter, rowDetail, assigneesText, emptyMessage, issuePaneTitle, issueSignature, keptLists, worktreeTarget, worktreeState } from "./board.js";
+import { GROUPINGS, assembleBoard, normalizeBoard, normalizeScope, normalizeGrouping, issuesInScope, scopeItems, scopeTitle, mentionsNote, buildGroups, shownOrder, matchesFilter, rowDetail, assigneesText, emptyMessage, issuePaneTitle, issueSignature, keptLists, searchedLists, worktreeTarget, worktreeState } from "./board.js";
 import { SECTIONS, namesOf, commentItems, sectionSummaries } from "./detail.js";
 import { issuePane } from "./detail-view.js";
 import { followFolder } from "./follow.js";
@@ -167,12 +167,15 @@ export default class Issues extends View {
   async readGitHub(gh, projects, result, notes) {
     const searched = await Promise.all(GH_SEARCHES.map(([kind]) => this.forge.attempt("gh", gh, ghSearchArgs(kind), parseGhSearch, notes)));
     this.boardSync.renew();
+    const read = searchedLists(readBoard(), GH_SEARCHES.map(([kind]) => kind), searched, Date.now());
+    result.worked.push(...read.worked);
+    Object.assign(result.listedAt, read.listedAt);
     GH_SEARCHES.forEach(([kind, what], index) => {
-      if (searched[index] !== null) result.worked.push(searchRead({ provider: "github", host: "github.com" }));
-      const issues = searched[index] ?? [];
-      const cut = limitNote(what, issues.length);
-      if (cut !== null) notes.push(cut);
-      result[kind].push(...issues);
+      if (searched[index] !== null) {
+        const cut = limitNote(what, searched[index].length);
+        if (cut !== null) notes.push(cut);
+      }
+      result[kind].push(...read.lists[kind]);
     });
     const failed = [];
     await mapPool(projects, CLI_CONCURRENCY, async (project) => {
@@ -295,7 +298,7 @@ export default class Issues extends View {
     } else if (unfollowed) {
       parts.push(note(t, "This space is not a GitHub or GitLab repo."));
     } else if (shown.length === 0) {
-      parts.push(note(t, text.trim() === "" ? emptyMessage(board, scopeRepos(board, scope, followed), scopeReads(board, scope, followed)) : "Nothing matches the filter"));
+      parts.push(note(t, text.trim() === "" ? emptyMessage(board, scopeRepos(board, scope, followed), scopeReads(board, scope, followed, true)) : "Nothing matches the filter"));
     } else {
       // An issue with several assignees or labels has a row in each of their groups.
       for (const group of buildGroups(shown, readGrouping())) {

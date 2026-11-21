@@ -16,6 +16,7 @@ import {
   rowSignature,
   scopeItems as scopeRows,
   scopeProjects,
+  searchRead,
   scopeTitle as titleOf,
   shownOrder as orderOf,
   whereKey,
@@ -28,7 +29,8 @@ import {
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
  * @typedef {"repo" | "assignee" | "label"} Grouping
  * @typedef {{issues: Issue[], scopes: {assigned: string[], created: string[], mentions: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], listedAt: Record<string, number>, worked: string[]}} Board
- *   `listedAt` holds the time of the last successful issue list of each project, keyed by `projectKey`.
+ *   `listedAt` holds the time of the last successful issue list of each project, keyed by `projectKey`,
+ *   and of each GitHub search, keyed by its read id (`gh:<kind>`).
  *   `worked` holds the ids of the reads that worked in the last read: the project key of a project list, `searchRead` of a search.
  * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} Item
  */
@@ -351,3 +353,37 @@ export function worktreeState(target, run, busy) {
   const running = run?.running === true;
   return { reason: target.reason, running, busy: busy || running, error: run?.error ?? null, note: run?.note ?? null };
 }
+
+/**
+ * The three GitHub search replies as lists and reads. A search that worked gives its issues, its
+ * read id `gh:<kind>` and the time of the read. A search that failed (`null`) keeps the issues
+ * it gave on the previous board for KEEP_LIST_MS after its last good read, then gives none.
+ * @param {Board} previous
+ * @param {Array<"assigned" | "created" | "mentions">} kinds
+ * @param {Array<Issue[] | null>} replies One per kind; `null` when the search failed.
+ * @param {number} now
+ * @returns {{lists: Record<string, Issue[]>, worked: string[], listedAt: Record<string, number>}}
+ */
+export function searchedLists(previous, kinds, replies, now) {
+  const lists = {};
+  const worked = [];
+  const listedAt = {};
+  const seen = previous.listedAt ?? {};
+  kinds.forEach((kind, index) => {
+    const id = searchRead(ghRepo, kind);
+    const reply = replies[index];
+    if (reply !== null && reply !== undefined) {
+      lists[kind] = reply;
+      worked.push(id);
+      listedAt[id] = now;
+    } else if (Object.hasOwn(seen, id) && now - seen[id] < KEEP_LIST_MS) {
+      lists[kind] = itemsByKeys(previous.issues, previous.scopes[kind], issueKey);
+      listedAt[id] = seen[id];
+    } else {
+      lists[kind] = [];
+    }
+  });
+  return { lists, worked, listedAt };
+}
+
+const ghRepo = { provider: "github", host: "github.com" };

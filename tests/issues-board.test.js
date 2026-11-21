@@ -17,6 +17,7 @@ import {
   issuePaneTitle,
   issueSignature,
   keptLists,
+  searchedLists,
   normalizeGrouping,
   GROUPINGS,
   worktreeTarget,
@@ -24,7 +25,7 @@ import {
   NO_CLONE,
 } from "../mods/argus-issues/board.js";
 import { stateText, namesOf, openedLine, commentItems, sectionSummaries, hiddenText } from "../mods/argus-issues/detail.js";
-import { displayName, KEEP_LIST_MS } from "../lib/forge-board.js";
+import { displayName, KEEP_LIST_MS, scopeReads } from "../lib/forge-board.js";
 
 function issue(overrides = {}) {
   return {
@@ -344,4 +345,55 @@ test("sectionSummaries counts the comments", () => {
 test("hiddenText names the reason when there is one", () => {
   assert.equal(hiddenText(""), "Hidden by GitHub.");
   assert.equal(hiddenText("spam"), "Hidden by GitHub as spam.");
+});
+
+const ghRepo = { provider: "github", host: "github.com" };
+const SEARCH_KINDS = ["assigned", "created", "mentions"];
+const issuesFailed = "No issues could be read. See the messages above.";
+
+test("searchedLists marks each search that worked with its own id", () => {
+  const previous = assembleBoard({ projects: [], folders: [], assigned: [], created: [], mentions: [], projectIssues: {}, notes: [], readAt: 5 });
+  const read = searchedLists(previous, SEARCH_KINDS, [null, [issue({ number: 2 })], []], 10);
+  assert.deepEqual(read.worked, ["gh:created", "gh:mentions"]);
+  assert.deepEqual(read.lists.assigned, []);
+  assert.deepEqual(read.lists.created.map((i) => i.number), [2]);
+  assert.deepEqual(read.listedAt, { "gh:created": 10, "gh:mentions": 10 });
+});
+
+test("a failed search shows the failure text for its scope while another search worked", () => {
+  const previous = assembleBoard({ projects: [], folders: [], assigned: [], created: [], mentions: [], projectIssues: {}, notes: [], readAt: 5 });
+  const read = searchedLists(previous, SEARCH_KINDS, [null, [issue()], []], 10);
+  const b = assembleBoard({ projects: [], folders: [], ...read.lists, projectIssues: {}, notes: ["gh: Example error"], readAt: 10, worked: read.worked, listedAt: read.listedAt });
+  const text = (show) => emptyMessage(b, [ghRepo], scopeReads(b, { show, where: "all" }, null, true));
+  assert.equal(text("assigned"), issuesFailed);
+  assert.equal(text("mentions"), "No open issues here");
+});
+
+test("all searches working gives the none text", () => {
+  const previous = assembleBoard({ projects: [], folders: [], assigned: [], created: [], mentions: [], projectIssues: {}, notes: [], readAt: 5 });
+  const read = searchedLists(previous, SEARCH_KINDS, [[], [], []], 10);
+  const b = assembleBoard({ projects: [], folders: [], ...read.lists, projectIssues: {}, notes: [], readAt: 10, worked: read.worked, listedAt: read.listedAt });
+  assert.equal(emptyMessage(b, [ghRepo], scopeReads(b, { show: "assigned", where: "all" }, null, true)), "No open issues here");
+});
+
+test("a failed search keeps its last rows for KEEP_LIST_MS after its last good read", () => {
+  const previous = assembleBoard({
+    projects: [],
+    folders: [],
+    assigned: [issue({ number: 7 })],
+    created: [issue({ number: 8 })],
+    mentions: [],
+    projectIssues: {},
+    notes: [],
+    readAt: 5,
+    worked: ["gh:assigned", "gh:created", "gh:mentions"],
+    listedAt: { "gh:assigned": 1_000, "gh:created": 1_000, "gh:mentions": 1_000 },
+  });
+  const within = searchedLists(previous, SEARCH_KINDS, [null, [issue({ number: 8 })], []], 1_000 + KEEP_LIST_MS - 1);
+  assert.deepEqual(within.lists.assigned.map((i) => i.number), [7]);
+  assert.deepEqual(within.worked, ["gh:created", "gh:mentions"]);
+  assert.equal(within.listedAt["gh:assigned"], 1_000);
+  const after = searchedLists(previous, SEARCH_KINDS, [null, [], []], 1_000 + KEEP_LIST_MS);
+  assert.deepEqual(after.lists.assigned, []);
+  assert.equal(after.listedAt["gh:assigned"], undefined);
 });
