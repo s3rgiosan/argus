@@ -127,7 +127,8 @@ export default class ClaudeUsage extends View {
       fetched = true;
       // A forced refresh reads the profiles again; so does a change of the extra folders.
       const extraKey = JSON.stringify(settings.extra ?? []);
-      if (force || this.discovered?.extraKey !== extraKey || startedAt - this.discovered.at >= DISCOVERY_TTL) {
+      // An empty result can come from a failed read, so the next sync looks again.
+      if (force || this.discovered?.extraKey !== extraKey || this.discovered.profiles.length === 0 || startedAt - this.discovered.at >= DISCOVERY_TTL) {
         this.discovered = { extraKey, at: startedAt, profiles: await discover(profileIO(), { extra: settings.extra }) };
       }
       const profiles = this.discovered.profiles;
