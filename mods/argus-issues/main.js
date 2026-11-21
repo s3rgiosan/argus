@@ -21,7 +21,7 @@ import { GROUPINGS, assembleBoard, normalizeBoard, normalizeScope, normalizeGrou
 import { SECTIONS, namesOf, commentItems, sectionSummaries } from "./detail.js";
 import { issuePane } from "./detail-view.js";
 import { followFolder } from "./follow.js";
-import { openInBrowser, openModPane, shareTitle, createInputs } from "./pane.js";
+import { openInBrowser, openModPane, setTitle, shareTitle, createInputs } from "./pane.js";
 import { frame, header, subHeader, badge, iconButton, dropdownButton, errorLine, scrollArea, field, footer, sectionTitle, note, segmented, menuRow, forgeCommandFields, intervalPicker, menuPopup, twoLineRow } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, menuHeight, startAt } from "./menu.js";
@@ -565,9 +565,10 @@ function pickGrouping(id) {
   setShared(GROUP_KEY, id);
 }
 
-/** Makes `issue` the selected issue, which every issue pane shows. */
+/** Makes `issue` the selected issue, which every issue pane shows, and puts its number and title in the pane header. */
 function selectIssue(issue) {
   setShared(SELECTED_KEY, { key: issueKey(issue), provider: issue.provider, host: issue.host, repo: issue.repo, number: issue.number });
+  setTitle(TITLE_KEY, issuePaneTitle(issue));
 }
 
 /** Selects an issue and shows it in this mod's pane of the shown tab (`openModPane`). */

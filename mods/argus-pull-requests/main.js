@@ -26,7 +26,7 @@ import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT, GIT_TIMEOUT } from "./
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, usageSettings } from "./accounts.js";
 import { expandHome } from "./paths.js";
-import { openInBrowser, openModPane, shareTitle, createInputs } from "./pane.js";
+import { openInBrowser, openModPane, setTitle, shareTitle, createInputs } from "./pane.js";
 import { readForge, saveForge } from "./forge-settings.js";
 import { profileIO } from "./profile-io.js";
 import { checkLayout, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
@@ -2193,9 +2193,10 @@ function pickScope(scope) {
   setShared(SCOPE_KEY, scope);
 }
 
-/** Makes `pr` the selected pull request, which every pull request pane shows. */
+/** Makes `pr` the selected pull request, which every pull request pane shows, and puts its number and title in the pane header. */
 function selectPr(pr) {
   setShared(SELECTED_KEY, { key: prKey(pr), provider: pr.provider, host: pr.host, repo: pr.repo, number: pr.number });
+  setTitle(TITLE_KEY, prPaneTitle(pr));
 }
 
 /**

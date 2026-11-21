@@ -21,7 +21,7 @@ import { shouldFetch, takeLock, holdsLock, releasedLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, chip as tint, dropdownButton, fieldLabel, hint, errorLine, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, commandField, menuPopup } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, menuHeight, startAt } from "./menu.js";
-import { openModPane, shareTitle, createInputs } from "./pane.js";
+import { openModPane, setTitle, shareTitle, createInputs } from "./pane.js";
 
 const BOARD_KEY = "argus-tsk.board";
 const SCOPE_KEY = "argus-tsk.scope";
@@ -1437,6 +1437,8 @@ function pickScope(scope) {
  */
 function openTask(number) {
   setShared(SELECTED_KEY, { number });
+  // The header shows the task's number and title from its board row while the pane reads the task.
+  setTitle(TITLE_KEY, taskPaneTitle(number, readBoard().rows.find((row) => row.number === number)?.title ?? null));
   openModPane(MOD, { view: "task" });
 }
 

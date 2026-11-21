@@ -37,7 +37,7 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 ## Match Herdr's UI
 
 - Use the building blocks that `lib/ui.js` exports, because they copy Herdr's values. Read the file for the current list. It has settings fields (`commandField`, `forgeCommandFields`, `intervalPicker`), popup menus (`menuPopup` with `menuHeight` from `lib/menu.js`), board rows (`twoLineRow`) and pane parts (`paneHead`, `foldTitle`, `markdown`). Do not draw a second version of a control that `lib/ui.js` already has.
-- `lib/pane.js` opens a mod's pane (`openModPane`), shares its title (`shareTitle`), opens links with `cx.open_url` (`openInBrowser`) and makes text inputs that track focus (`createInputs`).
+- `lib/pane.js` opens a mod's pane (`openModPane`), sets its title with the selection (`setTitle`) and from a render (`shareTitle`), opens links with `cx.open_url` (`openInBrowser`) and makes text inputs that track focus (`createInputs`).
 - When Herdr has a control that `lib/ui.js` does not have, copy Herdr's values from its mod into a new block in `lib/ui.js`. Name the Herdr file and line in your report, not in the code comment.
 - Section titles use sentence case, for example "Ready to merge".
 - Popup menus use `menuRow` and the keys in `lib/menu.js` (↑ and ↓ move, Enter picks).
