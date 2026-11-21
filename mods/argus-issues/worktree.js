@@ -37,7 +37,7 @@ export function worktreeRoot(settingsText, home) {
   if (trimmed === "") {
     return { error: "worktrees.directory must be a non-empty path." };
   }
-  let path = directory.replace(/\\/g, "/");
+  let path = trimmed.replace(/\\/g, "/");
   if (path === "~" || path.startsWith("~/")) path = expandHome(path, home.replace(/\\/g, "/"));
   if (!path.startsWith("/") && !/^[A-Za-z]:\//.test(path)) {
     return { error: "worktrees.directory must be an absolute path or start with ~/." };
@@ -71,7 +71,7 @@ export function gitError(reply) {
 export function branchSlug(branch) {
   const normalized = branch.normalize("NFC");
   const name = normalized.replace(/[^\p{L}\p{M}\p{N}._-]+/gu, "-").replace(/^-+|-+$/g, "");
-  if (name) return name;
+  if (name && !/^\.+$/.test(name)) return name;
   let hash = 2166136261;
   for (const char of normalized) hash = Math.imul(hash ^ char.codePointAt(0), 16777619);
   return `branch-${(hash >>> 0).toString(16).padStart(8, "0")}`;
@@ -340,7 +340,7 @@ export function issuePlan({ number, title, defaultBranch, localPath, root, porce
     prune,
     check,
     newBranch: true,
-    fetch: ["fetch", "--no-tags", "origin", defaultBranch],
+    fetch: ["fetch", "--no-tags", "origin", "--", defaultBranch],
     add: ["worktree", "add", "--no-track", "-b", branch, path, `origin/${defaultBranch}`],
   };
 }

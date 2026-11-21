@@ -16,6 +16,9 @@ export const CLI_CONCURRENCY = 4;
 /** The timeout of one gh or glab call, in ms. */
 export const CLI_TIMEOUT = 30_000;
 
+/** How long a command that was not found stays cached before the next lookup, in ms. */
+export const MISSING_TTL_MS = 60_000;
+
 /** The timeout of one quick git call, in ms. */
 export const GIT_TIMEOUT = 15_000;
 
@@ -31,7 +34,7 @@ export const GIT_TIMEOUT = 15_000;
  *   `settings` gives the gh and glab command settings at the time of each lookup.
  */
 export function createForgeRunner({ exec, home, settings, now = Date.now }) {
-  /** @type {Record<"gh"|"glab", {setting: string, result: Promise<?string>}|null>} */
+  /** @type {Record<"gh"|"glab", {setting: string, result: Promise<?string>, missingAt: ?number}|null>} */
   let located = { gh: null, glab: null };
   // glab command and host -> the check that runs now, or the "signed-in" answer of an earlier one.
   const glabHosts = new Map();
@@ -46,14 +49,17 @@ export function createForgeRunner({ exec, home, settings, now = Date.now }) {
   /**
    * The command for `name` ("gh" or "glab"), or null when none runs. The first of the setting,
    * the bare name and the install folders whose `--version` runs wins. The result, found or
-   * missing, is kept per setting value until the setting changes or `clear()`.
+   * missing, is kept per setting value until the setting changes or `clear()`. A missing result
+   * expires after MISSING_TTL_MS.
    * @param {"gh"|"glab"} name
    * @returns {Promise<?string>}
    */
   function locate(name) {
     const setting = settings()[name];
     const cached = located[name];
-    if (cached?.setting === setting) return cached.result;
+    const missingFor = cached?.missingAt == null ? null : now() - cached.missingAt;
+    const expired = missingFor !== null && missingFor >= MISSING_TTL_MS;
+    if (cached?.setting === setting && !expired) return cached.result;
     const result = (async () => {
       for (const command of commandCandidates(setting, name, home())) {
         try {
@@ -65,7 +71,11 @@ export function createForgeRunner({ exec, home, settings, now = Date.now }) {
       }
       return null;
     })();
-    located = { ...located, [name]: { setting, result } };
+    const entry = { setting, result, missingAt: null };
+    result.then((command) => {
+      if (command === null) entry.missingAt = now();
+    });
+    located = { ...located, [name]: entry };
     return result;
   }
 

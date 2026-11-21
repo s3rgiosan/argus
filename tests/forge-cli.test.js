@@ -8,6 +8,7 @@ import {
   cliError,
   commandCandidates,
   forgeSettings,
+  forgeNeedsWrite,
   ghDefaultBranchArgs,
   ghIssuesOff,
   issuesOffList,
@@ -114,6 +115,14 @@ test("parseGlUsername", () => {
   assert.throws(() => parseGlUsername("nope"));
 });
 
+
+test("forgeNeedsWrite writes a key that was never written, or a changed value", () => {
+  const same = { gh: "gh", glab: "glab" };
+  assert.equal(forgeNeedsWrite(undefined, same, same), true);
+  assert.equal(forgeNeedsWrite("x", same, same), true);
+  assert.equal(forgeNeedsWrite({ gh: "gh", glab: "glab" }, same, same), false);
+  assert.equal(forgeNeedsWrite({ gh: "gh", glab: "glab" }, same, { gh: "a", glab: "glab" }), true);
+});
 
 test("forgeSettings trims the commands and reads the old settings while the shared key is missing", () => {
   assert.equal(FORGE_KEY, "argus.forge");

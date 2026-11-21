@@ -53,6 +53,23 @@ test("locate gives null when no candidate runs, and a rejected run counts as mis
   assert.equal(calls.length, 10);
 });
 
+test("locate tries a missing command again after 60 seconds, and keeps a found one", async () => {
+  let present = false;
+  const { forge, calls, clock } = runner((command) => (present && command === "gh" ? ok("gh version 2") : fail()));
+  assert.equal(await forge.locate("gh"), null);
+  const first = calls.length;
+  present = true;
+  clock.now += 59_000;
+  assert.equal(await forge.locate("gh"), null);
+  assert.equal(calls.length, first);
+  clock.now += 2_000;
+  assert.equal(await forge.locate("gh"), "gh");
+  clock.now += 3_600_000;
+  const found = calls.length;
+  assert.equal(await forge.locate("gh"), "gh");
+  assert.equal(calls.length, found);
+});
+
 test("attempt parses the output, or adds one note under the label", async () => {
   const { forge } = runner((_command, args) => {
     switch (args[0]) {

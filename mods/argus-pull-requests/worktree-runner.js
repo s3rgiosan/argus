@@ -89,16 +89,24 @@ export function createWorktreeRunner({ exec, readTextFile, appHome, home, run, s
     return gitError(added);
   }
 
-  /** The default branch of a project: the remote's HEAD, else the forge's answer, else null. */
+  /** The name when it is a valid branch name that cannot be read as a git option, else null. */
+  async function validBranch(project, name) {
+    if (typeof name !== "string" || name === "" || name.startsWith("-")) return null;
+    const checked = await exec("git", ["check-ref-format", "--branch", name], { cwd: project.localPath, timeout: GIT_TIMEOUT });
+    return checked.code === 0 && checked.stdout.trim() === name ? name : null;
+  }
+
+  /** The default branch of a project: the remote's HEAD, else the forge's answer, else null. An invalid name counts as unknown. */
   async function defaultBranch(project) {
     const head = await exec("git", defaultBranchArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
-    const local = head.code === 0 ? defaultBranchOf(head.stdout) : null;
+    const local = await validBranch(project, head.code === 0 ? defaultBranchOf(head.stdout) : null);
     if (local !== null) return local;
     const github = project.provider === "github";
     const command = await forge.locate(github ? "gh" : "glab");
     if (command === null) return null;
     const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
-    return forge.attempt(github ? "gh" : `glab (${project.host})`, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
+    const asked = await forge.attempt(github ? "gh" : `glab (${project.host})`, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
+    return validBranch(project, asked);
   }
 
   /**
@@ -184,9 +192,13 @@ export function createWorktreeRunner({ exec, readTextFile, appHome, home, run, s
       if (remote.code !== 0) return fail(gitError(remote));
       if (remoteHasBranch(remote.stdout, branch)) return branchWorktree(project, branch);
     }
-    const base = await defaultBranch(project);
-    if (base === null) return fail("Could not read the default branch of the repo.");
-    const plan = issuePlan({ number: issue.number, title: issue.title, defaultBranch: base, localPath: project.localPath, root: found.root, porcelain: found.porcelain, localExists: exists.code === 0 });
+    const planInput = { number: issue.number, title: issue.title, defaultBranch: "", localPath: project.localPath, root: found.root, porcelain: found.porcelain, localExists: exists.code === 0 };
+    let plan = issuePlan(planInput);
+    if (plan.kind === "create" && plan.newBranch) {
+      const base = await defaultBranch(project);
+      if (base === null) return fail("Could not read the default branch of the repo.");
+      plan = issuePlan({ ...planInput, defaultBranch: base });
+    }
     if (plan.kind === "open") {
       openWorktreeSpace(plan.path);
       return { error: null, note: null };

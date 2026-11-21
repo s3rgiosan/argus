@@ -49,10 +49,10 @@ GitHub pull requests and GitLab merge requests in Herdr. Board in a panel on the
 - Live: the board reads when it opens, every 3 minutes by default, and within about 5 seconds after a space with a new project opens. One open copy reads at a time. The pull request pane reads again when its board row changes. When no board copy reads, it reads on its own once each refresh interval.
 - A folder that was not a repo, or had no remote, is probed again on each scheduled read. A repo is probed again after 10 minutes. A probe that timed out is tried again once each refresh interval.
 - A repo whose list fails keeps its pull requests from the last good read for up to 15 minutes, and the failure note still shows.
-- A GitHub remote must be exactly `owner/repo`. A host or a path part that starts with `-` is not a project.
+- A GitHub remote must be exactly `owner/repo`. A host or a path part that starts with `-` is not a project, and neither is a path part `.` or `..`. `github.com` with a port other than the default of its protocol is not a project (`ssh.github.com` allows 22 and 443).
 - A GitLab host other than `gitlab.com` needs a glab login (`glab auth status --hostname <host>`). Without it, the note "<host>: no glab login for this host" shows, the repos of that host leave the board until a read finds a login. A check that fails for another reason, for example a network error, keeps the repos on the board, and their own reads show what fails. A host without a login, or a failed check, is checked again on the next read. A remote on a host other than `github.com` and `gitlab.com` counts as GitLab, unless the host is a known other forge, so this covers a self-managed GitLab and any other such host.
 - An unexpected read error shows as the note "Could not read the pull requests: …".
-- Notes in the panel: `gh` or `glab` missing, signed out or rate limited. The refresh icon reads again. An empty list points to the notes only when a failed read belongs to the scope you look at (a GitLab host that failed does not explain an empty GitHub list) and no read that fills the scope worked.
+- Notes in the panel: `gh` or `glab` missing, signed out or rate limited. The refresh icon reads again. A missing `gh` or `glab` is also looked up again after 60 seconds. An empty list points to the notes only when a failed read belongs to the scope you look at (a GitLab host that failed does not explain an empty GitHub list) and no read that fills the scope worked.
 
 ## Review prompt
 
@@ -146,8 +146,8 @@ The `+` button right of the filter field ("New worktree") starts a git worktree,
   - A pick opens the worktree of that branch when one exists.
   - A local branch of that name gets a worktree and stays as it is.
   - A branch of that name that exists only on the remote is used like a pick on the Branch tab.
-  - Otherwise a new branch is cut from the fetched default branch, with no upstream. When the default branch cannot be read, the create stops with an error.
-- Worktrees go in the Herdr worktrees folder, as `<folder>/<repo folder>/<branch with / and other characters turned into ->`.
+  - Otherwise a new branch is cut from the fetched default branch, with no upstream. The default branch is read only for this step. A name that git rejects or that starts with `-` counts as unknown. When the default branch cannot be read, the create stops with an error.
+- Worktrees go in the Herdr worktrees folder, as `<folder>/<repo folder>/<branch with / and other characters turned into ->`. A branch name of only dots gets a `branch-<hash>` folder name. The folder setting is used without its surrounding spaces.
 - A failed create shows the git error under the list. Escape goes back to the board.
 
 ## Merged worktrees
@@ -189,7 +189,7 @@ Gear icon in the header:
 
 - gh command: empty uses `gh` from PATH, else the usual install folders. A set command that fails also falls back to the bare name on PATH and the usual install folders.
 - glab command: empty uses `glab` from PATH, else the usual install folders. A set command that fails falls back the same way.
-- The gh and glab commands are shared with other Argus forge mods, in the shared-state key `argus.forge`. A command set before this key existed still applies until you save the fields again.
+- The gh and glab commands are shared with other Argus forge mods, in the shared-state key `argus.forge`. A command set before this key existed still applies until you save the fields again. The first save writes the key, even when the values equal the old ones.
 - Refresh every: 1, 3, 5, 10 or 15 minutes.
 - Conversation: Oldest first (the default) or Newest first, for the comments in the pull request pane.
 - Worktrees: "Remove merged worktrees…" opens Merged worktrees.

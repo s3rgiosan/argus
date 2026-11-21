@@ -35,6 +35,16 @@ test("worktreeRoot returns errors as values", () => {
   assert.match(worktreeRoot("{", "/home/test").error, /^settings\.json: /);
 });
 
+test("branchSlug treats a slug of only dots as empty", () => {
+  for (const name of ["#.#", ".", ".."]) assert.match(branchSlug(name), /^branch-[0-9a-f]{8}$/, name);
+  assert.equal(branchSlug("a.b"), "a.b");
+});
+
+test("worktreeRoot uses the trimmed directory", () => {
+  assert.deepEqual(worktreeRoot(dir("  /srv/wt  "), "/home/test"), { root: "/srv/wt" });
+  assert.deepEqual(worktreeRoot(dir(" ~/wt "), "/home/test"), { root: "/home/test/wt" });
+});
+
 test("branchSlug", () => {
   assert.equal(branchSlug("pr/42"), "pr-42");
   assert.equal(branchSlug("feature//x"), "feature-x");
@@ -233,7 +243,7 @@ test("issuePlan cuts a new branch from the default branch without upstream", () 
     branch: "5-fix-it",
     prune: null,
     check: ["check-ref-format", "--branch", "5-fix-it"],
-    fetch: ["fetch", "--no-tags", "origin", "main"],
+    fetch: ["fetch", "--no-tags", "origin", "--", "main"],
     newBranch: true,
     add: ["worktree", "add", "--no-track", "-b", "5-fix-it", "/w/example-repo/5-fix-it", "origin/main"],
   });

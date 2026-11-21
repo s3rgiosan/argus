@@ -4,7 +4,7 @@
 // Herdr's shared state.
 
 import { shared, setShared } from "herdr";
-import { FORGE_FALLBACK_KEY, FORGE_KEY, forgeSettings } from "./forge-cli.js";
+import { FORGE_FALLBACK_KEY, FORGE_KEY, forgeNeedsWrite, forgeSettings } from "./forge-cli.js";
 
 /**
  * The gh and glab commands every forge mod shares, from FORGE_KEY. Until a
@@ -18,7 +18,7 @@ export function readForge() {
 
 /**
  * Saves the gh and glab commands under FORGE_KEY when they differ from the
- * ones in use.
+ * ones in use, or when the key has never been written.
  *
  * @param {string} gh
  * @param {string} glab
@@ -27,7 +27,7 @@ export function readForge() {
 export function saveForge(gh, glab) {
   const current = readForge();
   const next = forgeSettings({ gh, glab });
-  if (next.gh === current.gh && next.glab === current.glab) return false;
+  if (!forgeNeedsWrite(shared(FORGE_KEY), current, next)) return false;
   setShared(FORGE_KEY, next);
   return true;
 }

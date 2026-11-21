@@ -58,7 +58,7 @@ test("createIssueWorktree cuts a branch from the default branch and opens a new 
   const { worktrees, calls, runs } = harness({ git: freshClone });
   const outcome = await worktrees.createIssueWorktree(project, { number: 12, title: "Example title" });
   assert.deepEqual(outcome, { error: null, note: null });
-  assert.ok(calls.includes("git fetch --no-tags origin main"));
+  assert.ok(calls.includes("git fetch --no-tags origin -- main"));
   assert.ok(calls.includes("git worktree add --no-track -b 12-example-title /home/test/worktrees/example-repo/12-example-title origin/main"));
   assert.deepEqual(runs, [["space.new", { folder: "/home/test/worktrees/example-repo/12-example-title" }]]);
 });
@@ -99,7 +99,37 @@ test("createIssueWorktree asks the forge for the default branch when git does no
   const { worktrees, calls } = harness({ git: (args) => (args[0] === "symbolic-ref" ? fail("", 1) : freshClone(args)), forge });
   assert.deepEqual(await worktrees.createIssueWorktree(project, { number: 3, title: "Example" }), { error: null, note: null });
   assert.deepEqual(asked, ["gh gh repo view example-org/example-repo --json defaultBranchRef --jq .defaultBranchRef.name"]);
-  assert.ok(calls.includes("git fetch --no-tags origin develop"));
+  assert.ok(calls.includes("git fetch --no-tags origin -- develop"));
+});
+
+test("createIssueWorktree treats an invalid default branch as unknown", async () => {
+  for (const bad of ["origin/-x", "origin/a..b"]) {
+    const { worktrees, calls, runs } = harness({
+      git: (args) => (args[0] === "symbolic-ref" ? ok(`${bad}\n`) : args[0] === "check-ref-format" ? (args[2].startsWith("-") || args[2].includes("..") ? fail("fatal: bad", 128) : ok(`${args[2]}\n`)) : freshClone(args)),
+    });
+    assert.deepEqual(await worktrees.createIssueWorktree(project, { number: 3, title: "Example" }), { error: "Could not read the default branch of the repo.", note: null });
+    assert.ok(!calls.some((call) => call.startsWith("git fetch")));
+    assert.deepEqual(runs, []);
+  }
+  const forged = harness({
+    git: (args) => (args[0] === "symbolic-ref" ? fail("", 1) : args[0] === "check-ref-format" && args[2] === "-x" ? fail("fatal: bad", 128) : freshClone(args)),
+    forge: { locate: async () => "gh", attempt: async () => "-x" },
+  });
+  assert.equal((await forged.worktrees.createIssueWorktree(project, { number: 3, title: "Example" })).error, "Could not read the default branch of the repo.");
+});
+
+test("createIssueWorktree reads the default branch only when it cuts a new branch", async () => {
+  const noHead = (args) => (args[0] === "symbolic-ref" ? fail("", 1) : freshClone(args));
+  const list = `${MAIN}\nworktree /w/example-repo/3-example\nHEAD ${SHA}\nbranch refs/heads/3-example\n`;
+  const open = harness({
+    git: (args) => (args[0] === "worktree" ? ok(list) : args[0] === "rev-parse" ? ok(SHA) : noHead(args)),
+    spaces: [{ id: "space-1", folder: "/w/example-repo/3-example", machine: null, tabs: [] }],
+  });
+  assert.deepEqual(await open.worktrees.createIssueWorktree(project, { number: 3, title: "Example" }), { error: null, note: null });
+  assert.deepEqual(open.runs, [["space.select", { id: "space-1" }]]);
+  const local = harness({ git: (args) => (args[0] === "rev-parse" ? ok(SHA) : noHead(args)) });
+  assert.deepEqual(await local.worktrees.createIssueWorktree(project, { number: 3, title: "Example" }), { error: null, note: null });
+  assert.ok(local.calls.includes("git worktree add /home/test/worktrees/example-repo/3-example 3-example"));
 });
 
 test("createIssueWorktree gives an error and opens nothing when a step fails", async () => {
@@ -119,6 +149,11 @@ test("createIssueWorktree gives an error and opens nothing when a step fails", a
   assert.deepEqual(await added.worktrees.createIssueWorktree(project, { number: 3, title: "Example" }), { error: "git: fatal: could not add", note: null });
   // The failed add leaves no new branch behind.
   assert.ok(added.calls.includes("git branch -D 3-example"));
+
+  // A failed add for an existing local branch deletes nothing.
+  const reused = harness({ git: (args) => (args[0] === "rev-parse" ? ok(SHA) : args[0] === "worktree" && args[1] === "add" ? fail("fatal: could not add") : freshClone(args)) });
+  assert.equal((await reused.worktrees.createIssueWorktree(project, { number: 3, title: "Example" })).error, "git: fatal: could not add");
+  assert.ok(!reused.calls.some((call) => call.startsWith("git branch -D")));
 });
 
 test("branchWorktree notes a local branch that has commits of its own", async () => {

@@ -17,6 +17,8 @@ export function parseRemote(url) {
   const text = url.trim();
   let host;
   let path;
+  let port = "";
+  let defaultPorts = [];
   const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(text);
   if (scheme) {
     let parsed;
@@ -27,8 +29,11 @@ export function parseRemote(url) {
     }
     const protocol = scheme[1].toLowerCase();
     if (!["ssh", "git", "http", "https"].includes(protocol)) return null;
-    host = protocol === "http" || protocol === "https" ? parsed.host : parsed.hostname;
+    host = parsed.hostname;
+    port = parsed.port;
     path = parsed.pathname;
+    defaultPorts = protocol === "ssh" ? ["22"] : protocol === "git" ? ["9418"] : [];
+    if (protocol === "http" || protocol === "https") host = parsed.host;
   } else {
     const scp = /^(?:[^@/\s]+@)?([^:/\s]+):(.+)$/.exec(text);
     if (!scp) return null;
@@ -36,15 +41,24 @@ export function parseRemote(url) {
     path = scp[2];
   }
   host = host.toLowerCase();
-  if (host === "ssh.github.com") host = "github.com";
   if (host === "") return null;
-  const repo = path.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
-  const parts = repo.split("/").filter((part) => part !== "");
+  if (host === "ssh.github.com") {
+    host = "github.com";
+    defaultPorts = ["22", "443"];
+  }
+  // On GitHub only the default port of the protocol is valid. The URL parser already drops it for http(s).
+  if (host.replace(/:\d+$/, "") === "github.com" && (host.includes(":") || (port !== "" && !defaultPorts.includes(port)))) {
+    return null;
+  }
+  const trimmedPath = path.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
+  const parts = trimmedPath.split("/").filter((part) => part !== "");
+  const repo = parts.join("/");
   const github = host === "github.com";
   // A GitHub repo is owner/name. A GitLab project can be in subgroups.
   if (github ? parts.length !== 2 : parts.length < 2) return null;
   // A value that starts with "-" could be read as an option by gh, glab or git.
   if (host.startsWith("-") || parts.some((part) => part.startsWith("-"))) return null;
+  if (parts.some((part) => part === "." || part === "..")) return null;
   if (isOtherForge(host)) return null;
   return { provider: github ? "github" : "gitlab", host, repo };
 }

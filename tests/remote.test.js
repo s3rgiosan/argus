@@ -35,6 +35,15 @@ test("parseRemote: forms", () => {
   for (const [url, provider, host, repo] of cases) assert.deepEqual(parseRemote(url), { provider, host, repo }, url);
 });
 
+test("parseRemote: joins clean path parts and checks the port", () => {
+  assert.deepEqual(parseRemote("git@github.com:o//r"), { provider: "github", host: "github.com", repo: "o/r" });
+  assert.deepEqual(parseRemote("https://github.com:443/o/r"), { provider: "github", host: "github.com", repo: "o/r" });
+  assert.deepEqual(parseRemote("ssh://git@github.com:22/o/r"), { provider: "github", host: "github.com", repo: "o/r" });
+  for (const url of ["git@github.com:o/..", "git@github.com:./r", "https://gitlab.example.com/g/../p", "https://github.com:8443/o/r", "ssh://git@github.com:2222/o/r"]) {
+    assert.equal(parseRemote(url), null, url);
+  }
+});
+
 test("parseRemote: not a forge", () => {
   for (const url of ["", "/srv/git/example.git", "file:///srv/git/example.git", "https://github.com/only-owner"]) assert.equal(parseRemote(url), null, url);
 });

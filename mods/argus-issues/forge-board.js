@@ -311,28 +311,34 @@ export function noteIsFor(note, repo) {
 
 /**
  * The id of a search read on a board's `worked` list: the label of its notes, "gh" for GitHub and
- * `glab (<host>)` for GitLab.
+ * `glab (<host>)` for GitLab. With `kind`, a GitHub search has its own id, `gh:<kind>`, because
+ * the board runs one GitHub search per Show; a GitLab host has one read for all of them.
  * @param {{provider: string, host: string}} repo
+ * @param {string} [kind] The Show the search feeds.
  * @returns {string}
  */
-export function searchRead(repo) {
-  return repo.provider === "github" ? "gh" : `glab (${repo.host})`;
+export function searchRead(repo, kind) {
+  if (repo.provider !== "github") return `glab (${repo.host})`;
+  return kind === undefined ? "gh" : `gh:${kind}`;
 }
 
 /**
  * The ids of the reads that give the items of `scope`, as a board's `worked` list names them.
  * Show `all` takes the project lists, so the ids are the keys of the scope's projects. Every other
  * Show is a search: the ids are `searchRead` of the scope's repos. All repos always has "gh",
- * because the GitHub searches run without a project.
+ * because the GitHub searches run without a project. With `perShow`, each Show has its own
+ * GitHub search (`gh:<show>`).
  * @param {{projects: Project[]}} board
  * @param {Scope} scope
  * @param {?string} followed Project key of the followed space.
+ * @param {boolean} [perShow]
  * @returns {string[]}
  */
-export function scopeReads(board, scope, followed) {
+export function scopeReads(board, scope, followed, perShow = false) {
   if (scope.show === "all") return scopeProjects(board, scope, followed).map((project) => project.key);
-  const reads = scopeRepos(board, scope, followed).map(searchRead);
-  if (whereKey(scope, followed) === null) reads.unshift("gh");
+  const kind = perShow ? scope.show : undefined;
+  const reads = scopeRepos(board, scope, followed).map((repo) => searchRead(repo, kind));
+  if (whereKey(scope, followed) === null) reads.unshift(searchRead({ provider: "github", host: "github.com" }, kind));
   return [...new Set(reads)];
 }
 

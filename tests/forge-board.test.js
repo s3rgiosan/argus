@@ -363,3 +363,13 @@ test("rereadDue reads again only for a changed row or a silent board", () => {
   assert.equal(rereadDue({ ...base, now: 2000 + 600_001, shownReadAt: 1000 }), true);
   assert.equal(rereadDue({ ...base, now: 2000 + 600_001, shownReadAt: 2500 }), false);
 });
+
+test("searchRead and scopeReads name a search per Show when asked", () => {
+  assert.equal(searchRead({ provider: "github", host: "github.com" }, "created"), "gh:created");
+  assert.equal(searchRead({ provider: "gitlab", host: "gitlab.example.com" }, "created"), "glab (gitlab.example.com)");
+  const board = makeBoard({ projects: [project, lab] });
+  assert.deepEqual(scopeReads(board, { show: "assigned", where: "all" }, null, true), ["gh:assigned", "glab (gitlab.example.com)"]);
+  assert.deepEqual(scopeReads(makeBoard({ projects: [] }), { show: "mentions", where: "all" }, null, true), ["gh:mentions"]);
+  assert.deepEqual(scopeReads(board, { show: "created", where: "project", key: lab.key }, null, true), ["glab (gitlab.example.com)"]);
+  assert.deepEqual(scopeReads(board, { show: "all", where: "all" }, null, true), [project.key, lab.key]);
+});
