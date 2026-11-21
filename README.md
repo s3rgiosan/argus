@@ -12,6 +12,7 @@ Not affiliated with Herdr or Anthropic.
 | [`argus-tsk`](mods/argus-tsk/README.md) | The [tsk](https://gettsk.sh) task board: a Tasks panel with sections and a scope picker that combines a place with a thread and an assignee, quick capture, and a task pane with status, steps, block and review cards. |
 | [`argus-pull-requests`](mods/argus-pull-requests/README.md) | GitHub and GitLab pull requests: a Pull requests panel with scopes, groups and a filter, and a pane with checks, reviews, merge state and conversation, where you approve, request changes, comment and merge, or start a review by a coding agent that changes no code and posts nothing. |
 | [`argus-issues`](mods/argus-issues/README.md) | GitHub and GitLab issues: an Issues panel with scopes (assigned to you, created by you, mentioning you, all open), groups by repo, assignee or label, and a filter, and a pane with the description, labels, assignees and comments, where New worktree starts a worktree for the issue. It writes nothing to GitHub or GitLab. |
+| [`argus-agents`](mods/argus-agents/README.md) | The agents that need you, on one board: waiting on you, failed or finished, with snooze and reopen. A finished agent stays until it works again or you snooze it. |
 | [`argus-stay-awake`](mods/argus-stay-awake/README.md) | A coffee-cup button at the right end of the tab row that keeps the display awake. Right-click keeps it awake until no agent is working. |
 | [`argus-toolbar`](mods/argus-toolbar/README.md) | Buttons beside Herdr's tab bar that open this repo's panel mods in a panel on the right. |
 
@@ -84,7 +85,7 @@ Run `build-layout.mjs` again after a Herdr update too: it rebuilds from Herdr's 
 ```sh
 herdr-app do layout.switch '{"name":"main"}'
 rm ~/.config/herdr-app/layouts/Argus.json ~/.config/herdr-app/layouts/Argus.svg
-rm -r ~/.config/herdr-app/mods/argus-pane ~/.config/herdr-app/mods/argus-spaces ~/.config/herdr-app/mods/argus-stay-awake ~/.config/herdr-app/mods/argus-claude-usage ~/.config/herdr-app/mods/argus-toolbar ~/.config/herdr-app/mods/argus-tsk ~/.config/herdr-app/mods/argus-pull-requests ~/.config/herdr-app/mods/argus-issues
+rm -r ~/.config/herdr-app/mods/argus-pane ~/.config/herdr-app/mods/argus-spaces ~/.config/herdr-app/mods/argus-stay-awake ~/.config/herdr-app/mods/argus-claude-usage ~/.config/herdr-app/mods/argus-toolbar ~/.config/herdr-app/mods/argus-tsk ~/.config/herdr-app/mods/argus-pull-requests ~/.config/herdr-app/mods/argus-issues ~/.config/herdr-app/mods/argus-agents
 ```
 
 ## Development

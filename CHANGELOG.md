@@ -47,6 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `argus-pull-requests` loads Herdr's own chevron-right and plus icons when Herdr ships them, and `lib/icons.js` lists clock for the mods that use it.
 - `lib/forge-board.js` also holds the board settings (refresh interval and Conversation order), the 15-minute keep time of failed lists, the item groups by several values, and the item pane title. `lib/forge-cli.js` also holds the string list check. `argus-pull-requests` uses them in place of its `locate.js` and its own copies. The pane order of `shownOrder` counts an item that shows in several groups once.
 
+### Added
+
+- New mod `argus-agents`: a board of the agents that need you, in sections for Needs you, Failed and Finished, with counts and the time each agent has been in its state. A click on a row shows the agent.
+- A finished agent stays on the board after you look at it, until it works again or you snooze it. Failed lists agents whose program reports an error status.
+- Snooze a row for 1 hour, 3 hours, until tomorrow morning or until the agent changes. A snooze also ends when the agent's state changes. Snoozed rows wait on a Snoozed shelf with their end time, and Reopen puts a row back.
+
 ### Fixed
 
 - Approve and Request changes on GitHub in `argus-pull-requests` read the head commit of the pull request first. When it moved, they stop with "The pull request has new commits. Review them, then try again.". When the read fails, they stop with "Could not read the head commit of the pull request.". Comment is not checked.
