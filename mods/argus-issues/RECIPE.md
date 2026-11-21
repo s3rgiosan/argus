@@ -23,7 +23,7 @@ GitHub issues and GitLab issues as a Herdr panel, with one issue in a pane besid
 - Timers: the board reads on open, then every `interval` minutes; every 5 s it probes new folders and forces a read when one holds a project the board does not have. Folders without a new project are added to `folders` at once, so Follow space stops waiting.
 - Row click: sets `argus-issues.selected`; if the shown tab has a pane of this mod, `pane.focus` it, else `pane.split { direction: "right", mod: "argus-issues", props: { view: "issue" } }` beside the tab's focused pane.
 - The pane sees a new selection in render and reads it in a task (`gh issue view` or `GL_DETAIL_QUERY`). A newer read wins. Every 5 s it reads again when the board's `readAt` is newer than its own read; a failed read again keeps the issue and shows the error under the head.
-- ↑ and ↓ select the neighbour in the board's order for the current scope (`shownOrder`, `positionIn`). Open in browser and Markdown links run `open` (macOS) or `xdg-open` with the URL, for http and https only.
+- ↑ and ↓ select the neighbour in the board's order for the current scope (`shownOrder`, `positionIn`). The filter text lives in the panel copy, so the pane's position and arrows do not apply it. Open in browser and Markdown links run `open` (macOS) or `xdg-open` with the URL, for http and https only.
 
 ## Built from
 

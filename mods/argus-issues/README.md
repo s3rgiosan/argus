@@ -15,7 +15,7 @@ GitHub and GitLab issues in Herdr. Board in a panel on the right, one issue in a
 - Filter field at the bottom: matches the title, the number (`#12` or `12`), the author, a label and an assignee.
 - Click a row: the issue opens in a pane on the right of the current tab, or the tab's open issue pane shows it.
 - Issue pane:
-  - Header: repo and number, its place in the board's list (`3 of 9`) with ↑ and ↓ to show the previous or next issue, and Open in browser. Then the title, the state (Open, or Closed with GitHub's reason: completed, not planned or duplicate), "confidential" on a confidential GitLab issue, and who opened it and when it changed last.
+  - Header: repo and number, its place in the board's list (`3 of 9`) with ↑ and ↓ to show the previous or next issue (the filter does not apply here), and Open in browser. Then the title, the state (Open, or Closed with GitHub's reason: completed, not planned or duplicate), "confidential" on a confidential GitLab issue, and who opened it and when it changed last.
   - Assignees, labels and the milestone.
   - Folding sections: Description and Comments. Both start open; your choice stays per issue while the pane is open.
   - Comments: name, age and the text rendered as Markdown. Names are display names when the forge gives one, with the login as a tooltip. A link opens in the browser; only http and https links open.

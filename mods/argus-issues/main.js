@@ -16,7 +16,7 @@ import { issuePane } from "./detail-view.js";
 import { followFolder } from "./follow.js";
 import { createGate } from "./gate.js";
 import { mapPool } from "./pool.js";
-import { shouldFetch, takeLock, holdsLock } from "./sync.js";
+import { shouldFetch, takeLock, holdsLock, LOCK_MS } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, dropdownButton, hint, errorLine, scrollArea, field, footer, sectionTitle, note, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
@@ -149,9 +149,16 @@ export default class Issues extends View {
     setShared(LOCK_KEY, { owner: this.owner, until: 0 });
   }
 
-  /** Extends the lock while this copy still holds it. */
+  /**
+   * Extends the lock while this copy still holds it. A write renders every mod, so the lock is
+   * written again only when less than half of its time is left.
+   */
   renewLock() {
-    if (holdsLock(shared(LOCK_KEY), this.owner, Date.now())) setShared(LOCK_KEY, takeLock(this.owner, Date.now()));
+    const lock = shared(LOCK_KEY);
+    const now = Date.now();
+    if (!holdsLock(lock, this.owner, now)) return;
+    const left = /** @type {{until: number}} */ (lock).until - now;
+    if (left < LOCK_MS / 2) setShared(LOCK_KEY, takeLock(this.owner, now));
   }
 
   startSync(cx) {
