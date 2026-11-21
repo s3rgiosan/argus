@@ -152,7 +152,7 @@ export function insideFolder(cwd, path) {
 /**
  * The rows of the Merged worktrees view. A worktree without a merged pull request is left out.
  * A row has a reason when it must stay; the first reason that applies wins. A merged pull request
- * counts only when its base is the default branch; with no known default branch, any base counts.
+ * counts only when its base is the default branch; with no known default branch no row is offered.
  * @param {{worktrees: Worktree[], merged: Record<string, Merged[]>, reviewMerged: Record<number, Merged|null>,
  *   dirty: Set<string>, inSpace: Set<string>, openBranches: Set<string>, ignored?: Record<string, string[]>,
  *   submodules?: Set<string>, unsaved?: Set<string>, defaultBranch?: string|null}} input
@@ -161,7 +161,9 @@ export function insideFolder(cwd, path) {
  */
 export function rowsFor({ worktrees, merged, reviewMerged, dirty, inSpace, openBranches, ignored = {}, submodules = new Set(), unsaved = new Set(), defaultBranch = null }) {
   const rows = [];
-  const intoDefault = (entry) => defaultBranch === null || entry.base === null || entry.base === defaultBranch;
+  // Merged means into the default branch, so an unknown default branch offers nothing.
+  if (defaultBranch === null) return [];
+  const intoDefault = (entry) => entry.base === null || entry.base === defaultBranch;
   for (const worktree of worktrees) {
     const review = worktree.review !== null;
     let pull = null;
@@ -219,13 +221,15 @@ export function branchStep(row, tipNow) {
 /**
  * How many worktrees have a merged pull request, for the board's count. A review worktree counts
  * by its number. Any other counts when a merged head has its branch and its head commit, and the
- * default branch as base (any base when either is unknown). No status checks run here.
+ * default branch as base (any base when the pull request's base is unknown). With no known default
+ * branch nothing counts. No status checks run here.
  * @param {Worktree[]} worktrees
  * @param {import("./model.js").MergedHead[]} heads
  * @param {string|null} defaultBranch
  * @returns {number}
  */
 export function countMerged(worktrees, heads, defaultBranch) {
+  if (defaultBranch === null) return 0;
   const numbers = new Set(heads.map((entry) => entry.number));
   let count = 0;
   for (const worktree of worktrees) {
@@ -234,7 +238,7 @@ export function countMerged(worktrees, heads, defaultBranch) {
       continue;
     }
     const match = heads.some(
-      (entry) => entry.branch === worktree.branch && entry.headSha === worktree.head && (defaultBranch === null || entry.base === null || entry.base === defaultBranch),
+      (entry) => entry.branch === worktree.branch && entry.headSha === worktree.head && (entry.base === null || entry.base === defaultBranch),
     );
     if (match) count += 1;
   }

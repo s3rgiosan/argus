@@ -263,8 +263,20 @@ export default class PullRequests extends View {
         if (defaultBranch === undefined) {
           const remoteHead = await exec("git", defaultBranchArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
           defaultBranch = remoteHead.code === 0 ? defaultBranchOf(remoteHead.stdout) : null;
-          this.defaultBranches.set(project.key, defaultBranch);
+          if (defaultBranch === null) {
+            // The forge names the default branch when git cannot. A failed read is not kept.
+            const github = project.provider === "github";
+            const command = github ? gh : glab;
+            if (command !== null) {
+              const label = github ? "gh" : `glab (${project.host})`;
+              const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
+              defaultBranch = await this.forge.attempt(label, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
+            }
+          }
+          if (defaultBranch !== null) this.defaultBranches.set(project.key, defaultBranch);
         }
+        // With no known default branch the count stays unknown, like the Merged worktrees view that lists nothing.
+        if (defaultBranch === null) throw new Error("default branch unknown");
         const worktrees = candidates(porcelain, defaultBranch);
         if (worktrees.length === 0) {
           count = 0;
@@ -480,6 +492,7 @@ export default class PullRequests extends View {
         this.login = null;
         this.defaultBranches.clear();
         this.mergedHeads.clear();
+        this.methodCache.clear();
         this.boardSync.refresh(cx);
       },
       { busy: this.boardSync.reading, tooltip: "Refresh" },
@@ -980,10 +993,15 @@ export default class PullRequests extends View {
     const label = github ? "gh" : `glab (${project.host})`;
     const ask = (args, parse, notes) => limit(() => this.forge.attempt(label, command, args, parse, notes));
     if (defaultBranch === null) {
-      // A failed read leaves the default branch unknown: any base then counts.
+      // Merged means into the default branch, so a project whose default branch stays unknown offers nothing.
       const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
-      defaultBranch = await ask(args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
-      if (defaultBranch !== null) worktrees = candidates(listing.stdout, defaultBranch);
+      const readNotes = [];
+      defaultBranch = await ask(args, github ? parseGhDefaultBranch : parseGlDefaultBranch, readNotes);
+      if (defaultBranch === null) {
+        const reasons = readNotes.length > 0 ? readNotes : ["no default branch found"];
+        return { group: null, notes: reasons.map((text) => `${project.repo}: could not read the default branch (${text})`) };
+      }
+      worktrees = candidates(listing.stdout, defaultBranch);
       if (worktrees.length === 0) return { group: null, notes: [] };
     }
 
@@ -1229,7 +1247,7 @@ export default class PullRequests extends View {
   openNewWorktree(cx) {
     this.view = "newWorktree";
     this.handle.focus();
-    this.newWorktree ??= { project: null, picking: false, tab: "branch", items: { branch: {}, issue: {} }, loading: {}, errors: {}, creating: null, createError: null, createNote: null, lastPr: null };
+    this.newWorktree ??= { project: null, picking: false, tab: "branch", items: { branch: {}, issue: {} }, loading: {}, reread: {}, errors: {}, creating: null, createError: null, createNote: null, lastPr: null };
     const state = this.newWorktree;
     // The shown repo is set here, so render only reads it.
     state.project = defaultProjectKey(this.worktreeProjects(), followedOf(readBoard()));
@@ -1270,20 +1288,30 @@ export default class PullRequests extends View {
     const state = this.newWorktree;
     if (tab === "pr") return;
     const slot = `${tab}|${project.key}`;
-    if (state.loading[slot]) return;
+    if (state.loading[slot]) {
+      // A forced read during a load runs again when the load ends, so the slot ends with the newest result.
+      if (force) state.reread[slot] = true;
+      return;
+    }
     if (!force && Object.hasOwn(state.items[tab], project.key)) return;
     state.loading[slot] = true;
     delete state.errors[slot];
     cx.notify();
     cx.spawn(async (cx) => {
       await cx.sleep(0);
-      try {
-        const read = tab === "branch" ? await this.readBranches(project) : await this.readIssues(project);
-        if (read.error) state.errors[slot] = read.error;
-        else state.items[tab][project.key] = read;
-      } catch (caught) {
-        state.errors[slot] = caught?.message ?? String(caught);
-      }
+      do {
+        delete state.reread[slot];
+        try {
+          const read = tab === "branch" ? await this.readBranches(project) : await this.readIssues(project);
+          if (read.error) state.errors[slot] = read.error;
+          else {
+            delete state.errors[slot];
+            state.items[tab][project.key] = read;
+          }
+        } catch (caught) {
+          state.errors[slot] = caught?.message ?? String(caught);
+        }
+      } while (state.reread[slot]);
       delete state.loading[slot];
       cx.notify();
     });
@@ -1859,7 +1887,7 @@ export default class PullRequests extends View {
           error = command.name === "glab" ? GLAB_MISSING : GH_MISSING;
         } else {
           let run = command;
-          // gh pr review has no head pin, so the head is read and compared first.
+          // A GitHub review and a GitLab Request changes read the head and compare it first.
           if (command.check) {
             const head = await exec(cli, command.check, { timeout: CLI_TIMEOUT });
             error = head.code === 0 ? headRefusal(detail.headSha, head.stdout) : cliError(command.name, head);

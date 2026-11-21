@@ -50,10 +50,11 @@ test("countMerged: a reused branch name at another commit does not count", () =>
   assert.equal(countMerged([wt("feat/a", B)], [head(1, "feat/a", A)], "main"), 0);
 });
 
-test("countMerged: a merge into another base does not count, unless the base or the default is unknown", () => {
+test("countMerged: a merge into another base does not count, unless the base is unknown; an unknown default counts nothing", () => {
   assert.equal(countMerged([wt("feat/a")], [head(1, "feat/a", A, "release")], "main"), 0);
   assert.equal(countMerged([wt("feat/a")], [head(1, "feat/a", A, null)], "main"), 1);
-  assert.equal(countMerged([wt("feat/a")], [head(1, "feat/a", A, "release")], null), 1);
+  assert.equal(countMerged([wt("feat/a")], [head(1, "feat/a", A, "release")], null), 0);
+  assert.equal(countMerged([wt("feat/a"), wt("argus/review-3-x", B, 3)], [head(3, "feat/z", A, null)], null), 0);
 });
 
 test("countMerged: a review worktree counts by its number, once", () => {

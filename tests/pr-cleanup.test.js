@@ -34,7 +34,7 @@ function merged(number, headSha = SHA_A, mergedAt = "2026-11-10T00:00:00Z", base
 }
 
 function input(worktrees, extra = {}) {
-  return { worktrees, merged: {}, reviewMerged: {}, dirty: new Set(), inSpace: new Set(), openBranches: new Set(), ...extra };
+  return { worktrees, merged: {}, reviewMerged: {}, dirty: new Set(), inSpace: new Set(), openBranches: new Set(), defaultBranch: "main", ...extra };
 }
 
 test("linkedWorktrees reads the head commit of each linked worktree", () => {
@@ -184,7 +184,7 @@ test("stacked pull requests: only a merge into the default branch counts", () =>
   const [row] = rowsFor(input([wt("feat/a")], stacked));
   assert.equal(row.reason, "merged into feat/base");
   assert.equal(row.number, 8);
-  assert.equal(rowsFor(input([wt("feat/a")], { ...stacked, defaultBranch: null }))[0].reason, null);
+  assert.deepEqual(rowsFor(input([wt("feat/a")], { ...stacked, defaultBranch: null })), []);
   const both = { merged: { "feat/a": [merged(9, SHA_B, "2026-11-12T00:00:00Z", "feat/base"), merged(8, SHA_A, "2026-11-10T00:00:00Z", "main")] }, defaultBranch: "main" };
   const [kept] = rowsFor(input([wt("feat/a")], both));
   assert.equal(kept.reason, null);
@@ -331,4 +331,11 @@ test("mergedHeadsFresh reuses a list for the same worktrees within the window", 
 
 test("statusArgs lists untracked files too", () => {
   assert.deepEqual(statusArgs(), ["status", "--porcelain", "--untracked-files=all"]);
+});
+
+test("rowsFor: an unknown default branch offers no worktree", () => {
+  const merged8 = { "feat/a": [merged(8, SHA_A, "2026-11-10T00:00:00Z", "main")] };
+  assert.equal(rowsFor(input([wt("feat/a")], { merged: merged8 })).length, 1);
+  assert.deepEqual(rowsFor(input([wt("feat/a")], { merged: merged8, defaultBranch: null })), []);
+  assert.deepEqual(rowsFor(input([wt("argus/review-12-x")], { reviewMerged: { 12: merged(12, SHA_A, "2026-11-10T00:00:00Z", null) }, defaultBranch: null })), []);
 });

@@ -1,5 +1,8 @@
 // Builds the `gh` and `glab` commands for the review and merge actions of the pull request pane.
 
+import { glabArgs } from "./forge-cli.js";
+import { GL_MR_STATE_QUERY } from "./forge.js";
+
 /** @typedef {import("./model.js").Pr} Pr */
 /** @typedef {import("./model.js").Detail} Detail */
 /** @typedef {"approve" | "request_changes" | "comment" | "merge"} ActionKind */
@@ -102,8 +105,10 @@ export function pickMergeMethod(text) {
  * The command for one action, or the reason it cannot run. Bodies go in as one
  * `--body=` or `--message=` argument, so text that starts with `-` stays a value.
  * Approve on GitLab and Merge on both forges pin the head commit the pane read.
- * `gh pr review` has no pin, so Approve and Request changes on GitHub carry `check`: the
- * arguments that read the head commit, which `headRefusal` compares before the review runs.
+ * Approve and Request changes on GitHub post the review through the REST API with `commit_id`, so
+ * the forge records the review on the commit the pane showed. Those two and GitLab Request changes
+ * also carry `check`: the arguments that read the head commit, which `headRefusal` compares before
+ * the action runs.
  * A second command in `then` runs only after the first one succeeds. `publishOnly`
  * says a GitLab Request changes already has its comment as a pending draft
  * (`draftPlan`), so only the publish runs.
@@ -115,17 +120,18 @@ export function actionCommand({ kind, detail, body, method = null, publishOnly =
   const { pr, headSha } = detail;
   const gitLab = pr.provider === "gitlab";
   const onlyPublish = publishOnly && gitLab && kind === "request_changes";
+  const glCheck = glHeadArgs(pr);
   const refusal = bodyError(kind, body);
   if (refusal !== null) return { error: refusal };
   const number = String(pr.number);
   const checked = !gitLab && (kind === "approve" || kind === "request_changes");
-  const pinned = kind === "merge" || (kind === "approve" && gitLab) || checked;
+  const pinned = kind === "merge" || (kind === "approve" && gitLab) || checked || (kind === "request_changes" && gitLab);
   if (pinned && (typeof headSha !== "string" || headSha === "")) return { error: NO_SHA };
 
   if (gitLab) {
     const repo = ["-R", `https://${pr.host}/${pr.repo}`];
     const publish = ["mr", "note", "draft", "publish", number, ...repo, "--reviewer-state=requested_changes", "--yes"];
-    if (onlyPublish) return { name: "glab", args: publish };
+    if (onlyPublish) return { name: "glab", args: publish, check: glCheck };
     // GitLab merges by the project's method, with or without squash only.
     if (kind === "merge" && method === "rebase") return { error: NO_METHOD };
     switch (kind) {
@@ -137,6 +143,7 @@ export function actionCommand({ kind, detail, body, method = null, publishOnly =
           name: "glab",
           args: ["mr", "note", "draft", "create", number, ...repo, `--message=${body}`],
           then: publish,
+          check: glCheck,
         };
       case "comment":
         return { name: "glab", args: ["mr", "note", "create", number, ...repo, `--message=${body}`, "--resolvable=false"] };
@@ -148,19 +155,42 @@ export function actionCommand({ kind, detail, body, method = null, publishOnly =
     }
   }
 
-  const review = ["pr", "review", number, "--repo", pr.repo];
   const check = ghHeadArgs(pr.repo, pr.number);
   switch (kind) {
     case "approve":
-      return { name: "gh", args: [...review, "--approve"], check };
+      return { name: "gh", args: ghReviewArgs(pr, String(headSha), "APPROVE", body), check };
     case "request_changes":
-      return { name: "gh", args: [...review, "--request-changes", `--body=${body}`], check };
+      return { name: "gh", args: ghReviewArgs(pr, String(headSha), "REQUEST_CHANGES", body), check };
     case "comment":
-      return { name: "gh", args: [...review, "--comment", `--body=${body}`] };
+      return { name: "gh", args: ["pr", "review", number, "--repo", pr.repo, "--comment", `--body=${body}`] };
     default:
       if (!GH_METHODS.some(([known]) => known === method)) return { error: NO_METHOD };
       return { name: "gh", args: ["pr", "merge", number, "--repo", pr.repo, `--${method}`, "--match-head-commit", String(headSha)] };
   }
+}
+
+/**
+ * The arguments that post a GitHub review on one commit. `-f` sends raw strings, so a body that
+ * starts with `@` stays text. An empty body is left out.
+ * @param {Pr} pr
+ * @param {string} sha
+ * @param {"APPROVE"|"REQUEST_CHANGES"} event
+ * @param {string} body
+ * @returns {string[]}
+ */
+function ghReviewArgs(pr, sha, event, body) {
+  const args = ["api", "--method", "POST", "--hostname", pr.host, `repos/${pr.repo}/pulls/${pr.number}/reviews`, "-f", `commit_id=${sha}`, "-f", `event=${event}`];
+  if (String(body ?? "").trim() !== "") args.push("-f", `body=${body}`);
+  return args;
+}
+
+/**
+ * The arguments that print the head commit of a GitLab merge request as GraphQL JSON.
+ * @param {Pr} pr
+ * @returns {string[]}
+ */
+export function glHeadArgs(pr) {
+  return glabArgs(pr.host, GL_MR_STATE_QUERY, { path: pr.repo, iid: String(pr.number) });
 }
 
 /**
@@ -177,7 +207,7 @@ export function ghHeadArgs(repo, number) {
  * The refusal for a review of a head commit that is not the current one, or null when the
  * pane's head is still the head of the pull request.
  * @param {string|null} shown The head commit the pane read (`detail.headSha`).
- * @param {string} stdout `ghHeadArgs` output.
+ * @param {string} stdout `ghHeadArgs` or `glHeadArgs` output.
  * @returns {string|null}
  */
 export function headRefusal(shown, stdout) {
@@ -187,7 +217,7 @@ export function headRefusal(shown, stdout) {
   } catch {
     return HEAD_UNREAD;
   }
-  const current = raw && typeof raw === "object" ? raw.headRefOid : undefined;
+  const current = raw && typeof raw === "object" ? (raw.headRefOid ?? raw.data?.project?.mergeRequest?.diffHeadSha) : undefined;
   if (typeof current !== "string" || current === "") return HEAD_UNREAD;
   return current === shown ? null : HEAD_MOVED;
 }
