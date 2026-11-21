@@ -8,7 +8,7 @@ import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, 
 import { randomUUID } from "crypto";
 import { discover, visibleProfiles } from "./accounts.js";
 import { expandHome, tildePath } from "./paths.js";
-import { profileIO } from "./pane.js";
+import { profileIO, openInBrowser } from "./pane.js";
 import { parseReply, mergeEntry, pace, paceText } from "./usage.js";
 import { formatDuration, formatAgo } from "./format.js";
 import { normalizeSettings, isHidden, toggleHidden, addExtra, removeExtra, setName, pendingMoves, INTERVALS } from "./settings.js";
@@ -195,7 +195,7 @@ export default class ClaudeUsage extends View {
         .cursor_pointer()
         .text_size(12)
         .text_color(t.muted)
-        .on_click((_e, cx) => cx.open_url(url))
+        .on_click((_e, cx) => openInBrowser(cx, url))
         .child(label);
 
     return frame(t, "argus-claude-usage")

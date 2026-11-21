@@ -5,10 +5,10 @@
 
 import { div, svg, image, View } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
-import { exec, home, appHome, readTextFile, window, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
+import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
 import { randomUUID } from "crypto";
 import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys, needsProbe, needsGlabLogin } from "./remote.js";
-import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes, openArgs } from "./locate.js";
+import { INTERVALS, GH_MISSING, GLAB_MISSING, normalizeSettings, commandCandidates, cliError, missingNotes } from "./locate.js";
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, headRefusal, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghDefaultBranchArgs, ghIssuesArgs, glabArgs, glabAuthArgs, glabLoginNote, limitNote, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_DEFAULT_BRANCH_QUERY, GL_ISSUES_QUERY, GL_USERNAME_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhMergedFull, parseGlMergedFull, parseGhPrState, parseGlMerged, parseGlMrState, parseGhDefaultBranch, parseGlDefaultBranch, parseGhIssues, parseGlIssues, parseGlUsername, prKey } from "./model.js";
@@ -22,7 +22,7 @@ import { createLimiter, mapPool } from "./pool.js";
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, usageSettings } from "./accounts.js";
 import { expandHome } from "./paths.js";
-import { profileIO } from "./pane.js";
+import { profileIO, openInBrowser } from "./pane.js";
 import { checkLayout, conversationItems, displayName, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, positionIn, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
 import { shouldFetch, takeLock, holdsLock, lockNeedsRenewal, releasedLock } from "./sync.js";
@@ -100,8 +100,6 @@ export default class PullRequests extends View {
     // The check out action: {key, running, error}.
     // PR key -> {running, error} for the check out action of each pull request.
     this.checkouts = new Map();
-    // The failed open in browser action: {key, text}, shown on that pull request only.
-    this.actionError = null;
     // PR key -> {running, error, confirm, text, draftText, menu, methods} for the review and merge actions of each pull
     // request. `draftText` is the comment this pane left as a pending GitLab draft.
     this.actions = new Map();
@@ -2033,7 +2031,6 @@ export default class PullRequests extends View {
     const switched = this.shown?.key !== selected.key;
     if (switched) {
       this.shown = { key: selected.key, kind: "loading", detail: null, error: null, readAt, seen };
-      this.actionError = null;
     } else {
       this.shown = { ...this.shown, readAt, seen };
     }
@@ -2084,31 +2081,10 @@ export default class PullRequests extends View {
     }
   }
 
-  openInBrowser(cx, pr, url = pr.url) {
-    const key = prKey(pr);
-    this.actionError = null;
-    // Draw again, so an old error goes away.
-    cx.notify();
-    const open = openArgs(window().platform, url);
-    if (open === null) return;
-    cx.spawn(async (cx) => {
-      await cx.sleep(0);
-      try {
-        const reply = await exec(open[0], open[1]);
-        if (reply.code === 0) return;
-        this.actionError = { key, text: cliError(open[0], reply) };
-      } catch (error) {
-        this.actionError = { key, text: error?.message ?? String(error) };
-      }
-      cx.notify();
-    });
-  }
-
   /** Opens the space of the pull request's worktree, creating the worktree first when needed. */
   checkOut(cx, pr, localPath) {
     const key = prKey(pr);
     if (this.checkouts.get(key)?.running) return;
-    this.actionError = null;
     this.checkouts.set(key, { running: true, error: null });
     cx.notify();
     cx.spawn(async (cx) => {
@@ -2434,7 +2410,7 @@ export default class PullRequests extends View {
       position,
       hasCheckout: localPath !== null,
       checkingOut: checkout.running,
-      error: (this.actionError?.key === key ? this.actionError.text : null) ?? checkout.error,
+      error: checkout.error,
       now: Date.now(),
       age: ageText,
       icon: ICON,
@@ -2453,11 +2429,11 @@ export default class PullRequests extends View {
       },
       prev: () => go(position?.prev ?? null),
       next: () => go(position?.next ?? null),
-      openBrowser: (cx) => this.openInBrowser(cx, pr),
-      // A check's run or job page; an error shows under the header like Open in browser's.
-      openCheck: (url, cx) => this.openInBrowser(cx, pr, url),
+      openBrowser: (cx) => openInBrowser(cx, pr.url),
+      // A check's run or job page.
+      openCheck: (url, cx) => openInBrowser(cx, url),
       // A link in a comment or the description; only http and https open.
-      openLink: (url, cx) => this.openInBrowser(cx, pr, url),
+      openLink: (url, cx) => openInBrowser(cx, url),
       checkOut: (cx) => this.checkOut(cx, pr, localPath ?? ""),
     };
     return prPane(t, view, on);
@@ -2565,7 +2541,7 @@ export default class PullRequests extends View {
       }
       rows.push(
         menuRow(t, "more-checkout", { label: "Check out in a worktree", enabled: localPath !== null && !checkingOut, tick, onClick: pick((cx) => this.checkOut(cx, pr, localPath ?? "")) }),
-        menuRow(t, "more-browser", { label: "Open in browser", tick, onClick: pick((cx) => this.openInBrowser(cx, pr)) }),
+        menuRow(t, "more-browser", { label: "Open in browser", tick, onClick: pick((cx) => openInBrowser(cx, pr.url)) }),
       );
       above.push(menuBox("more-menu", rows));
     }

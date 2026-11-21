@@ -7,7 +7,6 @@ import {
   cliError,
   missingNotes,
   normalizeSettings,
-  openArgs,
 } from "../mods/argus-pull-requests/locate.js";
 
 test("normalizeSettings defaults", () => {
@@ -63,14 +62,6 @@ test("missingNotes", () => {
   assert.deepEqual(missingNotes({ ...base, glab: false, gitlabProjects: 1 }), [GLAB_MISSING]);
   assert.deepEqual(missingNotes({ ...base, glab: false }), []);
   assert.deepEqual(missingNotes(base), []);
-});
-
-test("openArgs", () => {
-  const url = "https://github.com/example-org/example-repo/pull/1";
-  assert.deepEqual(openArgs("macos", url), ["open", [url]]);
-  assert.equal(openArgs("linux", url)[0], "xdg-open");
-  assert.equal(openArgs("macos", "file:///etc/hosts"), null);
-  assert.equal(openArgs("linux", "http://gitlab.example.com/x")[0], "xdg-open");
 });
 
 test("normalizeSettings keeps a known conversation order only", () => {

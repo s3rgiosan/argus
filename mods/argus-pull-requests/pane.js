@@ -17,3 +17,19 @@ import { discoveryIO } from "./accounts.js";
 export function profileIO() {
   return discoveryIO({ home: home(), readdir, readers: [readTextFile, (path) => readFile(path, "utf8")] });
 }
+
+/**
+ * Opens a web page in the browser with Herdr's `open_url`. It opens only
+ * absolute http and https URLs and refuses anything else, so another link
+ * opens nothing, and a failed open shows nothing.
+ *
+ * @param {{ open_url(url: string): void }} cx The handler's `cx`.
+ * @param {string} url
+ */
+export function openInBrowser(cx, url) {
+  try {
+    cx.open_url(String(url));
+  } catch {
+    // A refused link opens nothing.
+  }
+}

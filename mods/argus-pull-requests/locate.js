@@ -89,14 +89,3 @@ export function missingNotes(state) {
   if (!state.glab && state.gitlabProjects > 0) notes.push(GLAB_MISSING);
   return notes;
 }
-
-/**
- * The command and arguments that open `url` in the browser, or null for a non-http(s) URL.
- * @param {string} platform "linux" | "macos" | "windows"
- * @param {string} url
- * @returns {[string, string[]] | null}
- */
-export function openArgs(platform, url) {
-  if (!/^https?:\/\//.test(String(url))) return null;
-  return [platform === "macos" ? "open" : "xdg-open", [url]];
-}
