@@ -317,22 +317,24 @@ export default class Issues extends View {
     const grouping = readGrouping();
     const icon = iconResolver(MOD, this.found);
     const scopeRow = (entry, indent = false) => ({ key: entry.key, label: entry.label, count: String(entry.count), current: entry.current, indent, pick: () => pickScope(entry.scope) });
+    // Show and In scroll, and Group by stays in view at the bottom of the popup.
+    const parts = [];
+    const foot = [];
     // Show, In and Group by are separate choices; picking a row keeps the list open for the others.
     const sections = [
-      ["Show", items.show.map((entry) => scopeRow(entry))],
+      ["Show", items.show.map((entry) => scopeRow(entry)), parts],
       // Each project is one more In choice, indented under All repos.
-      ["In", [...items.where.map((entry) => scopeRow(entry)), ...items.projects.map((entry) => scopeRow(entry, true))]],
-      ["Group by", GROUPINGS.map(([id, label]) => ({ key: id, label, count: null, current: grouping === id, indent: false, pick: () => pickGrouping(id) }))],
+      ["In", [...items.where.map((entry) => scopeRow(entry)), ...items.projects.map((entry) => scopeRow(entry, true))], parts],
+      ["Group by", GROUPINGS.map(([id, label]) => ({ key: id, label, count: null, current: grouping === id, indent: false, pick: () => pickGrouping(id) })), foot],
     ];
     const entries = sections.flatMap(([, rows]) => rows);
     const active = this.at ?? startAt(entries);
-    const parts = [];
     let index = 0;
-    for (const [title, rows] of sections) {
-      parts.push(sectionTitle(t, title));
+    for (const [title, rows, list] of sections) {
+      list.push(sectionTitle(t, title));
       for (const entry of rows) {
         const at = index++;
-        parts.push(
+        list.push(
           menuRow(t, `scope-${at}-${entry.key}`, {
             label: entry.label,
             indent: entry.indent,
@@ -355,6 +357,7 @@ export default class Issues extends View {
       handle: this.handle,
       height: menuHeight(entries.length, sections.length, { max: SCOPES_HEIGHT }),
       parts,
+      foot,
       onKey: (e, cx) => {
         const next = menuKey(active, e.key, entries.length);
         if (!next.handled) return;

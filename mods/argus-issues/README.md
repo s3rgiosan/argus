@@ -11,6 +11,7 @@ GitHub and GitLab issues in Herdr. Board in a panel on the right, one issue in a
   - In: Follow space, All repos or one project (each project is indented under All repos).
   - Group by: Repo, Assignee or Label.
   - The list stays open after a pick, so you can set all three; Escape or a click outside closes it.
+  - With many projects, Show and In scroll and Group by stays at the bottom of the list.
   - Assigned to me, Created by me and Mentions me search every repo you can see on GitHub, and on each GitLab host of your projects, not only the projects in your spaces. Issues from other repos show in All repos.
   - Follow space uses the project that holds the focused space's folder. A new space shows "Reading this space…" until the board knows its folder.
   - The default is Assigned to me in All repos. A project is a GitHub or GitLab repo found in an open space.
