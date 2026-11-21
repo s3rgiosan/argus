@@ -5,7 +5,7 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.13.0] - 2026-11-21
 
 ### Added
 
@@ -301,7 +301,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.12.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.13.0...HEAD
+[1.13.0]: https://github.com/s3rgiosan/argus/compare/1.12.0...1.13.0
 [1.12.0]: https://github.com/s3rgiosan/argus/compare/1.11.0...1.12.0
 [1.11.0]: https://github.com/s3rgiosan/argus/compare/1.10.0...1.11.0
 [1.10.0]: https://github.com/s3rgiosan/argus/compare/1.9.0...1.10.0
