@@ -10,12 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - A new mod, `argus-issues`, shows GitHub and GitLab issues in an Issues panel. It reads through `gh` and `glab` and writes nothing to GitHub or GitLab.
-- The scope button has two choices. Show picks Assigned to me, Created by me, Mentions me or All open. In picks Follow space, All repos or one project of your open spaces.
-- Issues show in one group per repo, newest update first, and the filter field matches the title, number, author, labels and assignees.
-- Mentions me is GitHub only, because GitLab has no search for mentions. A line says so when the scope holds a GitLab project.
-- A click on a row opens the issue in a pane beside the terminals. The pane shows the state, who opened it and when, the assignees, labels and milestone, and folding Description and Comments sections rendered as Markdown.
-- Comments that GitHub hid show without their text, and GitLab internal notes get an "internal" chip. Links open in the browser only for http and https.
-- The pane header shows the issue's place in the list, with arrows for the previous and next issue, and Open in browser.
+- The scope list of `argus-issues` has three choices. Show picks Assigned to me, Created by me, Mentions me or All open. In picks Follow space, All repos or one project of your open spaces. Group by picks Repo, Assignee or Label.
+- The `argus-issues` board groups issues by repo by default. Grouped by assignee or label, an issue shows under each of its assignees or labels, and issues without one show under "No assignee" or "No label". Each group heading has a count, issues show newest update first, and the filter field matches the title, number, author, labels and assignees.
+- Mentions me in `argus-issues` is GitHub only, because GitLab has no search for mentions. A line says so when the scope holds a GitLab project.
+- A click on a row of `argus-issues` opens the issue in a pane beside the terminals. The pane shows the state, who opened it and when, the assignees, labels and milestone, and folding Description and Comments sections rendered as Markdown.
+- Comments that GitHub hid show without their text in the `argus-issues` pane, and GitLab internal notes get an "internal" chip. Links open with Herdr's `cx.open_url`, only for http and https.
+- The `argus-issues` pane header shows the issue's place in the list, with arrows for the previous and next issue, and Open in browser.
+- New worktree in the `argus-issues` pane footer starts a worktree on the issue's branch (its number and a title slug) in the local checkout of its repo, and opens its space, as the Issue tab of the `argus-pull-requests` New worktree view does. Without a local checkout of the repo, the footer says so and the button is off.
+- `argus-issues` takes its `gh` and `glab` commands from the shared `argus.forge` key, and keeps its refresh interval and Conversation order in `argus-issues.settings`.
 
 ### Changed
 
@@ -43,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared code moves to `lib/`: the git remote and project helpers (`remote.js`), the `gh` and `glab` helpers (`forge-cli.js`, `forge-settings.js`, `forge-runner.js`), the forge board helpers and board sync (`forge-board.js`, `board-sync.js`), worktree planning and creation (`worktree.js`, `worktree-runner.js`), home path helpers (`paths.js`), the profile file access (`profile-io.js`), the process limiter (`pool.js`), the lock renewal and release (`sync.js`), and the popup menu, settings field, pane and row blocks (`menu.js`, `ui.js`, `pane.js`). `argus-pull-requests`, `argus-tsk` and `argus-claude-usage` use them in place of their own copies.
 - `scripts/sync-lib.mjs` also copies the lib files that a used lib file imports.
 - `argus-pull-requests` loads Herdr's own chevron-right and plus icons when Herdr ships them, and `lib/icons.js` lists clock for the mods that use it.
+- `lib/forge-board.js` also holds the board settings (refresh interval and Conversation order), the 15-minute keep time of failed lists, the item groups by several values, and the item pane title. `lib/forge-cli.js` also holds the string list check. `argus-pull-requests` uses them in place of its `locate.js` and its own copies. The pane order of `shownOrder` counts an item that shows in several groups once.
 
 ### Fixed
 
