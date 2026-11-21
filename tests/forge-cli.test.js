@@ -10,6 +10,7 @@ import {
   forgeSettings,
   ghDefaultBranchArgs,
   ghIssuesOff,
+  issuesOffList,
   glNodes,
   glReply,
   glabArgs,
@@ -172,4 +173,10 @@ test("ghIssuesOff knows the gh reply for a repo with issues turned off", () => {
   assert.equal(ghIssuesOff(reply("HTTP 401: Bad credentials")), false);
   assert.equal(ghIssuesOff(reply("GraphQL: Could not resolve to a Repository with the name 'example-org/example-repo'.")), false);
   assert.equal(ghIssuesOff(reply("the 'example-org/example-repo' repository has disabled issues", 0)), false);
+});
+
+test("issuesOffList gives an empty list for a repo with issues turned off, else null", () => {
+  const reply = (stderr, code = 1) => ({ code, stdout: "", stderr });
+  assert.deepEqual(issuesOffList(reply("the 'example-org/example-repo' repository has disabled issues")), []);
+  assert.equal(issuesOffList(reply("HTTP 401: Bad credentials")), null);
 });

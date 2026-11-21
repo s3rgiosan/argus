@@ -8,7 +8,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
 import { randomUUID } from "crypto";
 import { localFolders, followProjectKey, projectKey, localPathFor } from "./remote.js";
-import { GH_MISSING, GLAB_MISSING, cliError, missingNotes, glabArgs, limitNote, ghDefaultBranchArgs, GL_DEFAULT_BRANCH_QUERY, parseGhDefaultBranch, parseGlDefaultBranch } from "./forge-cli.js";
+import { GH_MISSING, GLAB_MISSING, cliError, missingNotes, glabArgs, issuesOffList, limitNote, ghDefaultBranchArgs, GL_DEFAULT_BRANCH_QUERY, parseGhDefaultBranch, parseGlDefaultBranch } from "./forge-cli.js";
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, headRefusal, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghIssuesArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_ISSUES_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhMergedFull, parseGlMergedFull, parseGhPrState, parseGlMerged, parseGlMrState, parseGhIssues, parseGlIssues, prKey } from "./model.js";
@@ -1310,7 +1310,8 @@ export default class PullRequests extends View {
     const notes = [];
     let issues = null;
     if (github) {
-      issues = await this.forge.attempt(label, command, ghIssuesArgs(project.repo), parseGhIssues, notes);
+      // A repo with issues turned off has no issues to list and gives no error.
+      issues = await this.forge.attempt(label, command, ghIssuesArgs(project.repo), parseGhIssues, notes, { recover: issuesOffList });
     } else {
       const user = await this.forge.glUsername(command, project.host, notes);
       if (user !== null) issues = await this.forge.attempt(label, command, glabArgs(project.host, GL_ISSUES_QUERY, { path: project.repo, user }), parseGlIssues, notes);

@@ -142,7 +142,7 @@ The `+` button right of the filter field ("New worktree") starts a git worktree,
   - Without a local branch, a new branch starts at the remote branch. Its upstream is set to `origin`, and a single-branch clone gets a fetch refspec for it.
   - A failed create deletes the branch it made.
 - Pull request: the open pull requests of the repo on the board. A pick runs Check out in a worktree.
-- Issue: the open issues assigned to you, at most 50 ("Showing the first 50 issues." after that). Branch names are `<number>-<title as lowercase ASCII words>`, with at most 40 characters of title after the number; a title with no ASCII letters or digits gives just the number. git checks the name first.
+- Issue: the open issues assigned to you, at most 50 ("Showing the first 50 issues." after that). A GitHub repo that has issues turned off shows an empty list. Branch names are `<number>-<title as lowercase ASCII words>`, with at most 40 characters of title after the number; a title with no ASCII letters or digits gives just the number. git checks the name first.
   - A pick opens the worktree of that branch when one exists.
   - A local branch of that name gets a worktree and stays as it is.
   - A branch of that name that exists only on the remote is used like a pick on the Branch tab.
