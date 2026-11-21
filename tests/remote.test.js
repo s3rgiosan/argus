@@ -12,8 +12,8 @@ import {
   projectKey,
   remoteArgs,
   revParseArgs,
-} from "../mods/argus-pull-requests/remote.js";
-import { PROBE_TTL_MS, needsGlabLogin, needsProbe } from "../mods/argus-pull-requests/remote.js";
+} from "../lib/remote.js";
+import { PROBE_TTL_MS, needsGlabLogin, needsProbe } from "../lib/remote.js";
 
 const ENTRIES = [
   { folder: "/home/test/b", top: "/home/test/b", main: "/home/test/b", remote: "git@github.com:example-org/zeta.git" },

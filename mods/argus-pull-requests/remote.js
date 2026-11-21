@@ -1,3 +1,5 @@
+// Copied from lib/remote.js by scripts/sync-lib.mjs: edit lib/remote.js, then run it.
+//
 // Parses git remotes and turns the open spaces' folders into a project list.
 
 import { compareNames, followedProject } from "./follow.js";
