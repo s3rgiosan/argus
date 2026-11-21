@@ -9,6 +9,7 @@ import {
   commandCandidates,
   forgeSettings,
   ghDefaultBranchArgs,
+  ghIssuesOff,
   glNodes,
   glReply,
   glabArgs,
@@ -163,4 +164,12 @@ test("glNodes gives the node list of a connection", () => {
   assert.deepEqual(glNodes({ nodes: [1, 2] }), [1, 2]);
   assert.throws(() => glNodes({ nodes: null }), /unexpected glab output/);
   assert.throws(() => glNodes(null), /unexpected glab output/);
+});
+
+test("ghIssuesOff knows the gh reply for a repo with issues turned off", () => {
+  const reply = (stderr, code = 1) => ({ code, stdout: "", stderr });
+  assert.equal(ghIssuesOff(reply("the 'example-org/example-repo' repository has disabled issues\n")), true);
+  assert.equal(ghIssuesOff(reply("HTTP 401: Bad credentials")), false);
+  assert.equal(ghIssuesOff(reply("GraphQL: Could not resolve to a Repository with the name 'example-org/example-repo'.")), false);
+  assert.equal(ghIssuesOff(reply("the 'example-org/example-repo' repository has disabled issues", 0)), false);
 });

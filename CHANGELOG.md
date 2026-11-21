@@ -68,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The refresh and settings buttons of `argus-pull-requests` and the icon buttons of `argus-claude-usage` have tooltips.
 - Every task that `argus-tsk`, `argus-claude-usage` and `argus-toolbar` start with `cx.spawn` waits one tick first, as Herdr app 0.1.16 needs.
 - `tildePath` keeps a path as it is when there is no home folder, and ignores a trailing slash on the home folder, in every mod.
+- A GitHub repo that has issues turned off shows no issues in `argus-issues` and adds no failure note.
 
 ### Security
 

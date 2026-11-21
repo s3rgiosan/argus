@@ -100,6 +100,15 @@ export function cliError(label, reply) {
 }
 
 /**
+ * True for the reply of a gh issue read for a repo that has issues turned off. Such a repo has no issues to list.
+ * @param {{code: number, stderr: string}} reply
+ * @returns {boolean}
+ */
+export function ghIssuesOff(reply) {
+  return reply.code !== 0 && /^the '[^']+' repository has disabled issues$/m.test(String(reply.stderr ?? "").trim());
+}
+
+/**
  * Notes for CLIs that are missing. The gh note also shows when no project exists,
  * because the GitHub searches run without one.
  * @param {{gh: boolean, glab: boolean, githubProjects: number, gitlabProjects: number}} state

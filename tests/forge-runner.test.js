@@ -76,6 +76,15 @@ test("attempt parses the output, or adds one note under the label", async () => 
   assert.deepEqual(notes, ["gh: HTTP 401", "glab (gitlab.example.com): timed out", "gh: unexpected gh output"]);
 });
 
+test("attempt takes the value that recover gives for a failed reply, with no note", async () => {
+  const { forge } = runner((_command, args) => (args[0] === "off" ? fail("the 'example-org/example-repo' repository has disabled issues") : fail("HTTP 401")));
+  const notes = [];
+  const recover = (reply) => (reply.stderr.includes("disabled issues") ? [] : null);
+  assert.deepEqual(await forge.attempt("gh", "gh", ["off"], JSON.parse, notes, { recover }), []);
+  assert.equal(await forge.attempt("gh", "gh", ["other"], JSON.parse, notes, { recover }), null);
+  assert.deepEqual(notes, ["gh: HTTP 401"]);
+});
+
 test("signedInGitLab keeps gitlab.com and the hosts glab is signed in to, with one note per other host", async () => {
   const { forge, calls } = runner((_command, args) => (args.includes("git.example.com") ? ok() : fail("not logged in")));
   const projects = [

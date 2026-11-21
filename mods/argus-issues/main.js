@@ -8,7 +8,7 @@ import { h_flex } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused } from "herdr";
 import { randomUUID } from "crypto";
 import { localFolders, followProjectKey } from "./remote.js";
-import { GH_MISSING, GLAB_MISSING, cliError, glabArgs, limitNote, missingNotes } from "./forge-cli.js";
+import { GH_MISSING, GLAB_MISSING, cliError, ghIssuesOff, glabArgs, limitNote, missingNotes } from "./forge-cli.js";
 import { INTERVALS, ageText, followStatus, normalizeSettings, positionIn, rereadDue, scopeRepos } from "./forge-board.js";
 import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT } from "./forge-runner.js";
 import { createBoardSync } from "./board-sync.js";
@@ -175,7 +175,9 @@ export default class Issues extends View {
     });
     const failed = [];
     await mapPool(projects, CLI_CONCURRENCY, async (project) => {
-      const issues = await this.forge.attempt("gh", gh, ghListArgs(project.repo), (raw) => parseGhList(raw, project.repo), notes);
+      // A repo with issues turned off lists no issues and gets no note.
+      const recover = (reply) => (ghIssuesOff(reply) ? [] : null);
+      const issues = await this.forge.attempt("gh", gh, ghListArgs(project.repo), (raw) => parseGhList(raw, project.repo), notes, { recover });
       this.boardSync.renew();
       if (issues === null) {
         failed.push(project.key);
