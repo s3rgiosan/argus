@@ -7,9 +7,9 @@ import { div, svg, image, View } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
 import { randomUUID } from "crypto";
-import { localFolders, revParseArgs, remoteArgs, parseRevParse, mergeProjects, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys, needsProbe, needsGlabLogin } from "./remote.js";
+import { localFolders, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
 import { INTERVALS, normalizeSettings } from "./locate.js";
-import { GH_MISSING, GLAB_MISSING, commandCandidates, cliError, missingNotes, glabArgs, glabAuthArgs, glabLoginNote, limitNote, ghDefaultBranchArgs, GL_DEFAULT_BRANCH_QUERY, GL_USERNAME_QUERY, parseGhDefaultBranch, parseGlDefaultBranch, parseGlUsername } from "./forge-cli.js";
+import { GH_MISSING, GLAB_MISSING, cliError, missingNotes, glabArgs, limitNote, ghDefaultBranchArgs, GL_DEFAULT_BRANCH_QUERY, parseGhDefaultBranch, parseGlDefaultBranch } from "./forge-cli.js";
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, headRefusal, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghIssuesArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_ISSUES_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhMergedFull, parseGlMergedFull, parseGhPrState, parseGlMerged, parseGlMrState, parseGhIssues, parseGlIssues, prKey } from "./model.js";
@@ -20,6 +20,7 @@ import { remoteHeadsArgs, parseRemoteHeads, branchRead, issueRead, remoteBranchP
 import { worktreeRoot, checkoutBranch, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
 import { createGate } from "./gate.js";
 import { createLimiter, mapPool } from "./pool.js";
+import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT, GIT_TIMEOUT } from "./forge-runner.js";
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, usageSettings } from "./accounts.js";
 import { expandHome } from "./paths.js";
@@ -52,14 +53,10 @@ const REVIEW_TOAST_MS = 1_500;
 const REVIEW_WIDTH = 460;
 const REVIEW_HEIGHT = 600;
 const MOD = "argus-pull-requests";
-const CLI_TIMEOUT = 30_000;
-const GIT_TIMEOUT = 15_000;
 const POLL = 5_000;
 const AGE_TICK = 60_000;
 const LOCK_RETRY = 1_000;
 const GIT_LONG_TIMEOUT = 600_000;
-// How many gh or glab calls run at once when listing repos and filling in pull requests.
-const CLI_CONCURRENCY = 4;
 
 /** The most height, in px, of the area above the pane's footer row. */
 const BOTTOM_MAX_HEIGHT = 260;
@@ -81,19 +78,12 @@ export default class PullRequests extends View {
     this.forceKeys = null;
     this.probing = false;
     this.focused = null;
-    // Folder -> {entry, at}: `entry` is {folder, top, main, remote}, or null when the folder is not a
-    // repository. `at` is the time of the probe. A scheduled read probes again by `needsProbe`.
-    this.repoCache = new Map();
-    // glab command and host -> Promise<boolean>: whether glab is signed in to the host. Kept until the refresh button.
-    this.glabHosts = new Map();
+    // The gh, glab and folder reads, with what they found. Kept until the refresh button.
+    this.forge = createForgeRunner({ exec, home, settings: () => readSettings() });
     // Project key -> the default branch (or null) read by git. Kept until the refresh button.
     this.defaultBranches = new Map();
     // Project key -> {heads, signature, at}: the merged heads list and the candidate worktrees it was read for.
     this.mergedHeads = new Map();
-    // Folder -> Promise of the probe that runs now, and folder -> time of the last rejected probe.
-    this.probes = new Map();
-    this.probeFailed = new Map();
-    this.located = { gh: null, glab: null };
     this.login = null;
     // The pane's read: {key, kind: "loading"|"ok"|"error", detail, error, readAt}.
     this.shown = null;
@@ -235,14 +225,13 @@ export default class PullRequests extends View {
       await cx.sleep(0);
       try {
         const retryMs = readSettings().interval * 60_000;
-        const waiting = (folder) => Date.now() - (this.probeFailed.get(folder) ?? -Infinity) < retryMs;
-        await mapPool(unseen.filter((folder) => !this.repoCache.has(folder) && !waiting(folder)), CLI_CONCURRENCY, (folder) => this.probe(folder));
-        const entries = unseen.map((folder) => this.repoCache.get(folder)?.entry ?? null);
+        const probed = await this.forge.probeNew(unseen, retryMs);
+        const entries = probed.map((entry) => entry ?? null);
         const fresh = newProjectKeys(entries, readBoard().projects);
         if (fresh.length === 0) {
           // No new project: the board lists the probed folders at once, so Follow space stops waiting on them.
           const board = readBoard();
-          const listed = withFolders(board, unseen.filter((folder) => this.repoCache.has(folder)));
+          const listed = withFolders(board, unseen.filter((_folder, index) => probed[index] !== undefined));
           if (listed !== board) setShared(BOARD_KEY, listed);
           return;
         }
@@ -331,18 +320,15 @@ export default class PullRequests extends View {
     const notes = [];
     const folders = localFolders(spaces(), panes());
 
-    const probedAt = Date.now();
-    await mapPool(folders.filter((folder) => needsProbe(this.repoCache.get(folder), probedAt)), CLI_CONCURRENCY, (folder) => this.probe(folder));
-    const entries = folders.map((folder) => this.repoCache.get(folder)?.entry).filter((entry) => entry);
-    const found = mergeProjects(entries);
+    const found = await this.forge.readProjects(folders);
     this.renewLock();
 
     const gitHub = found.filter((project) => project.provider === "github");
     const gitLabFound = found.filter((project) => project.provider === "gitlab");
     // glab is only looked up when a project needs it.
-    const [gh, glab] = await Promise.all([this.locate("gh"), gitLabFound.length > 0 ? this.locate("glab") : null]);
+    const [gh, glab] = await Promise.all([this.forge.locate("gh"), gitLabFound.length > 0 ? this.forge.locate("glab") : null]);
     // A host other than gitlab.com stays only when glab is signed in to it. Without glab, the note says glab is missing.
-    const gitLab = glab === null ? gitLabFound : await this.signedInGitLab(glab, gitLabFound, notes);
+    const gitLab = glab === null ? gitLabFound : await this.forge.signedInGitLab(glab, gitLabFound, notes);
     const projects = found.filter((project) => project.provider === "github" || gitLab.includes(project));
     this.renewLock();
     notes.push(...missingNotes({ gh: gh !== null, glab: glab !== null, githubProjects: gitHub.length, gitlabProjects: gitLab.length }));
@@ -364,44 +350,6 @@ export default class PullRequests extends View {
     const { merged, mergedSeen } = mergedCounts(previous.merged ?? {}, previous.mergedSeen ?? {}, mergedListRead(counted, failed.map((project) => project.key)), Date.now());
     this.renewLock();
     return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged, mergedSeen, listedAt: result.listedAt });
-  }
-
-  /**
-   * The GitLab projects that glab can read: every gitlab.com project, and the projects on hosts
-   * that glab is signed in to. Each other host adds one note and gets no further glab call.
-   */
-  async signedInGitLab(glab, projects, notes) {
-    const hosts = [...new Set(projects.map((project) => project.host))].filter(needsGlabLogin);
-    const signedIn = new Set();
-    await Promise.all(
-      hosts.map(async (host) => {
-        if (await this.glabLogin(glab, host)) signedIn.add(host);
-        else notes.push(glabLoginNote(host));
-      }),
-    );
-    return projects.filter((project) => !needsGlabLogin(project.host) || signedIn.has(project.host));
-  }
-
-  /**
-   * Whether glab is signed in to `host`, kept per glab command and host until the refresh button.
-   * A check that cannot start gives false and is not kept, so the next read checks again.
-   */
-  glabLogin(glab, host) {
-    const key = `${glab} ${host}`;
-    const cached = this.glabHosts.get(key);
-    if (cached) return cached;
-    const result = (async () => {
-      await null;
-      try {
-        const reply = await exec(glab, glabAuthArgs(host), { timeout: CLI_TIMEOUT });
-        return reply.code === 0;
-      } catch {
-        if (this.glabHosts.get(key) === result) this.glabHosts.delete(key);
-        return false;
-      }
-    })();
-    this.glabHosts.set(key, result);
-    return result;
   }
 
   /**
@@ -457,7 +405,7 @@ export default class PullRequests extends View {
             if (mergedHeadsFresh(kept, signature, Date.now())) {
               heads = kept.heads;
             } else {
-              heads = await this.attempt(label, command, args, github ? parseGhMergedList : parseGlMergedList, []);
+              heads = await this.forge.attempt(label, command, args, github ? parseGhMergedList : parseGlMergedList, []);
               if (heads !== null) this.mergedHeads.set(project.key, { heads, signature, at: Date.now() });
             }
             if (heads !== null) count = countMerged(worktrees, heads, defaultBranch);
@@ -471,83 +419,6 @@ export default class PullRequests extends View {
     });
   }
 
-  /** Caches what `folder` is (a repository entry, or null) and the time of the probe. A rejected probe changes nothing. */
-  probe(folder) {
-    const running = this.probes.get(folder);
-    if (running) return running;
-    const task = this.probeOnce(folder).finally(() => this.probes.delete(folder));
-    this.probes.set(folder, task);
-    return task;
-  }
-
-  async probeOnce(folder) {
-    let entry = null;
-    try {
-      const top = await exec("git", revParseArgs(), { cwd: folder, timeout: GIT_TIMEOUT });
-      const parsed = top.code === 0 ? parseRevParse(top.stdout) : null;
-      if (parsed) {
-        const origin = await exec("git", remoteArgs(), { cwd: folder, timeout: GIT_TIMEOUT });
-        const remote = origin.code === 0 ? origin.stdout.trim() : "";
-        entry = { folder, top: parsed.top, main: parsed.main, remote: remote === "" ? null : remote };
-      }
-    } catch {
-      // A probe that timed out or could not start is tried again on the next scheduled read.
-      this.probeFailed.set(folder, Date.now());
-      return;
-    }
-    this.probeFailed.delete(folder);
-    this.repoCache.set(folder, { entry, at: Date.now() });
-  }
-
-  /**
-   * The command for `name` ("gh" or "glab"), or null when none runs. The first
-   * of the setting, the bare name and the install folders whose `--version`
-   * runs wins. The result, found or missing, is kept per setting value until the
-   * setting changes or the refresh button looks again.
-   */
-  locate(name) {
-    const setting = readSettings()[name];
-    const cached = this.located[name];
-    if (cached?.setting === setting) return cached.result;
-    const result = (async () => {
-      for (const command of commandCandidates(setting, name, home())) {
-        try {
-          const reply = await exec(command, ["--version"], { timeout: CLI_TIMEOUT });
-          if (reply.code === 0) return command;
-        } catch {
-          continue;
-        }
-      }
-      return null;
-    })();
-    this.located[name] = { setting, result };
-    return result;
-  }
-
-  /**
-   * Runs `command` with `args` and parses its output. A failed run or a parse
-   * error adds one note under `label` and gives null.
-   */
-  async attempt(label, command, args, parse, notes) {
-    let reply;
-    try {
-      reply = await exec(command, args, { timeout: CLI_TIMEOUT });
-    } catch (error) {
-      notes.push(`${label}: ${error?.message ?? error}`);
-      return null;
-    }
-    if (reply.code !== 0) {
-      notes.push(cliError(label, reply));
-      return null;
-    }
-    try {
-      return parse(reply.stdout);
-    } catch (error) {
-      notes.push(`${label}: ${error?.message ?? error}`);
-      return null;
-    }
-  }
-
   /**
    * The signed-in GitHub login, kept per gh command setting for LOGIN_TTL. `keepFailure`
    * keeps a failed read too, so the pane does not ask again before every detail read.
@@ -555,7 +426,7 @@ export default class PullRequests extends View {
   async ghLogin(gh, notes, keepFailure = false) {
     const setting = readSettings().gh;
     if (loginFresh(this.login, setting, Date.now())) return this.login.value;
-    const value = await this.attempt("gh", gh, ghLoginArgs(), (text) => {
+    const value = await this.forge.attempt("gh", gh, ghLoginArgs(), (text) => {
       const login = text.trim();
       if (login === "") throw new Error("no login returned");
       return login;
@@ -572,8 +443,8 @@ export default class PullRequests extends View {
     const login = await this.ghLogin(gh, notes);
     this.renewLock();
     const [needsPairs, minePairs] = await Promise.all([
-      this.attempt("gh", gh, ghSearchArgs("needsReview"), parseGhSearch, notes),
-      login === null ? null : this.attempt("gh", gh, ghSearchArgs("mine", login), parseGhSearch, notes),
+      this.forge.attempt("gh", gh, ghSearchArgs("needsReview"), parseGhSearch, notes),
+      login === null ? null : this.forge.attempt("gh", gh, ghSearchArgs("mine", login), parseGhSearch, notes),
     ]);
     this.renewLock();
     const searchNotes = [
@@ -592,7 +463,7 @@ export default class PullRequests extends View {
     for (const pair of pairs) if (!repos.has(projectKey(pair))) repos.set(projectKey(pair), pair.repo);
     const listed = await mapPool([...repos], CLI_CONCURRENCY, async ([key, repo]) => [
       key,
-      await this.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes),
+      await this.forge.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes),
     ]);
     this.renewLock();
     const listedAt = Date.now();
@@ -618,7 +489,7 @@ export default class PullRequests extends View {
       const { found, missing } = pickPairs(all, list);
       const wanted = withoutFailedRepos(missing, failed);
       const filled = await mapPool(wanted, CLI_CONCURRENCY, (pair) =>
-        this.attempt("gh", gh, ghViewArgs(pair.repo, pair.number), (text) => parseGhDetail(text, pair.repo).pr, notes),
+        this.forge.attempt("gh", gh, ghViewArgs(pair.repo, pair.number), (text) => parseGhDetail(text, pair.repo).pr, notes),
       );
       this.renewLock();
       return [...found, ...filled.filter((pr) => pr !== null)];
@@ -636,7 +507,7 @@ export default class PullRequests extends View {
     const failed = [];
     await Promise.all([
       ...hosts.map(async (host) => {
-        const user = await this.attempt(`glab (${host})`, glab, glabArgs(host, GL_USER_QUERY), (text) => parseGlabUser(text, host), notes);
+        const user = await this.forge.attempt(`glab (${host})`, glab, glabArgs(host, GL_USER_QUERY), (text) => parseGlabUser(text, host), notes);
         if (user === null) return;
         for (const [found, what] of [
           [user.needsReview, `merge requests on ${host} that need your review`],
@@ -649,7 +520,7 @@ export default class PullRequests extends View {
         result.mine.push(...user.mine);
       }),
       mapPool(projects, CLI_CONCURRENCY, async (project) => {
-        const prs = await this.attempt(
+        const prs = await this.forge.attempt(
           `glab (${project.host})`,
           glab,
           glabArgs(project.host, GL_PROJECT_QUERY, { path: project.repo }),
@@ -730,13 +601,10 @@ export default class PullRequests extends View {
       ICON("refresh-cw"),
       (_e, cx) => {
         // Looks for gh and glab again too, in case they were installed or updated.
-        this.located = { gh: null, glab: null };
+        this.forge.clear();
         this.login = null;
-        this.repoCache.clear();
-        this.glabHosts.clear();
         this.defaultBranches.clear();
         this.mergedHeads.clear();
-        this.probeFailed.clear();
         this.refresh(cx);
       },
       { busy: this.reading },
@@ -1199,7 +1067,7 @@ export default class PullRequests extends View {
         } else {
           const github = projects.some((project) => project.provider === "github");
           const gitlab = projects.some((project) => project.provider === "gitlab");
-          const [gh, glab] = await Promise.all([github ? this.locate("gh") : null, gitlab ? this.locate("glab") : null]);
+          const [gh, glab] = await Promise.all([github ? this.forge.locate("gh") : null, gitlab ? this.forge.locate("glab") : null]);
           // One limiter for the whole read, so at most CLI_CONCURRENCY processes run at once.
           const limit = createLimiter(CLI_CONCURRENCY);
           const read = await mapPool(projects, CLI_CONCURRENCY, (project) => this.cleanupGroup(project, board, project.provider === "github" ? gh : glab, limit));
@@ -1241,7 +1109,7 @@ export default class PullRequests extends View {
 
     const github = project.provider === "github";
     const label = github ? "gh" : `glab (${project.host})`;
-    const ask = (args, parse, notes) => limit(() => this.attempt(label, command, args, parse, notes));
+    const ask = (args, parse, notes) => limit(() => this.forge.attempt(label, command, args, parse, notes));
     if (defaultBranch === null) {
       // A failed read leaves the default branch unknown: any base then counts.
       const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
@@ -1567,16 +1435,16 @@ export default class PullRequests extends View {
   /** The open issues assigned to the signed-in user. Gives `{error}` when gh or glab fails. */
   async readIssues(project) {
     const github = project.provider === "github";
-    const command = await this.locate(github ? "gh" : "glab");
+    const command = await this.forge.locate(github ? "gh" : "glab");
     if (command === null) return { error: github ? GH_MISSING : GLAB_MISSING };
     const label = github ? "gh" : `glab (${project.host})`;
     const notes = [];
     let issues = null;
     if (github) {
-      issues = await this.attempt(label, command, ghIssuesArgs(project.repo), parseGhIssues, notes);
+      issues = await this.forge.attempt(label, command, ghIssuesArgs(project.repo), parseGhIssues, notes);
     } else {
-      const user = await this.attempt(label, command, glabArgs(project.host, GL_USERNAME_QUERY), parseGlUsername, notes);
-      if (user !== null) issues = await this.attempt(label, command, glabArgs(project.host, GL_ISSUES_QUERY, { path: project.repo, user }), parseGlIssues, notes);
+      const user = await this.forge.glUsername(command, project.host, notes);
+      if (user !== null) issues = await this.forge.attempt(label, command, glabArgs(project.host, GL_ISSUES_QUERY, { path: project.repo, user }), parseGlIssues, notes);
     }
     return issues === null ? { error: notes[0] ?? `${label}: could not read the issues` } : issueRead(issues);
   }
@@ -1587,10 +1455,10 @@ export default class PullRequests extends View {
     const local = head.code === 0 ? defaultBranchOf(head.stdout) : null;
     if (local !== null) return local;
     const github = project.provider === "github";
-    const command = await this.locate(github ? "gh" : "glab");
+    const command = await this.forge.locate(github ? "gh" : "glab");
     if (command === null) return null;
     const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
-    return this.attempt(github ? "gh" : `glab (${project.host})`, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
+    return this.forge.attempt(github ? "gh" : `glab (${project.host})`, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
   }
 
   /**
@@ -2055,7 +1923,7 @@ export default class PullRequests extends View {
   async readDetail(selected) {
     const gitLab = selected.provider === "gitlab";
     const name = gitLab ? "glab" : "gh";
-    const command = await this.locate(name);
+    const command = await this.forge.locate(name);
     if (command === null) throw new Error(gitLab ? GLAB_MISSING : GH_MISSING);
     const args = gitLab
       ? glabArgs(selected.host, GL_DETAIL_QUERY, { path: selected.repo, iid: String(selected.number) })
@@ -2221,7 +2089,7 @@ export default class PullRequests extends View {
       await cx.sleep(0);
       let methods;
       try {
-        const gh = await this.locate("gh");
+        const gh = await this.forge.locate("gh");
         if (gh === null) {
           methods = { error: GH_MISSING };
         } else {
@@ -2275,7 +2143,7 @@ export default class PullRequests extends View {
       let draftText = kept;
       let drafted = false;
       try {
-        const cli = await this.locate(command.name);
+        const cli = await this.forge.locate(command.name);
         if (cli === null) {
           error = command.name === "glab" ? GLAB_MISSING : GH_MISSING;
         } else {
