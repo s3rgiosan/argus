@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidates, defaultBranchOf, defaultBranchArgs, insideFolder, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces, freshForReview } from "../mods/argus-pull-requests/cleanup.js";
+import { candidates, insideFolder, rowsFor, branchStep, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces, freshForReview } from "../mods/argus-pull-requests/cleanup.js";
 import { branchDelete, linkedWorktrees, reviewNumber } from "../mods/argus-pull-requests/review.js";
 import { BRANCH_MERGED_LIMIT, MERGED_LIST_LIMIT, answerFromList } from "../mods/argus-pull-requests/cleanup.js";
 import { parseGhMerged, parseGhMergedFull, parseGhPrState, parseGlMerged, parseGlMergedFull, parseGlMrState } from "../mods/argus-pull-requests/model.js";
@@ -36,15 +36,6 @@ function merged(number, headSha = SHA_A, mergedAt = "2026-11-10T00:00:00Z", base
 function input(worktrees, extra = {}) {
   return { worktrees, merged: {}, reviewMerged: {}, dirty: new Set(), inSpace: new Set(), openBranches: new Set(), ...extra };
 }
-
-test("defaultBranchOf reads the branch from a remote HEAD", () => {
-  assert.equal(defaultBranchOf("origin/main\n"), "main");
-  assert.equal(defaultBranchOf(""), null);
-  assert.equal(defaultBranchOf("upstream/dev"), "dev");
-  assert.deepEqual(defaultBranchArgs(), ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
-  assert.deepEqual(tipArgs("feat/a"), ["rev-parse", "--verify", "--quiet", "refs/heads/feat/a"]);
-  assert.deepEqual(statusArgs(), ["status", "--porcelain", "--untracked-files=all"]);
-});
 
 test("linkedWorktrees reads the head commit of each linked worktree", () => {
   const list = linkedWorktrees(porcelain(MAIN, { path: "/w/a", branch: "feat/a", head: SHA_B }));
@@ -336,4 +327,8 @@ test("mergedHeadsFresh reuses a list for the same worktrees within the window", 
   assert.equal(mergedHeadsFresh(kept, "other", 2000), false);
   assert.equal(mergedHeadsFresh(undefined, "s", 2000), false);
   assert.equal(mergedHeadsFresh(kept, "s", 500), false);
+});
+
+test("statusArgs lists untracked files too", () => {
+  assert.deepEqual(statusArgs(), ["status", "--porcelain", "--untracked-files=all"]);
 });

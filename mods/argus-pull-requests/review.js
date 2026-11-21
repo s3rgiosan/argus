@@ -3,7 +3,7 @@
 
 import { visibleProfiles } from "./accounts.js";
 import { expandHome, tildePath } from "./paths.js";
-import { branchSlug } from "./worktree.js";
+import { branchSlug, titleSlug } from "./worktree.js";
 import { fetchRef } from "./forge.js";
 
 /** @typedef {import("./accounts.js").Profile} Profile */
@@ -62,19 +62,6 @@ export function agentChoices(known, profiles, settings, home) {
 export function agentArgv(choice, model) {
   const name = String(model ?? "").trim();
   return choice.model && name !== "" ? [...choice.argv, "--model", name] : [...choice.argv];
-}
-
-/** The most characters the title part of a review branch takes. */
-const SLUG_LENGTH = 40;
-
-/**
- * The title as lowercase ASCII words joined by `-`, at most SLUG_LENGTH characters, or "" when nothing is left.
- * @param {string} title
- * @returns {string}
- */
-export function titleSlug(title) {
-  const words = String(title ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return words.slice(0, SLUG_LENGTH).replace(/-+$/, "");
 }
 
 /**

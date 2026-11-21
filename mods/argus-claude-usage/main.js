@@ -16,7 +16,7 @@ import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock, lockNeedsRenewal, releasedLock } from "./sync.js";
 import { accountTitle } from "./title.js";
 import { dueAlerts } from "./alerts.js";
-import { frame, header, subHeader, iconButton, fieldLabel, hint, row, scrollArea, field, button, footer, sectionTitle, note, errorLine, meter, toggle, commandField, intervalPicker } from "./ui.js";
+import { frame, header, subHeader, iconButton, fieldLabel, row, scrollArea, field, button, footer, sectionTitle, note, errorLine, meter, toggle, commandField, intervalPicker } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 
 const SETTINGS_KEY = "argus-claude-usage.settings";

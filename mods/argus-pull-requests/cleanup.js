@@ -10,27 +10,6 @@ import { byMergedAt } from "./model.js";
 /** @typedef {null|"locked"|"has changes"|"has submodules"|"has unsaved commits"|"open in a space"|"has an open pull request"|`merged into ${string}`|"not at the merged commit"} Reason */
 /** @typedef {{path: string, branch: string, number: number, mergedAt: string|null, headSha: string, review: boolean, reason: Reason, ignored: string[], prunable: boolean}} Row */
 
-/** The arguments that print the remote's default branch, for example `origin/main`. */
-export function defaultBranchArgs() {
-  return ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"];
-}
-
-/**
- * The default branch from `defaultBranchArgs` output: `origin/main` gives `main`.
- * @param {string} stdout
- * @returns {string|null}
- */
-export function defaultBranchOf(stdout) {
-  const ref = String(stdout ?? "").trim();
-  const slash = ref.indexOf("/");
-  return slash < 0 || slash === ref.length - 1 ? null : ref.slice(slash + 1);
-}
-
-/** The arguments that print a branch's tip commit, or fail when the branch is gone. */
-export function tipArgs(branch) {
-  return ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`];
-}
-
 /**
  * The arguments that list a worktree's changes; empty output means it has none. `--untracked-files=all`
  * overrides `status.showUntrackedFiles=no`, because `git worktree remove` deletes untracked files.

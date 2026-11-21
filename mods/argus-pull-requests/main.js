@@ -13,12 +13,14 @@ import { GH_MISSING, GLAB_MISSING, cliError, missingNotes, glabArgs, limitNote, 
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, headRefusal, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghIssuesArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_ISSUES_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhMergedFull, parseGlMergedFull, parseGhPrState, parseGlMerged, parseGlMrState, parseGhIssues, parseGlIssues, prKey } from "./model.js";
-import { answerFromList, candidates, candidateSignature, mergedHeadsFresh, countMerged, freshForReview, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
+import { answerFromList, candidates, candidateSignature, mergedHeadsFresh, countMerged, freshForReview, rowsFor, branchStep, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
 import { prSignature, assembleBoard, normalizeBoard, emptyMessage, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, keptLists, changesRequested, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
 import { INTERVALS, ageText, displayName, followStatus, positionIn, rereadDue, scopeProjects, scopeRepos, scopeWhereTitle } from "./forge-board.js";
-import { remoteHeadsArgs, parseRemoteHeads, branchRead, issueRead, remoteBranchPlan, issueBranch, issuePlan, filterItems, aheadBehind, localBranchStep, branchNote, fastForwardArgs, remoteBranchArgs, remoteHasBranch, refspecMissing, branchNameError, noticeFor, folderExistsMessage, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
-import { worktreeRoot, checkoutBranch, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
+import { branchRead, issueRead, noticeFor, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
+import { checkoutBranch, checkoutPlan, aheadCount, aheadRefusal } from "./checkout.js";
+import { gitError, defaultBranchArgs, defaultBranchOf, tipArgs, remoteHeadsArgs, parseRemoteHeads, issueBranch, filterItems, folderExistsMessage, worktreeListArgs } from "./worktree.js";
+import { createWorktreeRunner, GIT_LONG_TIMEOUT } from "./worktree-runner.js";
 import { createBoardSync } from "./board-sync.js";
 import { createLimiter, mapPool } from "./pool.js";
 import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT, GIT_TIMEOUT } from "./forge-runner.js";
@@ -55,7 +57,6 @@ const REVIEW_HEIGHT = 600;
 const MOD = "argus-pull-requests";
 const POLL = 5_000;
 const AGE_TICK = 60_000;
-const GIT_LONG_TIMEOUT = 600_000;
 
 /** The most height, in px, of the area above the pane's footer row. */
 const BOTTOM_MAX_HEIGHT = 260;
@@ -74,6 +75,8 @@ export default class PullRequests extends View {
     this.focused = null;
     // The gh, glab and folder reads, with what they found. Kept until the refresh button.
     this.forge = createForgeRunner({ exec, home, settings: readForge });
+    // Starts worktrees and opens their spaces.
+    this.worktrees = createWorktreeRunner({ exec, readTextFile, appHome, home, run, spaces, panes, forge: this.forge });
     // The board read: the lock, forced reads and the folder watch.
     this.boardSync = createBoardSync({
       boardKey: BOARD_KEY,
@@ -252,7 +255,7 @@ export default class PullRequests extends View {
     const listings = await mapPool(local, CLI_CONCURRENCY, async (project) => {
       let listing = null;
       try {
-        const reply = await exec("git", ["worktree", "list", "--porcelain"], { cwd: project.localPath, timeout: GIT_TIMEOUT });
+        const reply = await exec("git", worktreeListArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
         listing = reply.code === 0 ? { project, porcelain: reply.stdout } : null;
       } catch {
         listing = null;
@@ -706,7 +709,7 @@ export default class PullRequests extends View {
 
   /** Runs a review: reads the settings and the pull request, adds the worktree, opens the space. Gives an error text, or null. */
   async runReview(pr, argv, branch, extra) {
-    const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
+    const resolved = await this.worktrees.root();
     if ("error" in resolved) return resolved.error;
     const configured = reviewInstructions(await readTextFile(`${appHome()}/argus.json`), home());
     if (configured.error !== null) return configured.error;
@@ -869,7 +872,7 @@ export default class PullRequests extends View {
         h_flex()
           .flex_wrap()
           .gap(8)
-          .child(button(t, `run-open-${index}`, "Open space", () => openRun(reviewRun), { enabled: !reviewRun.prunable }))
+          .child(button(t, `run-open-${index}`, "Open space", () => this.worktrees.openWorktreeSpace(reviewRun.path), { enabled: !reviewRun.prunable }))
           .child(button(t, `run-remove-${index}`, "Remove worktree", (_e, cx) => set({ confirm: "plain", error: null }, cx), { enabled: !state.running && state.confirm === null && !reviewRun.locked })),
       )
       .when(Boolean(reviewRun.locked), (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Locked. Run git worktree unlock on it to remove it.")))
@@ -983,7 +986,7 @@ export default class PullRequests extends View {
     let remoteHead = null;
     let failure = "";
     try {
-      [listing, remoteHead] = await Promise.all([git(["worktree", "list", "--porcelain"], project.localPath), git(defaultBranchArgs(), project.localPath)]);
+      [listing, remoteHead] = await Promise.all([git(worktreeListArgs(), project.localPath), git(defaultBranchArgs(), project.localPath)]);
     } catch (caught) {
       failure = caught?.message ?? String(caught);
       listing = null;
@@ -1311,11 +1314,11 @@ export default class PullRequests extends View {
   async readBranches(project) {
     const [heads, list] = await Promise.all([
       exec("git", remoteHeadsArgs(), { cwd: project.localPath, timeout: CLI_TIMEOUT }),
-      exec("git", ["worktree", "list", "--porcelain"], { cwd: project.localPath, timeout: GIT_TIMEOUT }),
+      exec("git", worktreeListArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT }),
     ]);
     if (heads.code !== 0) return { error: gitError(heads) };
     if (list.code !== 0) return { error: gitError(list) };
-    const defaultBranch = await this.defaultBranchFor(project);
+    const defaultBranch = await this.worktrees.defaultBranch(project);
     return branchRead(parseRemoteHeads(heads.stdout), defaultBranch, list.stdout);
   }
 
@@ -1334,18 +1337,6 @@ export default class PullRequests extends View {
       if (user !== null) issues = await this.forge.attempt(label, command, glabArgs(project.host, GL_ISSUES_QUERY, { path: project.repo, user }), parseGlIssues, notes);
     }
     return issues === null ? { error: notes[0] ?? `${label}: could not read the issues` } : issueRead(issues);
-  }
-
-  /** The default branch of a project: the remote's HEAD, else the forge's answer, else null. */
-  async defaultBranchFor(project) {
-    const head = await exec("git", defaultBranchArgs(), { cwd: project.localPath, timeout: GIT_TIMEOUT });
-    const local = head.code === 0 ? defaultBranchOf(head.stdout) : null;
-    if (local !== null) return local;
-    const github = project.provider === "github";
-    const command = await this.forge.locate(github ? "gh" : "glab");
-    if (command === null) return null;
-    const args = github ? ghDefaultBranchArgs(project.repo) : glabArgs(project.host, GL_DEFAULT_BRANCH_QUERY, { path: project.repo });
-    return this.forge.attempt(github ? "gh" : `glab (${project.host})`, command, args, github ? parseGhDefaultBranch : parseGlDefaultBranch, []);
   }
 
   /**
@@ -1379,132 +1370,6 @@ export default class PullRequests extends View {
       }
       cx.notify();
     });
-  }
-
-  /** Selects the space that shows a worktree folder, or opens one. */
-  openWorktreeSpace(path) {
-    const id = spaceFor(spaces(), panes(), path);
-    if (id !== null) run("space.select", { id });
-    else run("space.new", { folder: path });
-  }
-
-  /** The worktrees folder and the worktree list of a clone; gives an error text instead when either fails. */
-  async worktreeContext(localPath) {
-    const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
-    if ("error" in resolved) return { error: resolved.error };
-    const list = await exec("git", ["worktree", "list", "--porcelain"], { cwd: localPath, timeout: GIT_TIMEOUT });
-    if (list.code !== 0) return { error: gitError(list) };
-    return { root: resolved.root, porcelain: list.stdout };
-  }
-
-  /** Whether something is at `path`, a dangling link included. */
-  async folderTaken(path) {
-    const found = await exec("test", ["-e", path], { timeout: GIT_TIMEOUT });
-    if (found.code === 0) return true;
-    const link = await exec("test", ["-L", path], { timeout: GIT_TIMEOUT });
-    return link.code === 0;
-  }
-
-  /** Runs `worktree add`. A failed add deletes the branch it made; gives an error text, or null on success. */
-  async addWorktree(git, plan) {
-    const added = await git(plan.add);
-    if (added.code === 0) return null;
-    if (plan.newBranch) await git(["branch", "-D", plan.branch]);
-    return gitError(added);
-  }
-
-  /** Starts a worktree from a remote branch; gives {error, note}. */
-  async runBranchWorktree(project, branch) {
-    const fail = (error) => ({ error, note: null });
-    const context = await this.worktreeContext(project.localPath);
-    if ("error" in context) return fail(context.error);
-    const exists = await exec("git", tipArgs(branch), { cwd: project.localPath, timeout: GIT_TIMEOUT });
-    const plan = remoteBranchPlan({ branch, localPath: project.localPath, root: context.root, porcelain: context.porcelain, localExists: exists.code === 0 });
-    if (plan.kind === "open") {
-      this.openWorktreeSpace(plan.path);
-      return { error: null, note: null };
-    }
-    const git = (args) => exec("git", args, { cwd: project.localPath, timeout: GIT_LONG_TIMEOUT });
-    const invalid = branchNameError(branch, await git(plan.check));
-    if (invalid !== null) return fail(invalid);
-    if (await this.folderTaken(plan.path)) return fail(folderExistsMessage(plan.path));
-    if (plan.prune !== null) {
-      const pruned = await git(plan.prune);
-      if (pruned.code !== 0) return fail(gitError(pruned));
-    }
-    const fetched = await git(plan.fetch);
-    if (fetched.code !== 0) return fail(gitError(fetched));
-    let note = null;
-    if (plan.compare !== null) {
-      const counted = await git(plan.compare);
-      if (counted.code !== 0) return fail(gitError(counted));
-      const counts = aheadBehind(counted.stdout);
-      if (counts === null) return fail(`git: could not compare the local branch ${branch} with origin/${branch}`);
-      const step = localBranchStep(counts);
-      if (step === "note") note = branchNote(branch, counts);
-      if (step === "fastForward") {
-        const local = await git(tipArgs(branch));
-        const origin = await git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]);
-        if (local.code !== 0 || origin.code !== 0) return fail(`git: could not read the tips of ${branch}`);
-        const moved = await git(fastForwardArgs(branch, origin.stdout.trim(), local.stdout.trim()));
-        if (moved.code !== 0) return fail(gitError(moved));
-      }
-    }
-    const failed = await this.addWorktree(git, plan);
-    if (failed !== null) return fail(failed);
-    if (plan.track !== null) {
-      // The upstream is set by hand: `--track` fails in a single-branch or shallow clone.
-      const specs = await git(plan.refspecs);
-      const steps = [...plan.track];
-      if (refspecMissing(specs.stdout, branch)) steps.push(["config", "--add", "remote.origin.fetch", plan.refspec]);
-      for (const step of steps) {
-        const set = await git(step);
-        if (set.code === 0) continue;
-        await git(["worktree", "remove", "--force", plan.path]);
-        await git(["branch", "-D", branch]);
-        return fail(gitError(set));
-      }
-    }
-    run("space.new", { folder: plan.path });
-    return { error: null, note };
-  }
-
-  /** Starts a worktree on a branch for an issue; gives {error, note}. */
-  async runIssueWorktree(project, issue) {
-    const fail = (error) => ({ error, note: null });
-    const context = await this.worktreeContext(project.localPath);
-    if ("error" in context) return fail(context.error);
-    const branch = issueBranch(issue.number, issue.title);
-    const exists = await exec("git", tipArgs(branch), { cwd: project.localPath, timeout: GIT_TIMEOUT });
-    if (exists.code !== 0) {
-      // A branch of that name on the remote is used as it is; no new branch is cut.
-      const remote = await exec("git", remoteBranchArgs(branch), { cwd: project.localPath, timeout: GIT_LONG_TIMEOUT });
-      if (remote.code !== 0) return fail(gitError(remote));
-      if (remoteHasBranch(remote.stdout, branch)) return this.runBranchWorktree(project, branch);
-    }
-    const defaultBranch = await this.defaultBranchFor(project);
-    if (defaultBranch === null) return fail("Could not read the default branch of the repo.");
-    const plan = issuePlan({ ...issue, defaultBranch, localPath: project.localPath, root: context.root, porcelain: context.porcelain, localExists: exists.code === 0 });
-    if (plan.kind === "open") {
-      this.openWorktreeSpace(plan.path);
-      return { error: null, note: null };
-    }
-    const git = (args) => exec("git", args, { cwd: project.localPath, timeout: GIT_LONG_TIMEOUT });
-    const invalid = branchNameError(branch, await git(plan.check));
-    if (invalid !== null) return fail(invalid);
-    if (await this.folderTaken(plan.path)) return fail(folderExistsMessage(plan.path));
-    if (plan.prune !== null) {
-      const pruned = await git(plan.prune);
-      if (pruned.code !== 0) return fail(gitError(pruned));
-    }
-    if (plan.fetch !== null) {
-      const fetched = await git(plan.fetch);
-      if (fetched.code !== 0) return fail(gitError(fetched));
-    }
-    const failed = await this.addWorktree(git, plan);
-    if (failed !== null) return fail(failed);
-    run("space.new", { folder: plan.path });
-    return { error: null, note: null };
   }
 
   renderNewWorktree(t) {
@@ -1671,7 +1536,7 @@ export default class PullRequests extends View {
           slot,
           marked: item.path !== null,
           running: false,
-          pick: (cx) => this.createWorktree(cx, project, "branch", slot, () => this.runBranchWorktree(project, item.branch)),
+          pick: (cx) => this.createWorktree(cx, project, "branch", slot, () => this.worktrees.branchWorktree(project, item.branch)),
         };
       });
       return { total: all.length, entries };
@@ -1685,7 +1550,7 @@ export default class PullRequests extends View {
         slot,
         marked: holdsWorktree(held, issueBranch(item.number, item.title)),
         running: false,
-        pick: (cx) => this.createWorktree(cx, project, "issue", slot, () => this.runIssueWorktree(project, item)),
+        pick: (cx) => this.createWorktree(cx, project, "issue", slot, () => this.worktrees.createIssueWorktree(project, item)),
       };
     });
     return { total: all.length, entries };
@@ -1841,14 +1706,12 @@ export default class PullRequests extends View {
 
   /** Runs the check out plan; gives an error text, or null on success. */
   async runCheckout(pr, localPath) {
-    const resolved = worktreeRoot(await readTextFile(`${appHome()}/settings.json`), home());
-    if ("error" in resolved) return resolved.error;
-    const list = await exec("git", ["worktree", "list", "--porcelain"], { cwd: localPath, timeout: GIT_TIMEOUT });
-    if (list.code !== 0) return gitError(list);
-    const plan = checkoutPlan({ pr, localPath, root: resolved.root, porcelain: list.stdout });
+    const found = await this.worktrees.context(localPath);
+    if ("error" in found) return found.error;
+    const plan = checkoutPlan({ pr, localPath, root: found.root, porcelain: found.porcelain });
     if (plan.kind === "create") {
       const git = (args) => exec("git", args, { cwd: plan.cwd, timeout: GIT_LONG_TIMEOUT });
-      if (await this.folderTaken(plan.path)) return folderExistsMessage(plan.path);
+      if (await this.worktrees.folderTaken(plan.path)) return folderExistsMessage(plan.path);
       if (plan.prune !== null) {
         const pruned = await git(plan.prune);
         if (pruned.code !== 0) return gitError(pruned);
@@ -1871,9 +1734,7 @@ export default class PullRequests extends View {
       run("space.new", { folder: plan.path });
       return null;
     }
-    const id = spaceFor(spaces(), panes(), plan.path);
-    if (id !== null) run("space.select", { id });
-    else run("space.new", { folder: plan.path });
+    this.worktrees.openWorktreeSpace(plan.path);
     return null;
   }
 
@@ -2362,13 +2223,6 @@ function openReview(pr, localPath, owner) {
   openOverlay({ mod: MOD, props: { view: "review", pr: target, owner }, kind: "dialog", modal: true, width: REVIEW_WIDTH, height: REVIEW_HEIGHT });
 }
 
-/** Shows a review run's space: the one that holds its worktree, else a new one there. */
-function openRun(reviewRun) {
-  const id = spaceFor(spaces(), panes(), reviewRun.path);
-  if (id !== null) run("space.select", { id });
-  else run("space.new", { folder: reviewRun.path });
-}
-
 function openScopes() {
   openOverlay({ mod: MOD, props: { view: "scopes" }, kind: "popup", width: SCOPES_WIDTH, height: SCOPES_HEIGHT });
 }
@@ -2399,6 +2253,7 @@ export function openPr(pr) {
     run("pane.focus", { pane: own.pane });
     return;
   }
+
   const target = inTab.find((pane) => pane.focused) ?? inTab[0];
   run("pane.split", { ...(target ? { pane: target.pane } : {}), direction: "right", mod: MOD, props: { view: "pr" } });
 }

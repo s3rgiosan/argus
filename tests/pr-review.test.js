@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, titleSlug, removePlan, branchDelete, dirtyRefusal, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, accountSettings, prefillNext, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, quoted, DATA_START, DATA_END, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, removePlan, branchDelete, dirtyRefusal, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, accountSettings, prefillNext, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, quoted, DATA_START, DATA_END, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
 
 const known = [
   { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true, agent: true, installed: true, run: ["claude"] },
@@ -52,14 +52,6 @@ test("agentArgv: --model only for agents that take it, and only when set", () =>
 test("reviewBranch: number, title slug and hash", () => {
   assert.equal(reviewBranch({ number: 12, title: "Add a Published date to Report heroes" }, "0f59ec2c"), "argus/review-12-add-a-published-date-to-report-heroes-0f59ec2c");
   assert.equal(reviewPrefix(12), "argus/review-12-");
-});
-
-test("titleSlug: no ASCII letters or digits gives no slug segment", () => {
-  assert.equal(titleSlug("✨ — ✨"), "");
-  assert.equal(reviewBranch({ number: 12, title: "✨" }, "0f59ec2c"), "argus/review-12-0f59ec2c");
-  assert.equal(titleSlug("x".repeat(60)).length, 40);
-  assert.equal(titleSlug("Fix: the  parser!"), "fix-the-parser");
-  assert.equal(titleSlug(`${"a".repeat(39)} b`), "a".repeat(39));
 });
 
 test("branchRefusal: the prefix links the run to its PR, and git rules apply", () => {
@@ -583,4 +575,8 @@ test("prefillNext: an account without instructions clears only an untouched pre-
 test("prefillNext: a whitespace difference counts as typed", () => {
   assert.deepEqual(prefillNext({ current: "A ", prefilled: "A", next: "B" }), { value: null, prefilled: "A" });
   assert.deepEqual(prefillNext({ current: " ", prefilled: null, next: "B" }), { value: null, prefilled: null });
+});
+
+test("reviewBranch: a title with no ASCII letters or digits gives the number and hash only", () => {
+  assert.equal(reviewBranch({ number: 12, title: "✨" }, "0f59ec2c"), "argus/review-12-0f59ec2c");
 });
