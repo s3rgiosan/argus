@@ -302,36 +302,6 @@ export function freshForReview(state) {
   return state.phase === "list" && results === 0 ? null : state;
 }
 
-/**
- * A limiter for work that starts processes: at most `max` tasks run at once, and the other tasks
- * wait in order. Several nested lists of work can share one limiter.
- * @param {number} max A value below 1 counts as 1.
- * @returns {<T>(task: () => Promise<T>) => Promise<T>}
- */
-export function createLimiter(max) {
-  const cap = Math.max(1, Math.floor(max) || 1);
-  let active = 0;
-  /** @type {Array<{task: () => Promise<unknown>, resolve: (value: unknown) => void, reject: (error: unknown) => void}>} */
-  const waiting = [];
-  const next = () => {
-    if (active >= cap || waiting.length === 0) return;
-    const { task, resolve, reject } = /** @type {(typeof waiting)[number]} */ (waiting.shift());
-    active += 1;
-    Promise.resolve()
-      .then(task)
-      .then(resolve, reject)
-      .finally(() => {
-        active -= 1;
-        next();
-      });
-  };
-  return (task) =>
-    new Promise((resolve, reject) => {
-      waiting.push({ task, resolve, reject });
-      next();
-    });
-}
-
 /** How many items the project's merged list asks for (`ghMergedListArgs`, `GL_MERGED_LIST_QUERY`). */
 export const MERGED_LIST_LIMIT = 100;
 
