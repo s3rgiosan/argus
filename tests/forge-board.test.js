@@ -23,7 +23,9 @@ import {
   rowSignature,
   scopeItems,
   scopeProjects,
+  scopeReads,
   scopeRepos,
+  searchRead,
   scopeTitle,
   scopeWhereTitle,
   shownOrder,
@@ -213,6 +215,33 @@ test("emptyMessage gives the caller's texts after a read", () => {
   assert.equal(emptyMessage(makeBoard({ notes: ["glab (gitlab.example.com): 401"] }), github, texts), texts.none);
   assert.equal(emptyMessage(makeBoard({ notes: ["glab (gitlab.example.com): 401"] }), [], texts), texts.failed);
   assert.equal(emptyMessage(makeBoard({ notes: ["Showing the first 100 issues of example-org/example-repo."] }), github, texts), texts.none);
+});
+
+test("emptyMessage reports a failure only when no read of the scope worked", () => {
+  const texts = { failed: "No issues could be read. See the messages above.", none: "No open issues here" };
+  const github = [{ provider: "github", host: "github.com" }];
+  const failed = makeBoard({ notes: ["gh: the 'example-org/other-repo' repository has disabled issues"], worked: ["gh"] });
+  assert.equal(emptyMessage(failed, github, texts, ["gh"]), texts.none);
+  assert.equal(emptyMessage(failed, github, texts, [project.key]), texts.failed);
+  assert.equal(emptyMessage({ ...failed, worked: [project.key] }, github, texts, [project.key]), texts.none);
+  assert.equal(emptyMessage({ ...failed, worked: undefined }, github, texts, ["gh"]), texts.failed);
+  assert.equal(emptyMessage(failed, github, texts), texts.failed);
+});
+
+test("searchRead names a search read by the label of its notes", () => {
+  assert.equal(searchRead({ provider: "github", host: "github.com" }), "gh");
+  assert.equal(searchRead({ provider: "gitlab", host: "gitlab.example.com" }), "glab (gitlab.example.com)");
+});
+
+test("scopeReads gives the project lists for All open, and the searches for another Show", () => {
+  const board = makeBoard({ projects: [project, lab] });
+  assert.deepEqual(scopeReads(board, { show: "all", where: "all" }, null), [project.key, lab.key]);
+  assert.deepEqual(scopeReads(board, { show: "all", where: "project", key: lab.key }, null), [lab.key]);
+  assert.deepEqual(scopeReads(board, { show: "all", where: "follow" }, project.key), [project.key]);
+  assert.deepEqual(scopeReads(board, { show: "all", where: "follow" }, null), []);
+  assert.deepEqual(scopeReads(board, { show: "assigned", where: "all" }, null), ["gh", "glab (gitlab.example.com)"]);
+  assert.deepEqual(scopeReads(makeBoard({ projects: [] }), { show: "assigned", where: "all" }, null), ["gh"]);
+  assert.deepEqual(scopeReads(board, { show: "assigned", where: "project", key: lab.key }, null), ["glab (gitlab.example.com)"]);
 });
 
 test("itemsByKeys follows the order of the keys and skips unknown keys", () => {

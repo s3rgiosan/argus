@@ -27,8 +27,9 @@ import {
  * @typedef {"assigned" | "created" | "mentions" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
  * @typedef {"repo" | "assignee" | "label"} Grouping
- * @typedef {{issues: Issue[], scopes: {assigned: string[], created: string[], mentions: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], listedAt: Record<string, number>}} Board
+ * @typedef {{issues: Issue[], scopes: {assigned: string[], created: string[], mentions: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], listedAt: Record<string, number>, worked: string[]}} Board
  *   `listedAt` holds the time of the last successful issue list of each project, keyed by `projectKey`.
+ *   `worked` holds the ids of the reads that worked in the last read: the project key of a project list, `searchRead` of a search.
  * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} Item
  */
 
@@ -51,12 +52,12 @@ export const GROUPINGS = /** @type {Array<[Grouping, string]>} */ ([
 
 /** @returns {Board} */
 function emptyBoard() {
-  return { issues: [], scopes: { assigned: [], created: [], mentions: [], projects: {} }, projects: [], folders: [], readAt: 0, notes: [], listedAt: {} };
+  return { issues: [], scopes: { assigned: [], created: [], mentions: [], projects: {} }, projects: [], folders: [], readAt: 0, notes: [], listedAt: {}, worked: [] };
 }
 
 /**
  * Builds the shared board from one read. Issues are deduplicated by key; the first copy read wins.
- * @param {{projects: Project[], folders: string[], assigned: Issue[], created: Issue[], mentions: Issue[], projectIssues: Record<string, Issue[]>, notes: string[], readAt: number, listedAt?: Record<string, number>}} input
+ * @param {{projects: Project[], folders: string[], assigned: Issue[], created: Issue[], mentions: Issue[], projectIssues: Record<string, Issue[]>, notes: string[], readAt: number, listedAt?: Record<string, number>, worked?: string[]}} input
  * @returns {Board}
  */
 export function assembleBoard(input) {
@@ -73,11 +74,11 @@ export function assembleBoard(input) {
   };
   const scopes = { assigned: keysOf(input.assigned), created: keysOf(input.created), mentions: keysOf(input.mentions), projects: {} };
   for (const project of input.projects) scopes.projects[project.key] = keysOf(input.projectIssues[project.key] ?? []);
-  return { issues: [...byKey.values()], scopes, projects: input.projects, folders: input.folders, readAt: input.readAt, notes: input.notes, listedAt: input.listedAt ?? {} };
+  return { issues: [...byKey.values()], scopes, projects: input.projects, folders: input.folders, readAt: input.readAt, notes: input.notes, listedAt: input.listedAt ?? {}, worked: input.worked ?? [] };
 }
 
 /**
- * A well-formed board, or the empty board for anything else. Bad list times mean none.
+ * A well-formed board, or the empty board for anything else. Bad list times and a bad list of reads that worked mean none.
  * @param {unknown} value
  * @returns {Board}
  */
@@ -99,7 +100,8 @@ export function normalizeBoard(value) {
     Object.values(scopes.projects).every(isStringArray);
   if (!valid) return emptyBoard();
   const listedAt = isObject(value.listedAt) && Object.values(value.listedAt).every((time) => Number.isFinite(time) && time >= 0) ? value.listedAt : {};
-  return /** @type {Board} */ ({ ...value, listedAt });
+  const worked = isStringArray(value.worked) ? value.worked : [];
+  return /** @type {Board} */ ({ ...value, listedAt, worked });
 }
 
 /**
@@ -291,10 +293,11 @@ export function assigneesText(issue) {
  * The text of an empty issue list, as `emptyMessage` in lib/forge-board.js gives it.
  * @param {Board} board
  * @param {Array<{provider: string, host: string}>} [repos] The repos the scope shows (`scopeRepos`).
+ * @param {string[]} [reads] The reads that give the scope's issues (`scopeReads`).
  * @returns {string}
  */
-export function emptyMessage(board, repos = []) {
-  return emptyText(board, repos, { failed: "No issues could be read. See the messages above.", none: "No open issues here" });
+export function emptyMessage(board, repos = [], reads = []) {
+  return emptyText(board, repos, { failed: "No issues could be read. See the messages above.", none: "No open issues here" }, reads);
 }
 
 /**

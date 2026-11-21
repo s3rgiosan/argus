@@ -9,7 +9,7 @@ import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, 
 import { randomUUID } from "crypto";
 import { localFolders, followProjectKey } from "./remote.js";
 import { GH_MISSING, GLAB_MISSING, cliError, ghIssuesOff, glabArgs, limitNote, missingNotes } from "./forge-cli.js";
-import { INTERVALS, ageText, followStatus, normalizeSettings, positionIn, rereadDue, scopeRepos } from "./forge-board.js";
+import { INTERVALS, ageText, followStatus, normalizeSettings, positionIn, rereadDue, scopeReads, scopeRepos, searchRead } from "./forge-board.js";
 import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT } from "./forge-runner.js";
 import { createBoardSync } from "./board-sync.js";
 import { createWorktreeRunner } from "./worktree-runner.js";
@@ -151,7 +151,7 @@ export default class Issues extends View {
     this.boardSync.renew();
     notes.push(...missingNotes({ gh: gh !== null, glab: glab !== null, githubProjects: gitHub.length, gitlabProjects: gitLab.length }));
 
-    const result = { assigned: [], created: [], mentions: [], projectIssues: {}, listedAt: {} };
+    const result = { assigned: [], created: [], mentions: [], projectIssues: {}, listedAt: {}, worked: [] };
     if (gh !== null) {
       await this.readGitHub(gh, gitHub, result, notes);
       this.boardSync.renew();
@@ -160,7 +160,7 @@ export default class Issues extends View {
       await this.readGitLab(glab, gitLab, result, notes);
       this.boardSync.renew();
     }
-    return assembleBoard({ projects, folders, ...result, notes: [...new Set(notes)], readAt: startedAt });
+    return assembleBoard({ projects, folders, ...result, notes: [...new Set(notes)], worked: [...new Set(result.worked)], readAt: startedAt });
   }
 
   /** The three GitHub searches, then the open issues of each GitHub project. */
@@ -168,6 +168,7 @@ export default class Issues extends View {
     const searched = await Promise.all(GH_SEARCHES.map(([kind]) => this.forge.attempt("gh", gh, ghSearchArgs(kind), parseGhSearch, notes)));
     this.boardSync.renew();
     GH_SEARCHES.forEach(([kind, what], index) => {
+      if (searched[index] !== null) result.worked.push(searchRead({ provider: "github", host: "github.com" }));
       const issues = searched[index] ?? [];
       const cut = limitNote(what, issues.length);
       if (cut !== null) notes.push(cut);
@@ -198,6 +199,7 @@ export default class Issues extends View {
         if (user === null) return;
         const lists = await this.forge.attempt(`glab (${host})`, glab, glabArgs(host, GL_USER_QUERY, { user }), (raw) => parseGlUser(raw, host), notes);
         if (lists === null) return;
+        result.worked.push(searchRead({ provider: "gitlab", host }));
         for (const [kind, what] of [
           ["assigned", `issues on ${host} assigned to you`],
           ["created", `issues on ${host} that you opened`],
@@ -224,6 +226,7 @@ export default class Issues extends View {
   /** Puts the open issues of one project into `result`, with the time of the list and a note when the list was cut. */
   listed(result, project, issues, notes) {
     result.listedAt[project.key] = Date.now();
+    result.worked.push(project.key);
     const cut = limitNote(`issues of ${project.repo}`, issues.length);
     if (cut !== null) notes.push(cut);
     result.projectIssues[project.key] = issues;
@@ -293,7 +296,7 @@ export default class Issues extends View {
     } else if (unfollowed) {
       parts.push(note(t, "This space is not a GitHub or GitLab repo."));
     } else if (shown.length === 0) {
-      parts.push(note(t, text.trim() === "" ? emptyMessage(board, scopeRepos(board, scope, followed)) : "Nothing matches the filter"));
+      parts.push(note(t, text.trim() === "" ? emptyMessage(board, scopeRepos(board, scope, followed), scopeReads(board, scope, followed)) : "Nothing matches the filter"));
     } else {
       // An issue with several assignees or labels has a row in each of their groups.
       for (const group of buildGroups(shown, readGrouping())) {

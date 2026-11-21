@@ -14,9 +14,10 @@ import { emptyMessage as emptyText, itemsByKeys, keptLists as keptItems, normali
  * @typedef {import("./remote.js").Project} Project
  * @typedef {"needsReview" | "mine" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
- * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>, listedAt?: Record<string, number>}} Board
+ * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>, listedAt?: Record<string, number>, worked?: string[]}} Board
  * `reviews` holds the review runs of each pull request, keyed by `prKey`. `listedAt` holds the time
- * of the last successful pull request list of each repo, keyed by `projectKey`.
+ * of the last successful pull request list of each repo, keyed by `projectKey`. `worked` holds the
+ * ids of the reads that worked in the last read: the key of a repo list, `searchRead` of a search.
  * @typedef {{path: string, branch: string}} Run
  * @typedef {"ready"|"needsWork"|"waiting"|"draft"} GroupId
  * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} Item
@@ -41,13 +42,14 @@ function emptyBoard() {
     readAt: 0,
     notes: [],
     reviews: {},
+    worked: [],
   };
 }
 
 /**
  * Builds the shared board from one read. Pull requests are deduplicated by key and carry the
  * local checkout path of their repository.
- * @param {{projects: Project[], folders: string[], needsReview: Pr[], mine: Pr[], projectPrs: Record<string, Pr[]>, notes: string[], readAt: number, reviews?: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>, listedAt?: Record<string, number>}} input
+ * @param {{projects: Project[], folders: string[], needsReview: Pr[], mine: Pr[], projectPrs: Record<string, Pr[]>, notes: string[], readAt: number, reviews?: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>, listedAt?: Record<string, number>, worked?: string[]}} input
  * @returns {Board}
  */
 export function assembleBoard(input) {
@@ -68,7 +70,7 @@ export function assembleBoard(input) {
   for (const project of projects) {
     scopes.projects[project.key] = keysOf(projectPrs[project.key] ?? []);
   }
-  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {}, mergedSeen: input.mergedSeen ?? {}, listedAt: input.listedAt ?? {} };
+  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {}, mergedSeen: input.mergedSeen ?? {}, listedAt: input.listedAt ?? {}, worked: input.worked ?? [] };
 }
 
 /** True when `value` is a review run: a path and a branch. */
@@ -107,7 +109,9 @@ export function normalizeBoard(value) {
   const mergedSeen = isObject(value.mergedSeen) && Object.values(value.mergedSeen).every((time) => Number.isFinite(time) && time >= 0) ? value.mergedSeen : {};
   // The time of each repo's last successful list; bad times mean none.
   const listedAt = isObject(value.listedAt) && Object.values(value.listedAt).every((time) => Number.isFinite(time) && time >= 0) ? value.listedAt : {};
-  return /** @type {Board} */ ({ ...value, reviews, merged, mergedSeen, listedAt });
+  // The ids of the reads that worked; a bad list means none.
+  const worked = isStringArray(value.worked) ? value.worked : [];
+  return /** @type {Board} */ ({ ...value, reviews, merged, mergedSeen, listedAt, worked });
 }
 
 /**
@@ -393,10 +397,11 @@ export function openBranches(board, project) {
  * The text of an empty pull request list, as `emptyMessage` in lib/forge-board.js gives it.
  * @param {Board} board
  * @param {Array<{provider: string, host: string}>} [repos] The repos the scope shows (`scopeRepos`).
+ * @param {string[]} [reads] The reads that give the scope's pull requests (`scopeReads`).
  * @returns {string}
  */
-export function emptyMessage(board, repos = []) {
-  return emptyText(board, repos, { failed: "No pull requests could be read. See the messages above.", none: "No pull requests here" });
+export function emptyMessage(board, repos = [], reads = []) {
+  return emptyText(board, repos, { failed: "No pull requests could be read. See the messages above.", none: "No pull requests here" }, reads);
 }
 
 /**

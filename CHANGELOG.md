@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every task that `argus-tsk`, `argus-claude-usage` and `argus-toolbar` start with `cx.spawn` waits one tick first, as Herdr app 0.1.16 needs.
 - `tildePath` keeps a path as it is when there is no home folder, and ignores a trailing slash on the home folder, in every mod.
 - A GitHub repo that has issues turned off shows no issues in `argus-issues` and adds no failure note.
+- An empty list in `argus-issues` and `argus-pull-requests` says that the issues or pull requests could not be read only when no read that fills the scope worked. When one repo fails and the other reads work, the list shows "No open issues here" or "No pull requests here" under the failure note.
 
 ### Security
 

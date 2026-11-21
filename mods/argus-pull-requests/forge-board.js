@@ -310,20 +310,50 @@ export function noteIsFor(note, repo) {
 }
 
 /**
- * The text of an empty list: loading before the first read, `failed` when a read for the scope
- * failed (the list may be empty because of it), else `none`. With no known repo in the scope, any
- * failure counts. A note that a list was cut ("Showing the first …", `limitNote`) reports no failure.
- * @param {{readAt: number, notes: string[]}} board
- * @param {Array<{provider: string, host: string}>} repos The repos the scope shows (`scopeRepos`).
- * @param {{failed: string, none: string}} texts
+ * The id of a search read on a board's `worked` list: the label of its notes, "gh" for GitHub and
+ * `glab (<host>)` for GitLab.
+ * @param {{provider: string, host: string}} repo
  * @returns {string}
  */
-export function emptyMessage(board, repos, { failed, none }) {
+export function searchRead(repo) {
+  return repo.provider === "github" ? "gh" : `glab (${repo.host})`;
+}
+
+/**
+ * The ids of the reads that give the items of `scope`, as a board's `worked` list names them.
+ * Show `all` takes the project lists, so the ids are the keys of the scope's projects. Every other
+ * Show is a search: the ids are `searchRead` of the scope's repos. All repos always has "gh",
+ * because the GitHub searches run without a project.
+ * @param {{projects: Project[]}} board
+ * @param {Scope} scope
+ * @param {?string} followed Project key of the followed space.
+ * @returns {string[]}
+ */
+export function scopeReads(board, scope, followed) {
+  if (scope.show === "all") return scopeProjects(board, scope, followed).map((project) => project.key);
+  const reads = scopeRepos(board, scope, followed).map(searchRead);
+  if (whereKey(scope, followed) === null) reads.unshift("gh");
+  return [...new Set(reads)];
+}
+
+/**
+ * The text of an empty list: loading before the first read, `failed` when a read for the scope
+ * failed and no read in `reads` worked (the list may be empty because of the failure), else
+ * `none`. With no known repo in the scope, any failure counts. A note that a list was cut
+ * ("Showing the first …", `limitNote`) reports no failure.
+ * @param {{readAt: number, notes: string[], worked?: string[]}} board `worked` holds the ids of the reads that worked.
+ * @param {Array<{provider: string, host: string}>} repos The repos the scope shows (`scopeRepos`).
+ * @param {{failed: string, none: string}} texts
+ * @param {string[]} [reads] The reads that give the scope's items (`scopeReads`).
+ * @returns {string}
+ */
+export function emptyMessage(board, repos, { failed, none }, reads = []) {
   if (board.readAt === 0) return "Loading…";
   const broken = board.notes
     .filter((note) => !note.startsWith("Showing the first "))
     .some((note) => repos.length === 0 || repos.some((repo) => noteIsFor(note, repo)));
-  return broken ? failed : none;
+  const worked = Array.isArray(board.worked) && reads.some((id) => board.worked.includes(id));
+  return broken && !worked ? failed : none;
 }
 
 // Groups

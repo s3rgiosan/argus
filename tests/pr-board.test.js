@@ -337,6 +337,20 @@ test("emptyMessage: only a failed read in the scope counts", () => {
   assert.equal(emptyMessage({ ...board, notes: ["Showing the first 100 pull requests of example-org/example-repo."] }, gh), "No pull requests here");
 });
 
+test("emptyMessage: a read of the scope that worked gives the normal text", () => {
+  const board = { ...assembleBoard(input({ worked: ["gh"] })), notes: ["gh: error connecting to api.github.com"] };
+  const gh = [{ provider: "github", host: "github.com" }];
+  assert.equal(emptyMessage(board, gh, ["gh"]), "No pull requests here");
+  assert.equal(emptyMessage(board, gh, [project.key]), "No pull requests could be read. See the messages above.");
+});
+
+test("normalizeBoard keeps the reads that worked and drops a bad list", () => {
+  const board = assembleBoard(input({ worked: [project.key] }));
+  assert.deepEqual(normalizeBoard(board).worked, [project.key]);
+  assert.deepEqual(normalizeBoard({ ...board, worked: "gh" }).worked, []);
+  assert.deepEqual(assembleBoard(input()).worked, []);
+});
+
 test("openBranches: the head branches of a repo's open pull requests", () => {
   const board = assembleBoard(input({}));
   const pr = (number, headRef, state, repo = project.repo) => ({ ...board.prs[0], provider: project.provider, host: project.host, repo, number, headRef, state });

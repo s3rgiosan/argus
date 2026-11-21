@@ -275,6 +275,21 @@ test("emptyMessage points to failed reads of the scope only", () => {
   assert.equal(emptyMessage(failed, []), "No issues could be read. See the messages above.");
 });
 
+test("emptyMessage shows the normal text when another read of the scope worked", () => {
+  const b = { ...board(), notes: ["gh: Example error"], worked: ["gh"] };
+  assert.equal(emptyMessage(b, [{ provider: "github", host: "github.com" }], ["gh"]), "No open issues here");
+  assert.equal(emptyMessage(b, [{ provider: "github", host: "github.com" }], [github.key]), "No issues could be read. See the messages above.");
+});
+
+test("assembleBoard and normalizeBoard keep the reads that worked", () => {
+  const b = assembleBoard({ projects: [], folders: [], assigned: [], created: [], mentions: [], projectIssues: {}, notes: [], readAt: 5, worked: ["gh", github.key] });
+  assert.deepEqual(b.worked, ["gh", github.key]);
+  assert.deepEqual(normalizeBoard(b).worked, ["gh", github.key]);
+  assert.deepEqual(normalizeBoard({ ...b, worked: [1] }).worked, []);
+  assert.deepEqual(normalizeBoard({ ...b, worked: undefined }).worked, []);
+  assert.deepEqual(board().worked, []);
+});
+
 test("issuePaneTitle shows the number and title", () => {
   assert.equal(issuePaneTitle(null), "Issues");
   assert.equal(issuePaneTitle({ number: 3, title: "" }), "#3");

@@ -52,7 +52,7 @@ GitHub pull requests and GitLab merge requests in Herdr. Board in a panel on the
 - A GitHub remote must be exactly `owner/repo`. A host or a path part that starts with `-` is not a project.
 - A GitLab host other than `gitlab.com` needs a glab login (`glab auth status --hostname <host>`). Without it, the note "<host>: no glab login for this host" shows, the repos of that host leave the board and glab makes no more calls for it until the refresh button is pressed. A remote on a host other than `github.com` and `gitlab.com` counts as GitLab, unless the host is a known other forge, so this covers a self-managed GitLab and any other such host.
 - An unexpected read error shows as the note "Could not read the pull requests: …".
-- Notes in the panel: `gh` or `glab` missing, signed out or rate limited. The refresh icon reads again. An empty list points to the notes only when a failed read belongs to the scope you look at (a GitLab host that failed does not explain an empty GitHub list).
+- Notes in the panel: `gh` or `glab` missing, signed out or rate limited. The refresh icon reads again. An empty list points to the notes only when a failed read belongs to the scope you look at (a GitLab host that failed does not explain an empty GitHub list) and no read that fills the scope worked.
 
 ## Review prompt
 

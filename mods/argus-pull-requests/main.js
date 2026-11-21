@@ -15,7 +15,7 @@ import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads
 import { answerFromList, candidates, candidateSignature, mergedHeadsFresh, countMerged, freshForReview, rowsFor, branchStep, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
 import { prSignature, assembleBoard, normalizeBoard, emptyMessage, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, keptLists, changesRequested, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
-import { INTERVALS, ageText, displayName, followStatus, normalizeSettings, positionIn, rereadDue, scopeProjects, scopeRepos, scopeWhereTitle } from "./forge-board.js";
+import { INTERVALS, ageText, displayName, followStatus, normalizeSettings, positionIn, rereadDue, scopeProjects, scopeReads, scopeRepos, scopeWhereTitle, searchRead } from "./forge-board.js";
 import { branchRead, issueRead, noticeFor, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
 import { checkoutBranch, checkoutPlan, aheadCount, aheadRefusal } from "./checkout.js";
 import { gitError, defaultBranchArgs, defaultBranchOf, tipArgs, remoteHeadsArgs, parseRemoteHeads, issueBranch, filterItems, folderExistsMessage, worktreeListArgs } from "./worktree.js";
@@ -208,7 +208,7 @@ export default class PullRequests extends View {
     this.boardSync.renew();
     notes.push(...missingNotes({ gh: gh !== null, glab: glab !== null, githubProjects: gitHub.length, gitlabProjects: gitLab.length }));
 
-    const result = { needsReview: [], mine: [], projectPrs: {}, listedAt: {} };
+    const result = { needsReview: [], mine: [], projectPrs: {}, listedAt: {}, worked: [] };
     if (gh !== null) {
       await this.readGitHub(gh, gitHub, result, notes);
       this.boardSync.renew();
@@ -224,7 +224,7 @@ export default class PullRequests extends View {
     const previous = readBoard();
     const { merged, mergedSeen } = mergedCounts(previous.merged ?? {}, previous.mergedSeen ?? {}, mergedListRead(counted, failed.map((project) => project.key)), Date.now());
     this.boardSync.renew();
-    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged, mergedSeen, listedAt: result.listedAt });
+    return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged, mergedSeen, listedAt: result.listedAt, worked: [...new Set(result.worked)] });
   }
 
   /**
@@ -322,6 +322,7 @@ export default class PullRequests extends View {
       login === null ? null : this.forge.attempt("gh", gh, ghSearchArgs("mine", login), parseGhSearch, notes),
     ]);
     this.boardSync.renew();
+    if (needsPairs !== null || minePairs !== null) result.worked.push(searchRead({ provider: "github", host: "github.com" }));
     const searchNotes = [
       [needsPairs, "pull requests that need your review"],
       [minePairs, "pull requests you opened"],
@@ -350,6 +351,7 @@ export default class PullRequests extends View {
         continue;
       }
       result.listedAt[key] = listedAt;
+      result.worked.push(key);
       const note = limitNote(`pull requests of ${repos.get(key)}`, prs.length);
       if (note !== null) notes.push(note);
       all.push(...prs);
@@ -384,6 +386,7 @@ export default class PullRequests extends View {
       ...hosts.map(async (host) => {
         const user = await this.forge.attempt(`glab (${host})`, glab, glabArgs(host, GL_USER_QUERY), (text) => parseGlabUser(text, host), notes);
         if (user === null) return;
+        result.worked.push(searchRead({ provider: "gitlab", host }));
         for (const [found, what] of [
           [user.needsReview, `merge requests on ${host} that need your review`],
           [user.mine, `merge requests on ${host} that you opened`],
@@ -407,6 +410,7 @@ export default class PullRequests extends View {
           return;
         }
         result.listedAt[project.key] = Date.now();
+        result.worked.push(project.key);
         const note = limitNote(`merge requests of ${project.repo}`, prs.length);
         if (note !== null) notes.push(note);
         result.projectPrs[project.key] = prs;
@@ -491,7 +495,7 @@ export default class PullRequests extends View {
     } else if (shown.length === 0) {
       const merged = this.mergedRow(t, board, scope, followed);
       if (merged !== null) parts.push(merged);
-      parts.push(note(t, emptyMessage(board, scopeRepos(board, scope, followed))));
+      parts.push(note(t, emptyMessage(board, scopeRepos(board, scope, followed), scopeReads(board, scope, followed))));
     } else {
       const merged = this.mergedRow(t, board, scope, followed);
       if (merged !== null) parts.push(merged);
