@@ -7,7 +7,7 @@ import { div, svg, image, View } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
 import { randomUUID } from "crypto";
-import { localFolders, followProjectKey, projectKey, localPathFor, missingProjectKeys, newProjectKeys } from "./remote.js";
+import { localFolders, followProjectKey, projectKey, localPathFor } from "./remote.js";
 import { normalizeSettings } from "./locate.js";
 import { GH_MISSING, GLAB_MISSING, cliError, missingNotes, glabArgs, limitNote, ghDefaultBranchArgs, GL_DEFAULT_BRANCH_QUERY, parseGhDefaultBranch, parseGlDefaultBranch } from "./forge-cli.js";
 import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, headRefusal, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
@@ -16,10 +16,10 @@ import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads
 import { answerFromList, candidates, candidateSignature, mergedHeadsFresh, countMerged, freshForReview, defaultBranchArgs, defaultBranchOf, rowsFor, branchStep, tipArgs, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
 import { prSignature, assembleBoard, normalizeBoard, emptyMessage, openBranches, mergedCounts, mergedInScope, mergedText, mergedListRead, markStale, fetchedAtOf, keepStale, pickPairs, withoutFailedRepos, keptLists, changesRequested, normalizeScope, prsInScope, scopeItems, scopeTitle, buildGroups, matchesFilter, checksText, prPaneTitle, reviewLabel, shortRepo } from "./board.js";
 import { followFolder } from "./follow.js";
-import { INTERVALS, ageText, displayName, followStatus, positionIn, rereadDue, scopeProjects, scopeRepos, scopeWhereTitle, withFolders, withNote } from "./forge-board.js";
+import { INTERVALS, ageText, displayName, followStatus, positionIn, rereadDue, scopeProjects, scopeRepos, scopeWhereTitle } from "./forge-board.js";
 import { remoteHeadsArgs, parseRemoteHeads, branchRead, issueRead, remoteBranchPlan, issueBranch, issuePlan, filterItems, aheadBehind, localBranchStep, branchNote, fastForwardArgs, remoteBranchArgs, remoteHasBranch, refspecMissing, branchNameError, noticeFor, folderExistsMessage, emptyText, defaultProjectKey, holdsWorktree } from "./newworktree.js";
 import { worktreeRoot, checkoutBranch, checkoutPlan, spaceFor, gitError, aheadCount, aheadRefusal } from "./worktree.js";
-import { createGate } from "./gate.js";
+import { createBoardSync } from "./board-sync.js";
 import { createLimiter, mapPool } from "./pool.js";
 import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT, GIT_TIMEOUT } from "./forge-runner.js";
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
@@ -28,7 +28,6 @@ import { expandHome } from "./paths.js";
 import { profileIO, openInBrowser } from "./pane.js";
 import { checkLayout, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
-import { shouldFetch, takeLock, holdsLock, lockNeedsRenewal, releasedLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, row as listRow, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
@@ -56,7 +55,6 @@ const REVIEW_HEIGHT = 600;
 const MOD = "argus-pull-requests";
 const POLL = 5_000;
 const AGE_TICK = 60_000;
-const LOCK_RETRY = 1_000;
 const GIT_LONG_TIMEOUT = 600_000;
 
 /** The most height, in px, of the area above the pane's footer row. */
@@ -73,14 +71,27 @@ export default class PullRequests extends View {
   init(_props, cx) {
     this.owner = randomUUID();
     this.view = props()?.view ?? "board";
-    this.gate = createGate();
-    this.force = false;
-    // The project keys that caused a forced read, or null when the force has no key list.
-    this.forceKeys = null;
-    this.probing = false;
     this.focused = null;
     // The gh, glab and folder reads, with what they found. Kept until the refresh button.
     this.forge = createForgeRunner({ exec, home, settings: () => readSettings() });
+    // The board read: the lock, forced reads and the folder watch.
+    this.boardSync = createBoardSync({
+      boardKey: BOARD_KEY,
+      lockKey: LOCK_KEY,
+      owner: this.owner,
+      mod: MOD,
+      failure: "Could not read the pull requests",
+      shared,
+      setShared,
+      checking,
+      readBoard,
+      read: (startedAt) => this.readBoard(startedAt),
+      intervalMs: () => readSettings().interval * 60_000,
+      folders: () => localFolders(spaces(), panes()),
+      forge: this.forge,
+      fetchedAt: fetchedAtOf,
+      merge: keepStale,
+    });
     // Project key -> the default branch (or null) read by git. Kept until the refresh button.
     this.defaultBranches = new Map();
     // Project key -> {heads, signature, at}: the merged heads list and the candidate worktrees it was read for.
@@ -113,8 +124,6 @@ export default class PullRequests extends View {
     const settings = readSettings();
     // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
     this.found = new Set();
-    // Whether this copy is reading the board now.
-    this.reading = false;
     // The scope list's highlighted row; null until a key moves it.
     this.at = null;
     this.handle = cx.focus_handle();
@@ -159,10 +168,10 @@ export default class PullRequests extends View {
     }
     if (this.view !== "board") return;
 
-    this.startSync(cx);
+    this.boardSync.start(cx);
     cx.timer.every(POLL, (cx) => {
-      this.watchFolders(cx);
-      this.startSync(cx);
+      this.boardSync.watchFolders(cx);
+      this.boardSync.start(cx);
     });
     cx.timer.every(AGE_TICK, (cx) => cx.notify());
   }
@@ -191,126 +200,7 @@ export default class PullRequests extends View {
 
   /** Gives the lock back when this copy goes. */
   async close() {
-    this.releaseLock();
-  }
-
-  releaseLock() {
-    if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-    setShared(LOCK_KEY, releasedLock(this.owner));
-  }
-
-  /** Extends the lock while this copy holds it and less than half of its time is left. */
-  renewLock() {
-    const now = Date.now();
-    if (lockNeedsRenewal(shared(LOCK_KEY), this.owner, now)) setShared(LOCK_KEY, takeLock(this.owner, now));
-  }
-
-  startSync(cx) {
-    cx.spawn(async (cx) => {
-      await cx.sleep(0);
-      await this.sync(cx);
-    });
-  }
-
-  /**
-   * Probes the folders the last read did not see, with git only. A project key the
-   * board does not have forces a read; any other folder waits for the next scheduled read.
-   */
-  watchFolders(cx) {
-    if (this.probing) return;
-    const known = new Set(readBoard().folders);
-    const unseen = localFolders(spaces(), panes()).filter((folder) => !known.has(folder));
-    if (unseen.length === 0) return;
-    this.probing = true;
-    cx.spawn(async (cx) => {
-      await cx.sleep(0);
-      try {
-        const retryMs = readSettings().interval * 60_000;
-        const probed = await this.forge.probeNew(unseen, retryMs);
-        const entries = probed.map((entry) => entry ?? null);
-        const fresh = newProjectKeys(entries, readBoard().projects);
-        if (fresh.length === 0) {
-          // No new project: the board lists the probed folders at once, so Follow space stops waiting on them.
-          const board = readBoard();
-          const listed = withFolders(board, unseen.filter((_folder, index) => probed[index] !== undefined));
-          if (listed !== board) setShared(BOARD_KEY, listed);
-          return;
-        }
-        if (!this.force) this.forceKeys = [];
-        if (this.forceKeys !== null) this.forceKeys = [...new Set([...this.forceKeys, ...fresh])];
-        this.force = true;
-        this.startSync(cx);
-      } catch (caught) {
-        console.log(`${MOD}: the folder watch failed: ${caught?.message ?? String(caught)}`);
-      } finally {
-        this.probing = false;
-      }
-    });
-  }
-
-  /** Asks for a read now, in this copy, even when the board looks fresh. */
-  refresh(cx) {
-    this.force = true;
-    this.forceKeys = null;
-    this.startSync(cx);
-    cx.notify();
-  }
-
-  /**
-   * Reads the board into `shared` when it is older than the interval (or a
-   * refresh was asked for) and no other copy holds the lock.
-   */
-  async sync(cx) {
-    if (checking() || !this.gate.start()) return;
-
-    let read = false;
-    try {
-      // Another copy may have read the project that asked for this force.
-      if (this.force && this.forceKeys !== null && missingProjectKeys(this.forceKeys, readBoard().projects).length === 0) {
-        this.force = false;
-        this.forceKeys = null;
-      }
-      const startedAt = Date.now();
-      const fetch = shouldFetch({
-        now: startedAt,
-        fetchedAt: fetchedAtOf(readBoard()),
-        lock: shared(LOCK_KEY),
-        intervalMs: readSettings().interval * 60_000,
-        owner: this.owner,
-        force: this.force,
-      });
-      if (!fetch) {
-        // Another copy is reading; check again once it is done.
-        if (this.force) cx.timer.after(LOCK_RETRY, (cx) => this.startSync(cx));
-        return;
-      }
-
-      setShared(LOCK_KEY, takeLock(this.owner, startedAt));
-      if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-      this.force = false;
-      this.forceKeys = null;
-      read = true;
-      this.reading = true;
-      cx.notify();
-
-      const folderedBefore = new Set(readBoard().folders);
-      const next = await this.readBoard(startedAt);
-      if (!holdsLock(shared(LOCK_KEY), this.owner, Date.now())) return;
-      const current = readBoard();
-      // Folders that the folder watch added to the board during the read stay on it.
-      const added = current.folders.filter((folder) => !folderedBefore.has(folder));
-      setShared(BOARD_KEY, withFolders(keepStale(next, current, startedAt), added));
-    } catch (caught) {
-      const text = `Could not read the pull requests: ${caught?.message ?? String(caught)}`;
-      console.log(`${MOD}: ${text}`);
-      if (read && holdsLock(shared(LOCK_KEY), this.owner, Date.now())) setShared(BOARD_KEY, withNote(readBoard(), text));
-    } finally {
-      this.reading = false;
-      this.releaseLock();
-      const again = this.gate.finish();
-      if (read) cx.notify();
-      if (again) this.startSync(cx);
-    }
+    this.boardSync.release();
   }
 
   /**
@@ -322,7 +212,7 @@ export default class PullRequests extends View {
     const folders = localFolders(spaces(), panes());
 
     const found = await this.forge.readProjects(folders);
-    this.renewLock();
+    this.boardSync.renew();
 
     const gitHub = found.filter((project) => project.provider === "github");
     const gitLabFound = found.filter((project) => project.provider === "gitlab");
@@ -331,25 +221,25 @@ export default class PullRequests extends View {
     // A host other than gitlab.com stays only when glab is signed in to it. Without glab, the note says glab is missing.
     const gitLab = glab === null ? gitLabFound : await this.forge.signedInGitLab(glab, gitLabFound, notes);
     const projects = found.filter((project) => project.provider === "github" || gitLab.includes(project));
-    this.renewLock();
+    this.boardSync.renew();
     notes.push(...missingNotes({ gh: gh !== null, glab: glab !== null, githubProjects: gitHub.length, gitlabProjects: gitLab.length }));
 
     const result = { needsReview: [], mine: [], projectPrs: {}, listedAt: {} };
     if (gh !== null) {
       await this.readGitHub(gh, gitHub, result, notes);
-      this.renewLock();
+      this.boardSync.renew();
     }
     if (glab !== null && gitLab.length > 0) {
       await this.readGitLab(glab, gitLab, result, notes);
-      this.renewLock();
+      this.boardSync.renew();
     }
 
     const { reviews, listings, failed } = await this.readReviews(projects);
-    this.renewLock();
+    this.boardSync.renew();
     const counted = await this.readMergedCounts(listings, gh, glab);
     const previous = readBoard();
     const { merged, mergedSeen } = mergedCounts(previous.merged ?? {}, previous.mergedSeen ?? {}, mergedListRead(counted, failed.map((project) => project.key)), Date.now());
-    this.renewLock();
+    this.boardSync.renew();
     return assembleBoard({ projects, folders, needsReview: result.needsReview, mine: result.mine, projectPrs: result.projectPrs, notes: [...new Set(notes)], readAt: startedAt, reviews, merged, mergedSeen, listedAt: result.listedAt });
   }
 
@@ -367,7 +257,7 @@ export default class PullRequests extends View {
       } catch {
         listing = null;
       }
-      this.renewLock();
+      this.boardSync.renew();
       return listing;
     });
     const failed = local.filter((_project, index) => listings[index] === null);
@@ -415,7 +305,7 @@ export default class PullRequests extends View {
       } catch {
         count = null;
       }
-      this.renewLock();
+      this.boardSync.renew();
       return { key: project.key, count };
     });
   }
@@ -442,12 +332,12 @@ export default class PullRequests extends View {
    */
   async readGitHub(gh, projects, result, notes) {
     const login = await this.ghLogin(gh, notes);
-    this.renewLock();
+    this.boardSync.renew();
     const [needsPairs, minePairs] = await Promise.all([
       this.forge.attempt("gh", gh, ghSearchArgs("needsReview"), parseGhSearch, notes),
       login === null ? null : this.forge.attempt("gh", gh, ghSearchArgs("mine", login), parseGhSearch, notes),
     ]);
-    this.renewLock();
+    this.boardSync.renew();
     const searchNotes = [
       [needsPairs, "pull requests that need your review"],
       [minePairs, "pull requests you opened"],
@@ -466,7 +356,7 @@ export default class PullRequests extends View {
       key,
       await this.forge.attempt("gh", gh, ghListArgs(repo), (text) => parseGhList(text, repo), notes),
     ]);
-    this.renewLock();
+    this.boardSync.renew();
     const listedAt = Date.now();
     const all = [];
     const failed = new Set();
@@ -492,7 +382,7 @@ export default class PullRequests extends View {
       const filled = await mapPool(wanted, CLI_CONCURRENCY, (pair) =>
         this.forge.attempt("gh", gh, ghViewArgs(pair.repo, pair.number), (text) => parseGhDetail(text, pair.repo).pr, notes),
       );
-      this.renewLock();
+      this.boardSync.renew();
       return [...found, ...filled.filter((pr) => pr !== null)];
     };
     result.needsReview.push(...(await pick(needsPairs ?? [])));
@@ -541,7 +431,7 @@ export default class PullRequests extends View {
     const kept = keptLists(readBoard(), failed, Date.now());
     Object.assign(result.projectPrs, kept.projectPrs);
     Object.assign(result.listedAt, kept.listedAt);
-    this.renewLock();
+    this.boardSync.renew();
   }
 
   openSettings(cx) {
@@ -559,7 +449,7 @@ export default class PullRequests extends View {
     const next = normalizeSettings({ ...current, gh: this.ghInput.value(), glab: this.glabInput.value() });
     if (next.gh === current.gh && next.glab === current.glab) return;
     setShared(SETTINGS_KEY, next);
-    this.refresh(cx);
+    this.boardSync.refresh(cx);
   }
 
   render(cx) {
@@ -606,9 +496,9 @@ export default class PullRequests extends View {
         this.login = null;
         this.defaultBranches.clear();
         this.mergedHeads.clear();
-        this.refresh(cx);
+        this.boardSync.refresh(cx);
       },
-      { busy: this.reading },
+      { busy: this.boardSync.reading },
     );
     const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx));
     const head = header(t, "Pull requests", [scopeButton, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
