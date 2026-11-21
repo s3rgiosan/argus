@@ -320,3 +320,35 @@ export function issuePaneTitle(issue) {
 export function issueSignature(issue) {
   return rowSignature(issue, (row) => [row.updatedAt, row.state, row.title, row.comments, row.labels.join(","), row.assignees.map((person) => person.login).join(",")]);
 }
+
+// New worktree
+
+/** The reason the pane gives when no open space holds a clone of the issue's repo. */
+export const NO_CLONE = "No local checkout of this repo is open, so no worktree can start here.";
+
+/**
+ * The project that New worktree starts the issue's worktree in: the board's project of the
+ * issue's repo when it has a local checkout. Else `project` is null and `reason` says why.
+ * @param {Project[]} projects
+ * @param {{host: string, repo: string}} issue
+ * @returns {{project: Project, reason: null} | {project: null, reason: string}}
+ */
+export function worktreeTarget(projects, issue) {
+  const key = projectKey(issue);
+  const project = projects.find((entry) => entry.key === key && typeof entry.localPath === "string" && entry.localPath !== "");
+  return project ? { project, reason: null } : { project: null, reason: NO_CLONE };
+}
+
+/**
+ * What the pane footer shows for New worktree: why it cannot start (or null), whether a start
+ * for this issue runs, whether any start of this pane runs (`busy`, one at a time), and the
+ * error and note of the last start for this issue.
+ * @param {{reason: string|null}} target `worktreeTarget` of the issue.
+ * @param {{running: boolean, error: string|null, note: string|null}|undefined} run This pane's last start for the issue.
+ * @param {boolean} busy
+ * @returns {{reason: string|null, running: boolean, busy: boolean, error: string|null, note: string|null}}
+ */
+export function worktreeState(target, run, busy) {
+  const running = run?.running === true;
+  return { reason: target.reason, running, busy: busy || running, error: run?.error ?? null, note: run?.note ?? null };
+}

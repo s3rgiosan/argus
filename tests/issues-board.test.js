@@ -19,6 +19,9 @@ import {
   keptLists,
   normalizeGrouping,
   GROUPINGS,
+  worktreeTarget,
+  worktreeState,
+  NO_CLONE,
 } from "../mods/argus-issues/board.js";
 import { stateText, namesOf, openedLine, commentItems, sectionSummaries, hiddenText } from "../mods/argus-issues/detail.js";
 import { displayName, KEEP_LIST_MS } from "../lib/forge-board.js";
@@ -221,6 +224,23 @@ test("shownOrder counts an issue in several groups once", () => {
     readAt: 5,
   });
   assert.deepEqual(shownOrder(b, { show: "all", where: "all" }, null, "label"), ["github.com/example-org/example-repo#1", "github.com/example-org/example-repo#2"]);
+});
+
+test("worktreeTarget takes the board project of the issue's repo when it has a local checkout", () => {
+  assert.deepEqual(worktreeTarget([gitlab, github], issue()), { project: github, reason: null });
+  assert.deepEqual(worktreeTarget([github], issue({ repo: "Example-Org/Example-Repo" })), { project: github, reason: null });
+  assert.deepEqual(worktreeTarget([github], elsewhere), { project: null, reason: NO_CLONE });
+  assert.deepEqual(worktreeTarget([{ ...github, localPath: "" }], issue()), { project: null, reason: NO_CLONE });
+  assert.deepEqual(worktreeTarget([], issue()), { project: null, reason: NO_CLONE });
+});
+
+test("worktreeState shows the reason, the running start and the last outcome of the issue", () => {
+  const ready = { project: github, reason: null };
+  assert.deepEqual(worktreeState(ready, undefined, false), { reason: null, running: false, busy: false, error: null, note: null });
+  assert.deepEqual(worktreeState(ready, { running: true, error: null, note: null }, false), { reason: null, running: true, busy: true, error: null, note: null });
+  assert.deepEqual(worktreeState(ready, undefined, true), { reason: null, running: false, busy: true, error: null, note: null });
+  assert.deepEqual(worktreeState(ready, { running: false, error: "git: Example error", note: null }, false), { reason: null, running: false, busy: false, error: "git: Example error", note: null });
+  assert.deepEqual(worktreeState({ project: null, reason: NO_CLONE }, { running: false, error: null, note: "Example note" }, false), { reason: NO_CLONE, running: false, busy: false, error: null, note: "Example note" });
 });
 
 test("matchesFilter looks at title, number, author, labels and assignees", () => {

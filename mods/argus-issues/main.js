@@ -1,21 +1,23 @@
 // The issues board in Herdr. One mod with views picked by `props().view`: the board (the
 // layout's panel, with a settings page), the scope and group list (a popup) and an issue (a pane
-// beside the terminals). Reads go through `git`, `gh` and `glab`. The mod writes nothing to a forge.
+// beside the terminals). Reads go through `git`, `gh` and `glab`. The mod writes nothing to a
+// forge; New worktree in the pane starts a git worktree for the issue and opens its space.
 
 import { div, View } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, openOverlay, closeOverlay, panes, spaces, focused } from "herdr";
+import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused } from "herdr";
 import { randomUUID } from "crypto";
 import { localFolders, followProjectKey } from "./remote.js";
 import { GH_MISSING, GLAB_MISSING, cliError, glabArgs, limitNote, missingNotes } from "./forge-cli.js";
 import { INTERVALS, ageText, followStatus, normalizeSettings, positionIn, rereadDue, scopeRepos } from "./forge-board.js";
 import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT } from "./forge-runner.js";
 import { createBoardSync } from "./board-sync.js";
+import { createWorktreeRunner } from "./worktree-runner.js";
 import { readForge, saveForge } from "./forge-settings.js";
 import { mapPool } from "./pool.js";
 import { ghSearchArgs, ghListArgs, ghViewArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { issueKey, parseGhSearch, parseGhList, parseGhView, parseGlUser, parseGlProject, parseGlDetail } from "./model.js";
-import { GROUPINGS, assembleBoard, normalizeBoard, normalizeScope, normalizeGrouping, issuesInScope, scopeItems, scopeTitle, mentionsNote, buildGroups, shownOrder, matchesFilter, rowDetail, assigneesText, emptyMessage, issuePaneTitle, issueSignature, keptLists } from "./board.js";
+import { GROUPINGS, assembleBoard, normalizeBoard, normalizeScope, normalizeGrouping, issuesInScope, scopeItems, scopeTitle, mentionsNote, buildGroups, shownOrder, matchesFilter, rowDetail, assigneesText, emptyMessage, issuePaneTitle, issueSignature, keptLists, worktreeTarget, worktreeState } from "./board.js";
 import { SECTIONS, namesOf, commentItems, sectionSummaries } from "./detail.js";
 import { issuePane } from "./detail-view.js";
 import { followFolder } from "./follow.js";
@@ -58,6 +60,10 @@ export default class Issues extends View {
     this.input = createInputs(this);
     // The gh, glab and folder reads, with what they found. Kept until the refresh button.
     this.forge = createForgeRunner({ exec, home, settings: readForge });
+    // Starts worktrees and opens their spaces.
+    this.worktrees = createWorktreeRunner({ exec, readTextFile, appHome, home, run, spaces, panes, forge: this.forge });
+    // Issue key -> {running, error, note} for the last New worktree of each issue in this pane copy.
+    this.worktreeRuns = new Map();
     // The board read: the lock, forced reads and the folder watch.
     this.boardSync = createBoardSync({
       boardKey: BOARD_KEY,
@@ -435,6 +441,27 @@ export default class Issues extends View {
     return gitLab ? parseGlDetail(reply.stdout, selected.host, selected.repo) : parseGhView(reply.stdout, selected.repo);
   }
 
+  /**
+   * Starts a worktree for `issue` in `project` and opens its space (`createIssueWorktree`). One
+   * start runs at a time in this pane copy. The error and the note show in the pane footer.
+   */
+  startWorktree(cx, key, issue, project) {
+    if ([...this.worktreeRuns.values()].some((entry) => entry.running)) return;
+    this.worktreeRuns.set(key, { running: true, error: null, note: null });
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await cx.sleep(0);
+      let result;
+      try {
+        result = await this.worktrees.createIssueWorktree(project, { number: issue.number, title: issue.title });
+      } catch (caught) {
+        result = { error: caught?.message ?? String(caught), note: null };
+      }
+      this.worktreeRuns.set(key, { running: false, error: result.error, note: result.note });
+      cx.notify();
+    });
+  }
+
   renderIssue(t, cx) {
     const selected = readSelected();
     // A new selection arrives as a re-render; the read runs as a task.
@@ -465,6 +492,8 @@ export default class Issues extends View {
       const next = target === null ? null : board.issues.find((issue) => issueKey(issue) === target);
       if (next) selectIssue(next);
     };
+    const target = worktreeTarget(board.projects, detail.issue);
+    const busy = [...this.worktreeRuns.values()].some((entry) => entry.running);
     const view = {
       detail,
       names: namesOf(detail),
@@ -476,6 +505,7 @@ export default class Issues extends View {
       now: Date.now(),
       age: ageText,
       icon: ICON,
+      worktree: worktreeState(target, this.worktreeRuns.get(key), busy),
     };
     const on = {
       toggle: (id, cx) => {
@@ -487,6 +517,9 @@ export default class Issues extends View {
       openBrowser: (cx) => openInBrowser(cx, detail.issue.url),
       // A link in the description or a comment; only http and https open.
       openLink: (url, cx) => openInBrowser(cx, url),
+      newWorktree: (cx) => {
+        if (target.project !== null) this.startWorktree(cx, key, detail.issue, target.project);
+      },
     };
     return issuePane(t, view, on);
   }

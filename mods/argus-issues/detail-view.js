@@ -1,9 +1,10 @@
-// Draws the issue pane from plain data: the header, the facts, and the folding Description and
-// Comments sections. State and reads stay in main.js; handlers come in through `on`.
+// Draws the issue pane from plain data: the header, the facts, the folding Description and
+// Comments sections, and the footer with New worktree. State and reads stay in main.js; handlers
+// come in through `on`.
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { frame, scrollArea, iconButton, chip, errorLine, foldTitle, paneHead, mutedText, markdown, nameLabel } from "./ui.js";
+import { frame, scrollArea, iconButton, chip, errorLine, note, button, foldTitle, paneHead, mutedText, markdown, nameLabel } from "./ui.js";
 import { displayName, uniqueKeys } from "./forge-board.js";
 import { SECTIONS, hiddenText, openedLine, stateText } from "./detail.js";
 
@@ -17,9 +18,11 @@ function factRow(t, id, label, value) {
  * @param {object} t The theme.
  * @param {object} view What to show: `detail`, `names` (`namesOf`), `comments` (`commentItems`),
  *   `summaries` (`sectionSummaries`), `open` (the open section ids), `position` (`positionIn` or null),
- *   `error` (a failed read again), `now`, `age(at, now)`, `icon(name)` (a path).
+ *   `error` (a failed read again), `now`, `age(at, now)`, `icon(name)` (a path), and `worktree`
+ *   (`worktreeState`): `{reason, running, busy, error, note}`, where `reason` is why New worktree
+ *   cannot start, or null.
  * @param {object} on Handlers, each given the click's `cx` last: `toggle(section, cx)`, `prev(cx)`,
- *   `next(cx)`, `openBrowser(cx)`, `openLink(url, cx)` (a link in Markdown text).
+ *   `next(cx)`, `openBrowser(cx)`, `openLink(url, cx)` (a link in Markdown text), `newWorktree(cx)`.
  */
 export function issuePane(t, view, on) {
   const { detail, names, position } = view;
@@ -76,7 +79,36 @@ export function issuePane(t, view, on) {
   return frame(t, "argus-issues-issue")
     .rounded_none()
     .border_0()
-    .child(scrollArea("argus-issues-issue-detail", parts, { padding: 0, gap: 0 }));
+    .child(scrollArea("argus-issues-issue-detail", parts, { padding: 0, gap: 0 }))
+    .child(footerBar(t, view.worktree, on));
+}
+
+/** The area under the scroll: the New worktree reason, note and error, then the New worktree button. */
+function footerBar(t, worktree, on) {
+  const above = [];
+  if (worktree.reason !== null) above.push(note(t, worktree.reason).p(0).text_size(11));
+  if (worktree.note !== null) above.push(note(t, worktree.note).p(0));
+  if (worktree.error !== null) above.push(errorLine(t, worktree.error).id("worktree-error").px(0).py(0));
+  return v_flex()
+    .flex_none()
+    .px(12)
+    .py(10)
+    .gap(8)
+    .border_t(1)
+    .border_color(t.border)
+    .bg(t.background)
+    .children(above)
+    .child(
+      h_flex()
+        .gap(6)
+        .items_center()
+        .child(
+          button(t, "new-worktree", worktree.running ? "Starting…" : "New worktree", (_e, cx) => on.newWorktree(cx), {
+            primary: true,
+            enabled: worktree.reason === null && !worktree.busy,
+          }),
+        ),
+    );
 }
 
 function sectionBody(t, id, view, on) {
