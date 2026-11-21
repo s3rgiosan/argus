@@ -189,6 +189,7 @@ Gear icon in the header:
 
 - gh command: empty uses `gh` from PATH, else the usual install folders. A set command that fails also falls back to the bare name on PATH and the usual install folders.
 - glab command: empty uses `glab` from PATH, else the usual install folders. A set command that fails falls back the same way.
+- The gh and glab commands are shared with other Argus forge mods, in the shared-state key `argus.forge`. A command set before this key existed still applies until you save the fields again.
 - Refresh every: 1, 3, 5, 10 or 15 minutes.
 - Conversation: Oldest first (the default) or Newest first, for the comments in the pull request pane.
 - Worktrees: "Remove merged worktrees…" opens Merged worktrees.

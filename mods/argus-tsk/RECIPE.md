@@ -36,9 +36,9 @@ The tsk board as a Herdr panel, with the task in a pane beside the terminals. Ev
 
 ## Built from
 
-- `main.js`: the `View`; `exec`, `home`, `checking`, `theme`, `shared`, `setShared`, `props`, `run`, `openOverlay`, `closeOverlay`, `panes`, `spaces`, `watchFolder`, `layout`, `focused` from `herdr`; `randomUUID` from `crypto`; `Input`, `InputState`, `Textarea`, `TextareaState` from `gpui-base`.
+- `main.js`: the `View`; `exec`, `home`, `checking`, `theme`, `shared`, `setShared`, `props`, `run`, `openOverlay`, `closeOverlay`, `panes`, `spaces`, `watchFolder`, `layout`, `focused` from `herdr`; `randomUUID` from `crypto`; `Input` and `Textarea` from `gpui-base`. Every `cx.spawn` body starts with `await cx.sleep(0)`.
 - `tsk.js` (argv for every command), `locate.js` (tsk lookup, store folder, version check, settings), `model.js` (JSON to camelCase rows), `board.js` (sections, scopes, the followed project, capture target), `flows.js` (block and review flows), `detail.js` (task read state, status choices and actions per status, status dropdown picks, form changes, optimistic patches), `timing.js` (debounce with an injectable clock), `panel.js` (the panel column's width and the expand button's resize), `store.js` (the `tsk.json` stamp that tells a real store change from read noise). All pure, tested with `node --test`.
-- `ui.js`, `gate.js` and `sync.js` are copies of the files in `lib/`.
+- Copies of the files in `lib/`: `ui.js`, `menu.js` (`menuHeight` sizes the scopes and status popups), `icons.js`, `pane.js` (`openModPane`, `shareTitle`, `createInputs`), `follow.js`, `paths.js`, `gate.js` and `sync.js`.
 
 ## Watch out
 

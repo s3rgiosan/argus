@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `argus-toolbar` reads `argus.json` again only when a change touches that file.
 - `scripts/install.sh` copies a mod into a temporary folder beside `mods/` and then swaps it in, so a failed copy keeps the old install.
 - `scripts/sync-lib.mjs --check` fails on a lib copy that no module of the mod imports. The copy mode prints a warning.
+- The `gh` and `glab` commands of `argus-pull-requests` live in the shared-state key `argus.forge`, so other forge mods use the same commands. While that key is missing, the commands come from `argus-pull-requests.settings`, and the next save of the fields writes `argus.forge`.
+- Links in `argus-pull-requests` and `argus-claude-usage` open with Herdr's `cx.open_url`. The `open` and `xdg-open` commands are gone, and a link that does not open shows no error line.
+- The GitLab username for the New worktree Issue tab of `argus-pull-requests` is read once and kept until the refresh button.
+- `argus-claude-usage` writes its read lock again only when less than half of its time is left.
+- Shared code moves to `lib/`: the git remote and project helpers (`remote.js`), the `gh` and `glab` helpers (`forge-cli.js`, `forge-settings.js`, `forge-runner.js`), the forge board helpers and board sync (`forge-board.js`, `board-sync.js`), worktree planning and creation (`worktree.js`, `worktree-runner.js`), home path helpers (`paths.js`), the profile file access (`profile-io.js`), the process limiter (`pool.js`), the lock renewal and release (`sync.js`), and the popup menu, settings field, pane and row blocks (`menu.js`, `ui.js`, `pane.js`). `argus-pull-requests`, `argus-tsk` and `argus-claude-usage` use them in place of their own copies.
+- `scripts/sync-lib.mjs` also copies the lib files that a used lib file imports.
+- `argus-pull-requests` loads Herdr's own chevron-right and plus icons when Herdr ships them, and `lib/icons.js` lists clock for the mods that use it.
 
 ### Fixed
 
@@ -41,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The old-key move of `argus-claude-usage` does not run during `herdr-app check`.
 - `scripts/build-layout.mjs` writes its files atomically and refuses an `argus-pane` or `argus-spaces` folder that is a symbolic link.
 - The `argus-stay-awake` README gives the right time the display stays awake after the last agent finishes: up to about 2 minutes.
+- The refresh and settings buttons of `argus-pull-requests` and the icon buttons of `argus-claude-usage` have tooltips.
+- Every task that `argus-tsk`, `argus-claude-usage` and `argus-toolbar` start with `cx.spawn` waits one tick first, as Herdr app 0.1.16 needs.
+- `tildePath` keeps a path as it is when there is no home folder, and ignores a trailing slash on the home folder, in every mod.
 
 ### Security
 
