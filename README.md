@@ -92,6 +92,8 @@ npm test                               # pure modules and shell scripts, with no
 herdr-app check mods/argus-tsk         # load and render a mod once
 node scripts/sync-lib.mjs              # after editing a lib/*.js file: copy each into the mods that import it
 node scripts/sync-lib.mjs --check      # exit 1 when a copy differs or a copy is not imported
+git config core.hooksPath .githooks    # once per clone: check each commit message
+node scripts/check-commits.mjs         # check the messages in main..HEAD
 ```
 
 - Each mod lives in `mods/<name>/` with a `README.md` for people and a `RECIPE.md` for an agent rebuilding it.

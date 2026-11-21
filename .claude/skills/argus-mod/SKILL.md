@@ -49,6 +49,7 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 
 ## Argus conventions
 
+- Before you write a helper, a parser, a CLI call or a control, look in `lib/`. Use the `lib/` module when it does the job. Extend it when it almost does. When a second mod needs code that one mod has, move that code to `lib/` and import it from both. Never copy a file or a function from one mod into another.
 - Shared code lives in `lib/`. `node scripts/sync-lib.mjs` copies each `lib/` file into the mods that import it. Run `node scripts/sync-lib.mjs --check` before every commit. Edit the `lib/` file, never the copy in a mod.
 - Run each shared CLI read through `lib/gate.js` and `lib/sync.js`, so several copies run one read.
 - Do not commit `gpui-kit.d.ts` or `jsconfig.json` in a mod folder.
@@ -77,6 +78,9 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 ## Commits and releases
 
 - Conventional Commits with the mod name as the scope, for example `fix(argus-tsk): …`. Add no trailers and no attribution lines.
+- The scope is a mod name, or `lib`, `scripts`, `tests` or `skill` for a change outside one mod. A commit that changes no single area has no scope, for example `docs: …`.
+- Turn on the commit check once per clone with `git config core.hooksPath .githooks`. Worktrees share it. Before you hand off a branch, run `node scripts/check-commits.mjs`, which checks `main..HEAD`.
+- A brief for another agent links this file for the commit rules. It does not restate them.
 - `CHANGELOG.md` follows Keep a Changelog 1.1.0, with full-sentence entries under `## [Unreleased]`.
 - Tags are plain semver without `v`, for example `1.3.1`. A release bumps `package.json`, dates the CHANGELOG section and adds its compare link.
 - Never commit `docs/` or `.superpowers/`.
