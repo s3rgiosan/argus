@@ -80,9 +80,9 @@ test("a finish while the pane is focused is idle, and stays idle", () => {
   // Focus lost later: still idle.
   const away = advance(track, [item({ status: "idle", focused: false })], NOW + 2 * MIN);
   assert.equal(away.changed, false);
-  // A watched "done" is idle too.
+  // Herdr says "done" only when you were not looking, so a focused "done" is finished.
   const done = advance({ t1: { s: "working", at: NOW, gen: 0, turn: null } }, [item({ status: "done", focused: true })], NOW + MIN).track;
-  assert.equal(done.t1.s, "idle");
+  assert.equal(done.t1.s, "finished");
 });
 
 test("a finish while the pane is not focused is finished, and stays finished after focus", () => {

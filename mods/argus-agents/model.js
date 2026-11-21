@@ -137,7 +137,8 @@ function kindOf(row, prev) {
     case "working":
       return "working";
     case "done":
-      return prev?.s === "working" && row.focused ? "idle" : "finished";
+      // Herdr says "done" only when you were not looking, also when another app is in front.
+      return "finished";
     case "idle": {
       if (prev?.s === "finished") return "finished";
       if (prev?.s === "working" || turnWentUp(row, prev)) return row.focused ? "idle" : "finished";

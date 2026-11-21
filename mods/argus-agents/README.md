@@ -7,7 +7,7 @@ Herdr's own Agents list shows every agent with its status, pins and next agent. 
 - Open sections with counts: Needs you (the agent waits on you), Failed (the agent reported an error) and Finished (the agent finished its work). The header shows how many rows are in them, and how many agents are working.
 - Folded lists after them, closed at first, each with a count: Working, Idle, Older and Snoozed. A click on the title opens or closes one.
 - A finished agent stays under Finished after you look at it, until it works again or you snooze it. Herdr's "done" turns "idle" once you look, so Finished also counts an idle agent that was working before.
-- An agent that finishes while its pane is the focused pane (you were watching it) goes to Idle, not Finished. An agent that finished while you looked elsewhere stays Finished, also after you focus it.
+- An agent that finishes while its pane is the focused pane and Herdr is in front (you were watching it) goes to Idle, not Finished. Herdr's "done" means you were not looking, so a done agent goes to Finished. An agent that finished while you looked elsewhere stays Finished, also after you focus it.
 - A finished row older than 1 hour moves from Finished to Older. Snooze and Reopen work on it as before.
 - Rows: the agent's icon, its space and its tab name (or its title, when the tab has no name), and how long it has been in that state. Pinned agents come first, then the newest change. The focused agent's row is highlighted.
 - Click a row: Herdr shows the agent's pane. A failed helper without a pane opens in a peek.
