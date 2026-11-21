@@ -7,7 +7,7 @@
 import { View, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, props, layout, run, appHome, readTextFile, watchFolder, notify, checking } from "herdr";
-import { isOpen, clickCommands, toolbarSettings, waitAfter, badFileToast, measuredResize, touchesFile, POLL_MS } from "./toolbar-logic.js";
+import { isOpen, clickCommands, toolbarSettings, waitAfter, badFileToast, measuredResize, POLL_MS } from "./toolbar-logic.js";
 import { sortButtons } from "./order.js";
 
 const FILE = "argus.json";
@@ -29,16 +29,14 @@ export default class Toolbar extends View {
   }
 
   /**
-   * Reads `argus.json` each time a new watch starts, which follows every
-   * batch of changes after a wait, so a save made during the wait is never
-   * missed. A watch ends with its first batch, so each batch needs a new
-   * watch. A batch about other files starts the next watch at once and does
-   * not read the file.
+   * Reads `argus.json` each time a new watch starts, so a save made between
+   * two watches is never missed. A watch ends with its first batch, so each
+   * batch needs a new watch. The read comes after the watch starts, and
+   * `load` applies the text only when it differs from the last read.
    */
   async follow(cx) {
     await cx.sleep(0);
     const dir = appHome();
-    let reload = true;
     for (;;) {
       let watch = null;
       try {
@@ -46,14 +44,12 @@ export default class Toolbar extends View {
       } catch {
         watch = null;
       }
-      if (reload) await this.load(dir, cx);
+      await this.load(dir, cx);
       let wait = POLL_MS;
-      reload = true;
       try {
         if (!watch) throw new Error("no watch");
         const paths = await watch;
         wait = waitAfter(paths, dir, FILE);
-        reload = touchesFile(paths, dir, FILE);
       } catch {
         wait = POLL_MS;
       }
