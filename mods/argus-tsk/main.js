@@ -3,7 +3,7 @@
 // beside the terminals) and the status list (a popup). Every change goes through the `tsk` CLI.
 
 import { div, svg, View } from "gpui-kit";
-import { h_flex, v_flex, Input, InputState, TextareaState } from "gpui-base";
+import { h_flex, v_flex, Input } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, watchFolder, layout, focused } from "herdr";
 import { randomUUID } from "crypto";
 import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs, archiveArgs, projectTitleArgs, withStateDir } from "./tsk.js";
@@ -18,9 +18,10 @@ import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock, releasedLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, chip as tint, dropdownButton, fieldLabel, hint, errorLine, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, commandField, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, chip as tint, dropdownButton, fieldLabel, hint, errorLine, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, commandField, menuPopup } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
-import { menuKey, startAt } from "./menu.js";
+import { menuKey, menuHeight, startAt } from "./menu.js";
+import { openModPane, shareTitle, createInputs } from "./pane.js";
 
 const BOARD_KEY = "argus-tsk.board";
 const SCOPE_KEY = "argus-tsk.scope";
@@ -61,6 +62,8 @@ export default class Tasks extends View {
     // A read is due while the shared board is older than this time.
     this.since = Date.now();
     this.focused = null;
+    // Makes the text inputs; each one tracks focus in `this.focused`.
+    this.input = createInputs(this);
     this.located = null;
     this.envStore = null;
     this.watchToken = null;
@@ -140,29 +143,6 @@ export default class Tasks extends View {
   /** The path to load for icon `name`: Herdr's file when it has one, else this mod's copy. */
   icon(name) {
     return iconResolver(MOD, this.found)(name);
-  }
-
-  /**
-   * A text input that tracks focus for its border. `onSubmit` runs on Enter,
-   * and also when focus leaves with `saveOnBlur`. A `multiline` input is a
-   * textarea: Return adds a line, and only ⌘Return submits.
-   */
-  input(id, options, onSubmit, { saveOnBlur = false, multiline = false } = {}) {
-    const state = multiline ? TextareaState.new(options) : InputState.new(options);
-    state.on("submit", (e, cx) => {
-      if (multiline && !e?.secondary) return;
-      onSubmit(cx);
-    });
-    state.on("focus", (_e, cx) => {
-      this.focused = id;
-      cx.notify();
-    });
-    state.on("blur", (_e, cx) => {
-      if (this.focused === id) this.focused = null;
-      if (saveOnBlur) onSubmit(cx);
-      cx.notify();
-    });
-    return state;
   }
 
   /** Stops the watch and gives the lock back when this copy goes. */
@@ -985,18 +965,13 @@ export default class Tasks extends View {
       parts.push(sectionTitle(t, title));
       for (const entry of list) parts.push(item(entry, index++));
     }
-    // A popup is as tall as its content, up to the height it was opened with,
-    // so the list gets an explicit height for its rows and section titles.
-    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + index * MENU_ROW + groups.length * 30 + extra);
-    return v_flex()
-      .id("argus-tsk-scopes")
-      .track_focus(this.handle)
-      .w_full()
-      .h(height)
-      .bg(t.popover)
-      .text_color(t.foreground)
-      .text_size(12.8)
-      .on_key_down((e, cx) => {
+    return menuPopup(t, {
+      id: "argus-tsk-scopes",
+      listId: "argus-tsk-scope-list",
+      handle: this.handle,
+      height: menuHeight(index, groups.length, { extra, max: SCOPES_HEIGHT }),
+      parts,
+      onKey: (e, cx) => {
         // Keys in the rename field belong to the field, while the field shows.
         if (renaming) return;
         const next = menuKey(active, e.key, entries.length);
@@ -1005,8 +980,8 @@ export default class Tasks extends View {
         if (next.action === "pick") pickScope(entries[next.at].scope);
         else if (next.action === "close") closeOverlay(props()?.overlay);
         cx.notify();
-      })
-      .child(scrollArea("argus-tsk-scope-list", parts, { padding: MENU_PAD }));
+      },
+    });
   }
 
   /**
@@ -1054,7 +1029,7 @@ export default class Tasks extends View {
       // The board comes first, because every pane copy sees the same board; a pane's own read
       // can lag, and two copies with different titles would overwrite each other.
       const title = readBoard().rows.find((r) => r.number === selected)?.title ?? this.shownTask()?.title ?? null;
-      shareTitle(cx, taskPaneTitle(selected, title));
+      shareTitle(cx, TITLE_KEY, taskPaneTitle(selected, title));
     }
 
     const empty = (text) => paneFrame(t).child(header(t, "Task")).child(note(t, text));
@@ -1297,23 +1272,21 @@ export default class Tasks extends View {
         },
       }),
     );
-    return v_flex()
-      .id("argus-tsk-status")
-      .track_focus(this.handle)
-      .w_full()
-      .h(statusHeight(rows.length))
-      .bg(t.popover)
-      .text_color(t.foreground)
-      .text_size(12.8)
-      .on_key_down((e, cx) => {
+    return menuPopup(t, {
+      id: "argus-tsk-status",
+      listId: "argus-tsk-status-list",
+      handle: this.handle,
+      height: menuHeight(rows.length),
+      parts: rows,
+      onKey: (e, cx) => {
         const next = menuKey(active, e.key, choices.length);
         if (!next.handled) return;
         this.at = next.at;
         if (next.action === "pick" && pickable(choices[next.at])) pickStatus(p, choices[next.at].status);
         else if (next.action === "close") closeOverlay(p.overlay);
         cx.notify();
-      })
-      .child(scrollArea("argus-tsk-status-list", rows, { padding: MENU_PAD }));
+      },
+    });
   }
 
   renderSettings(t) {
@@ -1429,13 +1402,8 @@ function openScopes() {
  * this mod, so it gets the pane's choices, task number and owner in its props.
  */
 function openStatusMenu(owner, number, choices) {
-  const height = statusHeight(choices.length);
+  const height = menuHeight(choices.length);
   openOverlay({ mod: MOD, props: { view: "status", owner, number, choices }, kind: "popup", width: STATUS_WIDTH, height });
-}
-
-/** Height of the status dropdown for `count` rows. */
-function statusHeight(count) {
-  return 2 * MENU_PAD + count * MENU_ROW;
 }
 
 /** Hands a picked status to the pane that opened the popup, then closes the popup. */
@@ -1455,18 +1423,7 @@ function pickScope(scope) {
  */
 function openTask(number) {
   setShared(SELECTED_KEY, { number });
-  const tab = spaces()
-    .find((space) => space.active)
-    ?.tabs.find((candidate) => candidate.active);
-  if (!tab) return;
-  const inTab = panes().filter((pane) => pane.tab === tab.id);
-  const own = inTab.find((pane) => pane.mod === MOD);
-  if (own) {
-    run("pane.focus", { pane: own.pane });
-    return;
-  }
-  const target = inTab.find((pane) => pane.focused) ?? inTab[0];
-  run("pane.split", { ...(target ? { pane: target.pane } : {}), direction: "right", mod: MOD, props: { view: "task" } });
+  openModPane(MOD, { view: "task" });
 }
 
 function readSettings() {
@@ -1503,14 +1460,3 @@ function readBoard() {
   };
 }
 
-/**
- * Shares the title the Argus pane header shows for this mod's panes. A write
- * renders every mod again, so only a changed title is written, after this render.
- */
-function shareTitle(cx, title) {
-  if (shared(TITLE_KEY) === title) return;
-  cx.spawn(async (cx) => {
-    await cx.sleep(0);
-    if (shared(TITLE_KEY) !== title) setShared(TITLE_KEY, title);
-  });
-}

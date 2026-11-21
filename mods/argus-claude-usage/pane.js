@@ -1,23 +1,10 @@
 // Copied from lib/pane.js by scripts/sync-lib.mjs: edit lib/pane.js, then run it.
 //
-// Helpers that need Herdr itself: opening a mod's pane, the pane title, links,
-// text inputs and file access for the Claude Code profile search.
+// Helpers that need Herdr itself: opening a mod's pane, the pane title, links
+// and text inputs.
 
-import { home, readTextFile, shared, setShared } from "herdr";
-import { readdir, readFile } from "fs/promises";
-import { discoveryIO } from "./accounts.js";
-import { FORGE_FALLBACK_KEY, FORGE_KEY, forgeSettings } from "./forge-cli.js";
-
-/**
- * File access for `discover` on this computer. `readTextFile` reads up to
- * 1 MiB and `.claude.json` can grow past that, so a larger file is read with
- * `fs/promises`.
- *
- * @returns {import("./accounts.js").DiscoveryIO}
- */
-export function profileIO() {
-  return discoveryIO({ home: home(), readdir, readers: [readTextFile, (path) => readFile(path, "utf8")] });
-}
+import { shared, setShared, spaces, panes, run } from "herdr";
+import { InputState, TextareaState } from "gpui-base";
 
 /**
  * Opens a web page in the browser with Herdr's `open_url`. It opens only
@@ -36,27 +23,69 @@ export function openInBrowser(cx, url) {
 }
 
 /**
- * The gh and glab commands every forge mod shares, from FORGE_KEY. Until a
- * save writes that key, the commands come from FORGE_FALLBACK_KEY.
+ * Shows a pane of `mod` in the shown tab: focuses the mod's pane there, or
+ * splits the tab's focused pane to the right to open one with `props`.
  *
- * @returns {{ gh: string, glab: string }}
+ * @param {string} mod
+ * @param {Record<string, unknown>} props
  */
-export function readForge() {
-  return forgeSettings(shared(FORGE_KEY), shared(FORGE_FALLBACK_KEY));
+export function openModPane(mod, props) {
+  const tab = spaces()
+    .find((space) => space.active)
+    ?.tabs.find((candidate) => candidate.active);
+  if (!tab) return;
+  const inTab = panes().filter((pane) => pane.tab === tab.id);
+  const own = inTab.find((pane) => pane.mod === mod);
+  if (own) {
+    run("pane.focus", { pane: own.pane });
+    return;
+  }
+  const target = inTab.find((pane) => pane.focused) ?? inTab[0];
+  run("pane.split", { ...(target ? { pane: target.pane } : {}), direction: "right", mod, props });
 }
 
 /**
- * Saves the gh and glab commands under FORGE_KEY when they differ from the
- * ones in use.
+ * Shares the title the Argus pane header shows for a mod's panes, under `key`.
+ * A write renders every mod again, so only a changed title is written, after
+ * this render.
  *
- * @param {string} gh
- * @param {string} glab
- * @returns {boolean} True when the commands changed, so the caller reads again.
+ * @param {object} cx The render's `cx`.
+ * @param {string} key The mod's `<mod>.paneTitle` key.
+ * @param {string} title
  */
-export function saveForge(gh, glab) {
-  const current = readForge();
-  const next = forgeSettings({ gh, glab });
-  if (next.gh === current.gh && next.glab === current.glab) return false;
-  setShared(FORGE_KEY, next);
-  return true;
+export function shareTitle(cx, key, title) {
+  if (shared(key) === title) return;
+  cx.spawn(async (cx) => {
+    await cx.sleep(0);
+    if (shared(key) !== title) setShared(key, title);
+  });
+}
+
+/**
+ * A maker of text inputs for `view` that track focus in `view.focused`, so a
+ * field can draw its accent border. Call it in `init`. Each input runs
+ * `onSubmit(cx)` on Enter, and on blur with `saveOnBlur`. A `multiline`
+ * input is a textarea: Return adds a line, and only ⌘Return submits.
+ *
+ * @param {{ focused: string | null }} view
+ * @returns {(id: string, options: object, onSubmit: (cx: object) => void, flags?: { saveOnBlur?: boolean, multiline?: boolean }) => object}
+ */
+export function createInputs(view) {
+  return (id, options, onSubmit, { saveOnBlur = false, multiline = false } = {}) => {
+    const state = multiline ? TextareaState.new(options) : InputState.new(options);
+    state.on("submit", (e, cx) => {
+      if (multiline && !e?.secondary) return;
+      onSubmit(cx);
+    });
+    state.on("focus", (_e, cx) => {
+      view.focused = id;
+      cx.notify();
+    });
+    state.on("blur", (_e, cx) => {
+      if (view.focused === id) view.focused = null;
+      if (saveOnBlur) onSubmit(cx);
+      cx.notify();
+    });
+    return state;
+  };
 }

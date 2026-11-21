@@ -4,7 +4,7 @@
 // test it.
 
 /** Names of the icons in Herdr's `workspace-chrome` mod that match this repo's drawings. */
-export const HERDR_ICONS = ["chevron-left", "chevron-down", "settings", "panel-right", "check", "x", "square-pen"];
+export const HERDR_ICONS = ["chevron-left", "chevron-down", "chevron-right", "settings", "panel-right", "check", "x", "square-pen", "clock", "plus"];
 
 /** The app-folder path of Herdr's icon `name`. */
 export function herdrIconPath(name) {

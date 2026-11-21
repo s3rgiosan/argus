@@ -3,12 +3,13 @@
 // mod never touches a sign-in token.
 
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState } from "gpui-base";
+import { v_flex, h_flex } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, closeOverlay, notify } from "herdr";
 import { randomUUID } from "crypto";
 import { discover, visibleProfiles } from "./accounts.js";
 import { expandHome, tildePath } from "./paths.js";
-import { profileIO, openInBrowser } from "./pane.js";
+import { openInBrowser, createInputs } from "./pane.js";
+import { profileIO } from "./profile-io.js";
 import { parseReply, mergeEntry, pace, paceText } from "./usage.js";
 import { formatDuration, formatAgo } from "./format.js";
 import { normalizeSettings, isHidden, toggleHidden, addExtra, removeExtra, setName, pendingMoves, INTERVALS } from "./settings.js";
@@ -48,6 +49,8 @@ export default class ClaudeUsage extends View {
     this.nameInputs = new Map();
 
     this.focused = null;
+    // Makes the text inputs; each one tracks focus in `this.focused`.
+    this.input = createInputs(this);
 
     this.folderInput = this.input("folder", { placeholder: "~/path/to/profile" }, (cx) => this.addFolder(cx));
     this.claudeInput = this.input("claude", { placeholder: "claude (from PATH)", value: readSettings().claude }, (cx) => this.saveClaudeCommand(cx), {
@@ -70,25 +73,6 @@ export default class ClaudeUsage extends View {
       cx.spawn(async (cx) => this.sync(cx));
     });
     cx.timer.every(MINUTE, (cx) => cx.notify());
-  }
-
-  /**
-   * A text input that tracks focus for its border. `onSubmit` runs on Enter,
-   * and also when focus leaves with `saveOnBlur`.
-   */
-  input(id, options, onSubmit, { saveOnBlur = false } = {}) {
-    const state = InputState.new(options);
-    state.on("submit", (_e, cx) => onSubmit(cx));
-    state.on("focus", (_e, cx) => {
-      this.focused = id;
-      cx.notify();
-    });
-    state.on("blur", (_e, cx) => {
-      if (this.focused === id) this.focused = null;
-      if (saveOnBlur) onSubmit(cx);
-      cx.notify();
-    });
-    return state;
   }
 
   /** Gives the lock back when this copy goes, so another copy can fetch at once. */

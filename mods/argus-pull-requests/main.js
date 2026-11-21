@@ -4,7 +4,7 @@
 // Reads go through `git`, `gh` and `glab`.
 
 import { div, svg, image, View } from "gpui-kit";
-import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
+import { h_flex, v_flex } from "gpui-base";
 import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, openOverlay, closeOverlay, panes, spaces, focused, knownAgents, notify } from "herdr";
 import { randomUUID } from "crypto";
 import { localFolders, followProjectKey, projectKey, localPathFor } from "./remote.js";
@@ -27,12 +27,14 @@ import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT, GIT_TIMEOUT } from "./
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, usageSettings } from "./accounts.js";
 import { expandHome } from "./paths.js";
-import { profileIO, openInBrowser, readForge, saveForge } from "./pane.js";
+import { openInBrowser, openModPane, shareTitle, createInputs } from "./pane.js";
+import { readForge, saveForge } from "./forge-settings.js";
+import { profileIO } from "./profile-io.js";
 import { checkLayout, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
-import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, row as listRow, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW, forgeCommandFields, intervalPicker } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, row as listRow, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, forgeCommandFields, intervalPicker, menuPopup, twoLineRow } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
-import { menuKey, startAt } from "./menu.js";
+import { menuKey, menuHeight, startAt } from "./menu.js";
 
 const BOARD_KEY = "argus-pull-requests.board";
 const SCOPE_KEY = "argus-pull-requests.scope";
@@ -73,6 +75,8 @@ export default class PullRequests extends View {
     this.owner = randomUUID();
     this.view = props()?.view ?? "board";
     this.focused = null;
+    // Makes the text inputs; each one tracks focus in `this.focused`.
+    this.input = createInputs(this);
     // The gh, glab and folder reads, with what they found. Kept until the refresh button.
     this.forge = createForgeRunner({ exec, home, settings: readForge });
     // Starts worktrees and opens their spaces.
@@ -177,28 +181,6 @@ export default class PullRequests extends View {
       this.boardSync.start(cx);
     });
     cx.timer.every(AGE_TICK, (cx) => cx.notify());
-  }
-
-  /**
-   * A text input that tracks focus for its border. `onSubmit` runs on Enter, and on blur
-   * with `saveOnBlur`. A `multiline` input is a textarea: Return adds a line, and only ⌘Return submits.
-   */
-  input(id, options, onSubmit, { saveOnBlur = false, multiline = false } = {}) {
-    const state = multiline ? TextareaState.new(options) : InputState.new(options);
-    state.on("submit", (e, cx) => {
-      if (multiline && !e?.secondary) return;
-      onSubmit(cx);
-    });
-    state.on("focus", (_e, cx) => {
-      this.focused = id;
-      cx.notify();
-    });
-    state.on("blur", (_e, cx) => {
-      if (this.focused === id) this.focused = null;
-      if (saveOnBlur) onSubmit(cx);
-      cx.notify();
-    });
-    return state;
   }
 
   /** Gives the lock back when this copy goes. */
@@ -526,7 +508,7 @@ export default class PullRequests extends View {
       .child(
         footer(t)
           .child(field(t, "filter", this.filterInput, this.focused === "filter"))
-          .child(iconButton(t, "new-worktree", ICON("plus"), (_e, cx) => this.openNewWorktree(cx), { tooltip: "New worktree" })),
+          .child(iconButton(t, "new-worktree", icon("plus"), (_e, cx) => this.openNewWorktree(cx), { tooltip: "New worktree" })),
       );
   }
 
@@ -581,27 +563,21 @@ export default class PullRequests extends View {
     items.where.forEach((entry, index) => parts.push(item(entry, items.show.length + index)));
     // Each project is one more In choice, indented under All repos.
     items.projects.forEach((entry, index) => parts.push(item(entry, items.show.length + items.where.length + index, true)));
-    // A popup is as tall as its content, up to the height it was opened with,
-    // so the list gets an explicit height for its rows and section titles.
-    const titles = 2;
-    const height = Math.min(SCOPES_HEIGHT, 2 * MENU_PAD + entries.length * MENU_ROW + titles * 30);
-    return v_flex()
-      .id("argus-pull-requests-scopes")
-      .track_focus(this.handle)
-      .w_full()
-      .h(height)
-      .bg(t.popover)
-      .text_color(t.foreground)
-      .text_size(12.8)
-      .on_key_down((e, cx) => {
+    return menuPopup(t, {
+      id: "argus-pull-requests-scopes",
+      listId: "argus-pull-requests-scope-list",
+      handle: this.handle,
+      height: menuHeight(entries.length, 2, { max: SCOPES_HEIGHT }),
+      parts,
+      onKey: (e, cx) => {
         const next = menuKey(active, e.key, entries.length);
         if (!next.handled) return;
         this.at = next.at;
         if (next.action === "pick") pickScope(entries[next.at].scope);
         else if (next.action === "close") closeOverlay(props()?.overlay);
         cx.notify();
-      })
-      .child(scrollArea("argus-pull-requests-scope-list", parts, { padding: MENU_PAD }));
+      },
+    });
   }
 
   /** Lists the agents for the dialog: Herdr's installed agents, with Claude Code once per account. */
@@ -1956,7 +1932,7 @@ export default class PullRequests extends View {
       // can lag, and two copies with different titles would overwrite each other.
       const listed = selected ? (board.prs.find((pr) => prKey(pr) === selected.key) ?? null) : null;
       const read = this.shown?.key === selected?.key ? (this.shown?.detail?.pr ?? null) : null;
-      shareTitle(cx, prPaneTitle(listed ?? read));
+      shareTitle(cx, TITLE_KEY, prPaneTitle(listed ?? read));
     }
 
     const empty = (text) => frame(t, "argus-pull-requests-pr").rounded_none().border_0().child(note(t, text));
@@ -2013,7 +1989,7 @@ export default class PullRequests extends View {
       error: checkout.error,
       now: Date.now(),
       age: ageText,
-      icon: ICON,
+      icon: iconResolver(MOD, this.found),
       agentRows,
       bottom: this.bottomBar(t, key, detail, localPath, checkout.running),
     };
@@ -2180,37 +2156,19 @@ function prRow(t, id, pr, selected, now, reviewed) {
   else if (checks.startsWith("●")) checksColor = t.working;
   const changes = changesRequested(pr);
   const review = changes ? reviewLabel("changes_requested") : reviewLabel(pr.reviewDecision);
-  return v_flex()
-    .id(id)
-    .h(44)
-    .flex_none()
-    .px(8)
-    .gap(2)
-    .justify_center()
-    .rounded(7)
-    .cursor_pointer()
-    .when(selected, (el) => el.bg(t.selected))
-    .hover((s) => s.bg(t.hover))
-    .on_click(() => openPr(pr))
-    .child(
-      h_flex()
-        .gap(8)
-        .items_center()
-        .child(div().flex_none().text_size(12).text_color(t.muted).child(`#${pr.number}`))
-        .child(div().flex_1().min_w(0).truncate().child(pr.title))
-        .when(checks !== "", (el) => el.child(div().flex_none().text_size(11).text_color(checksColor).child(checks)))
-        .child(div().flex_none().text_size(11).text_color(t.dim).child(ageText(pr.updatedAt, now))),
-    )
-    .child(
-      h_flex()
-        .gap(8)
-        .items_center()
-        .text_size(11)
-        .text_color(t.dim)
-        .child(div().flex_1().min_w(0).truncate().child(`${shortRepo(pr.repo)} · ${pr.headRef}`))
-        .when(review !== null, (el) => el.child(div().flex_none().text_color(changes ? t.blocked : t.dim).child(review ?? "")))
-        .when(reviewed, (el) => el.child(div().id(`${id}-agent`).size(6).flex_none().rounded_full().bg(t.accent).tooltip("Review agent worktree"))),
-    );
+  const tail = [];
+  if (review !== null) tail.push(div().flex_none().text_color(changes ? t.blocked : t.dim).child(review));
+  if (reviewed) tail.push(div().id(`${id}-agent`).size(6).flex_none().rounded_full().bg(t.accent).tooltip("Review agent worktree"));
+  return twoLineRow(t, id, {
+    number: pr.number,
+    title: pr.title,
+    age: ageText(pr.updatedAt, now),
+    detail: `${shortRepo(pr.repo)} · ${pr.headRef}`,
+    selected,
+    marks: checks !== "" ? [div().flex_none().text_size(11).text_color(checksColor).child(checks)] : [],
+    tail,
+    onClick: () => openPr(pr),
+  });
 }
 
 /**
@@ -2243,19 +2201,7 @@ function selectPr(pr) {
  */
 export function openPr(pr) {
   selectPr(pr);
-  const tab = spaces()
-    .find((space) => space.active)
-    ?.tabs.find((candidate) => candidate.active);
-  if (!tab) return;
-  const inTab = panes().filter((pane) => pane.tab === tab.id);
-  const own = inTab.find((pane) => pane.mod === MOD);
-  if (own) {
-    run("pane.focus", { pane: own.pane });
-    return;
-  }
-
-  const target = inTab.find((pane) => pane.focused) ?? inTab[0];
-  run("pane.split", { ...(target ? { pane: target.pane } : {}), direction: "right", mod: MOD, props: { view: "pr" } });
+  openModPane(MOD, { view: "pr" });
 }
 
 function readSettings() {
@@ -2293,14 +2239,3 @@ function readBoard() {
   return normalizeBoard(shared(BOARD_KEY));
 }
 
-/**
- * Shares the title the Argus pane header shows for this mod's panes. A write
- * renders every mod again, so only a changed title is written, after this render.
- */
-function shareTitle(cx, title) {
-  if (shared(TITLE_KEY) === title) return;
-  cx.spawn(async (cx) => {
-    await cx.sleep(0);
-    if (shared(TITLE_KEY) !== title) setShared(TITLE_KEY, title);
-  });
-}

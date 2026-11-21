@@ -38,3 +38,14 @@ test("startAt: the current row, else the first", () => {
   assert.equal(startAt([{ current: false }]), 0);
   assert.equal(startAt([]), 0);
 });
+
+test("menuHeight adds the padding, the rows and the titles, up to the cap", async () => {
+  const { menuHeight, MENU_PAD, MENU_ROW, MENU_TITLE } = await import("../lib/menu.js");
+  assert.equal(MENU_PAD, 5);
+  assert.equal(MENU_ROW, 31);
+  assert.equal(MENU_TITLE, 30);
+  assert.equal(menuHeight(3), 10 + 93);
+  assert.equal(menuHeight(3, 2), 10 + 93 + 60);
+  assert.equal(menuHeight(3, 2, { extra: 7 }), 10 + 93 + 60 + 7);
+  assert.equal(menuHeight(30, 2, { max: 420 }), 420);
+});
