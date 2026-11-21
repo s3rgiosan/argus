@@ -266,6 +266,49 @@ export function segmented(t, id, options, current, onPick) {
     );
 }
 
+/**
+ * A settings field for a command or a folder: a section title, a 32 px text
+ * field and a help line under it.
+ *
+ * @param {string} id The field's id, also the `focused` id of the input.
+ * @param {string} title
+ * @param {object} state The field's `InputState`.
+ * @param {boolean} focused
+ * @param {string} help
+ * @returns {object[]}
+ */
+export function commandField(t, id, title, state, focused, help) {
+  return [sectionTitle(t, title), h_flex().px(8).py(4).child(field(t, id, state, focused)), hint(t, help).px(8)];
+}
+
+/**
+ * The gh and glab command fields that every forge mod shares. The inputs have
+ * the ids "gh" and "glab"; both save on Enter or when focus leaves them.
+ *
+ * @param {{ gh: object, glab: object }} inputs The `InputState` of each field.
+ * @param {string | null} focused The id of the focused input.
+ * @returns {object[]}
+ */
+export function forgeCommandFields(t, inputs, focused) {
+  return [
+    ...commandField(t, "gh", "gh command", inputs.gh, focused === "gh", "Leave empty to use gh from PATH, else its usual install folders."),
+    ...commandField(t, "glab", "glab command", inputs.glab, focused === "glab", "Leave empty to use glab from PATH, else its usual install folders. Both fields save on Enter or when you leave them."),
+  ];
+}
+
+/**
+ * The "Refresh every" setting: a section title and a segmented control of minutes.
+ *
+ * @param {number[]} intervals The choices, in minutes.
+ * @param {number} current
+ * @param {(minutes: number, cx: object) => void} onPick
+ * @returns {object[]}
+ */
+export function intervalPicker(t, intervals, current, onPick) {
+  const options = intervals.map((minutes) => ({ value: minutes, label: `${minutes} min` }));
+  return [sectionTitle(t, "Refresh every"), h_flex().px(8).py(4).child(segmented(t, "interval", options, current, onPick))];
+}
+
 /** Padding around the rows of a menu, as in Herdr's menu. */
 export const MENU_PAD = 5;
 /** Height of one menu row. */

@@ -18,7 +18,7 @@ import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
 import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock, releasedLock } from "./sync.js";
-import { frame, header, subHeader, badge, iconButton, chip as tint, dropdownButton, fieldLabel, hint, errorLine, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, chip as tint, dropdownButton, fieldLabel, hint, errorLine, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, commandField, MENU_PAD, MENU_ROW } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -1322,12 +1322,8 @@ export default class Tasks extends View {
       cx.notify();
     };
     const parts = [
-      sectionTitle(t, "tsk command"),
-      h_flex().px(8).py(4).child(field(t, "tsk", this.tskInput, this.focused === "tsk")),
-      hint(t, "Leave empty to use tsk from PATH, else its usual install folders.").px(8),
-      sectionTitle(t, "Store folder"),
-      h_flex().px(8).py(4).child(field(t, "store", this.storeInput, this.focused === "store")),
-      hint(t, "Leave empty to use TSK_STATE_DIR, else ~/.tsk. Both fields save on Enter or when you leave them.").px(8),
+      ...commandField(t, "tsk", "tsk command", this.tskInput, this.focused === "tsk", "Leave empty to use tsk from PATH, else its usual install folders."),
+      ...commandField(t, "store", "Store folder", this.storeInput, this.focused === "store", "Leave empty to use TSK_STATE_DIR, else ~/.tsk. Both fields save on Enter or when you leave them."),
     ];
     return frame(t, "argus-tsk-settings")
       .child(subHeader(t, back, "Settings", this.icon("chevron-left")))

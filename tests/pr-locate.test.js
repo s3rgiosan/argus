@@ -3,17 +3,15 @@ import assert from "node:assert/strict";
 import { normalizeSettings } from "../mods/argus-pull-requests/locate.js";
 
 test("normalizeSettings defaults", () => {
-  assert.deepEqual(normalizeSettings(null), { gh: "", glab: "", interval: 3, conversation: "oldest" });
+  assert.deepEqual(normalizeSettings(null), { interval: 3, conversation: "oldest" });
 });
 
 test("normalizeSettings rejects an interval outside the choices", () => {
   assert.equal(normalizeSettings({ interval: 4 }).interval, 3);
 });
 
-test("normalizeSettings keeps a valid interval and trims commands", () => {
-  const s = normalizeSettings({ interval: 10, gh: " ~/bin/gh " });
-  assert.equal(s.interval, 10);
-  assert.equal(s.gh, "~/bin/gh");
+test("normalizeSettings keeps a valid interval and leaves the commands to the shared forge settings", () => {
+  assert.deepEqual(normalizeSettings({ interval: 10, gh: " ~/bin/gh " }), { interval: 10, conversation: "oldest" });
 });
 
 test("normalizeSettings keeps a known conversation order only", () => {

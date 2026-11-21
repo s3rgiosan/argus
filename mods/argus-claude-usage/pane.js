@@ -3,9 +3,10 @@
 // Helpers that need Herdr itself: opening a mod's pane, the pane title, links,
 // text inputs and file access for the Claude Code profile search.
 
-import { home, readTextFile } from "herdr";
+import { home, readTextFile, shared, setShared } from "herdr";
 import { readdir, readFile } from "fs/promises";
 import { discoveryIO } from "./accounts.js";
+import { FORGE_FALLBACK_KEY, FORGE_KEY, forgeSettings } from "./forge-cli.js";
 
 /**
  * File access for `discover` on this computer. `readTextFile` reads up to
@@ -32,4 +33,30 @@ export function openInBrowser(cx, url) {
   } catch {
     // A refused link opens nothing.
   }
+}
+
+/**
+ * The gh and glab commands every forge mod shares, from FORGE_KEY. Until a
+ * save writes that key, the commands come from FORGE_FALLBACK_KEY.
+ *
+ * @returns {{ gh: string, glab: string }}
+ */
+export function readForge() {
+  return forgeSettings(shared(FORGE_KEY), shared(FORGE_FALLBACK_KEY));
+}
+
+/**
+ * Saves the gh and glab commands under FORGE_KEY when they differ from the
+ * ones in use.
+ *
+ * @param {string} gh
+ * @param {string} glab
+ * @returns {boolean} True when the commands changed, so the caller reads again.
+ */
+export function saveForge(gh, glab) {
+  const current = readForge();
+  const next = forgeSettings({ gh, glab });
+  if (next.gh === current.gh && next.glab === current.glab) return false;
+  setShared(FORGE_KEY, next);
+  return true;
 }

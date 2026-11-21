@@ -16,7 +16,7 @@ import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock, lockNeedsRenewal, releasedLock } from "./sync.js";
 import { accountTitle } from "./title.js";
 import { dueAlerts } from "./alerts.js";
-import { frame, header, subHeader, iconButton, fieldLabel, hint, row, scrollArea, field, button, footer, sectionTitle, note, errorLine, meter, toggle, segmented } from "./ui.js";
+import { frame, header, subHeader, iconButton, fieldLabel, hint, row, scrollArea, field, button, footer, sectionTitle, note, errorLine, meter, toggle, commandField, intervalPicker } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 
 const SETTINGS_KEY = "argus-claude-usage.settings";
@@ -398,25 +398,8 @@ export default class ClaudeUsage extends View {
         .child(button(t, "add-folder", "Add", (_e, cx) => this.addFolder(cx))),
     );
 
-    parts.push(sectionTitle(t, "Refresh every"));
-    parts.push(
-      h_flex()
-        .px(8)
-        .py(4)
-        .child(
-          segmented(
-            t,
-            "interval",
-            INTERVALS.map((minutes) => ({ value: minutes, label: `${minutes} min` })),
-            settings.interval,
-            (minutes, cx) => this.saveSettings({ ...readSettings(), interval: minutes }, cx),
-          ),
-        ),
-    );
-
-    parts.push(sectionTitle(t, "Claude command"));
-    parts.push(h_flex().px(8).py(4).child(field(t, "claude", this.claudeInput, this.focused === "claude")));
-    parts.push(hint(t, "Leave empty to use claude from PATH. Saved on Enter or when you leave the field.").px(8));
+    parts.push(...intervalPicker(t, INTERVALS, settings.interval, (minutes, cx) => this.saveSettings({ ...readSettings(), interval: minutes }, cx)));
+    parts.push(...commandField(t, "claude", "Claude command", this.claudeInput, this.focused === "claude", "Leave empty to use claude from PATH. Saved on Enter or when you leave the field."));
 
     return frame(t, "argus-claude-usage-settings")
       .child(subHeader(t, back, "Settings", icon("chevron-left")))

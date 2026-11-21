@@ -25,10 +25,10 @@ import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT, GIT_TIMEOUT } from "./
 import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewInstructions, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, usageSettings } from "./accounts.js";
 import { expandHome } from "./paths.js";
-import { profileIO, openInBrowser } from "./pane.js";
+import { profileIO, openInBrowser, readForge, saveForge } from "./pane.js";
 import { checkLayout, conversationItems, ghMergeMethods, glMergeMethods, mergeAllowed, mergeMenuNote, openByDefault, sectionOpen, sectionSummaries, shownOrder, verdictOf } from "./detail.js";
 import { prPane } from "./detail-view.js";
-import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, row as listRow, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, subHeader, badge, iconButton, dropdownButton, fieldLabel, hint, errorLine, row as listRow, scrollArea, field, textBox, footer, sectionTitle, note, button, segmented, menuRow, MENU_PAD, MENU_ROW, forgeCommandFields, intervalPicker } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, startAt } from "./menu.js";
 
@@ -73,7 +73,7 @@ export default class PullRequests extends View {
     this.view = props()?.view ?? "board";
     this.focused = null;
     // The gh, glab and folder reads, with what they found. Kept until the refresh button.
-    this.forge = createForgeRunner({ exec, home, settings: () => readSettings() });
+    this.forge = createForgeRunner({ exec, home, settings: readForge });
     // The board read: the lock, forced reads and the folder watch.
     this.boardSync = createBoardSync({
       boardKey: BOARD_KEY,
@@ -121,7 +121,7 @@ export default class PullRequests extends View {
     // The id of the last Start request this pane copy took.
     this.takenReview = null;
 
-    const settings = readSettings();
+    const forge = readForge();
     // The icons Herdr ships that this mod can load; its own copies show until the probe ends.
     this.found = new Set();
     // The scope list's highlighted row; null until a key moves it.
@@ -131,8 +131,8 @@ export default class PullRequests extends View {
     this.filterInput.on("change", (_e, cx) => cx.notify());
     this.worktreeFilter = this.input("worktree-filter", { placeholder: "Filter" }, (cx) => this.pickOnlyWorktreeRow(cx));
     this.worktreeFilter.on("change", (_e, cx) => cx.notify());
-    this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: settings.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
-    this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: settings.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
+    this.ghInput = this.input("gh", { placeholder: "gh (from PATH)", value: forge.gh }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
+    this.glabInput = this.input("glab", { placeholder: "glab (from PATH)", value: forge.glab }, (cx) => this.saveSettings(cx), { saveOnBlur: true });
     // The body of a review comment, for Request changes and Comment.
     this.bodyInput = this.view === "pr" ? this.input("body", { placeholder: "Write a comment", rows: 4 }, (cx) => this.submitComment(cx), { multiline: true }) : null;
     // PR key -> {section: open} for the sections the person folded or opened, and the PR keys whose passed checks show.
@@ -315,7 +315,7 @@ export default class PullRequests extends View {
    * keeps a failed read too, so the pane does not ask again before every detail read.
    */
   async ghLogin(gh, notes, keepFailure = false) {
-    const setting = readSettings().gh;
+    const setting = readForge().gh;
     if (loginFresh(this.login, setting, Date.now())) return this.login.value;
     const value = await this.forge.attempt("gh", gh, ghLoginArgs(), (text) => {
       const login = text.trim();
@@ -435,21 +435,17 @@ export default class PullRequests extends View {
   }
 
   openSettings(cx) {
-    // Another copy may have changed these since this copy last drew them.
-    const settings = readSettings();
-    this.ghInput.set_value(settings.gh);
-    this.glabInput.set_value(settings.glab);
+    // Another copy or another forge mod may have changed these since this copy last drew them.
+    const forge = readForge();
+    this.ghInput.set_value(forge.gh);
+    this.glabInput.set_value(forge.glab);
     this.view = "settings";
     cx.notify();
   }
 
-  /** Saves both command fields; a changed command forces a read. */
+  /** Saves both command fields for every forge mod; a changed command forces a read. */
   saveSettings(cx) {
-    const current = readSettings();
-    const next = normalizeSettings({ ...current, gh: this.ghInput.value(), glab: this.glabInput.value() });
-    if (next.gh === current.gh && next.glab === current.glab) return;
-    setShared(SETTINGS_KEY, next);
-    this.boardSync.refresh(cx);
+    if (saveForge(this.ghInput.value(), this.glabInput.value())) this.boardSync.refresh(cx);
   }
 
   render(cx) {
@@ -1736,25 +1732,8 @@ export default class PullRequests extends View {
       cx.notify();
     };
     const parts = [
-      sectionTitle(t, "gh command"),
-      h_flex().px(8).py(4).child(field(t, "gh", this.ghInput, this.focused === "gh")),
-      hint(t, "Leave empty to use gh from PATH, else its usual install folders.").px(8),
-      sectionTitle(t, "glab command"),
-      h_flex().px(8).py(4).child(field(t, "glab", this.glabInput, this.focused === "glab")),
-      hint(t, "Leave empty to use glab from PATH, else its usual install folders. Both fields save on Enter or when you leave them.").px(8),
-      sectionTitle(t, "Refresh every"),
-      h_flex()
-        .px(8)
-        .py(4)
-        .child(
-          segmented(
-            t,
-            "interval",
-            INTERVALS.map((minutes) => ({ value: minutes, label: `${minutes} min` })),
-            settings.interval,
-            (minutes) => setShared(SETTINGS_KEY, { ...readSettings(), interval: minutes }),
-          ),
-        ),
+      ...forgeCommandFields(t, { gh: this.ghInput, glab: this.glabInput }, this.focused),
+      ...intervalPicker(t, INTERVALS, settings.interval, (minutes) => writeSettings({ interval: minutes })),
       sectionTitle(t, "Conversation"),
       h_flex()
         .px(8)
@@ -1768,7 +1747,7 @@ export default class PullRequests extends View {
               { value: "newest", label: "Newest first" },
             ],
             settings.conversation,
-            (order) => setShared(SETTINGS_KEY, { ...readSettings(), conversation: order }),
+            (order) => writeSettings({ conversation: order }),
           ),
         ),
       sectionTitle(t, "Worktrees"),
@@ -2426,6 +2405,15 @@ export function openPr(pr) {
 
 function readSettings() {
   return normalizeSettings(shared(SETTINGS_KEY));
+}
+
+/**
+ * Changes the board's own settings. Fields this mod no longer reads stay as they are: the old
+ * gh and glab commands are the fallback of the shared forge settings until those are saved.
+ */
+function writeSettings(patch) {
+  const stored = shared(SETTINGS_KEY);
+  setShared(SETTINGS_KEY, { ...(stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {}), ...patch });
 }
 
 function readScope() {
