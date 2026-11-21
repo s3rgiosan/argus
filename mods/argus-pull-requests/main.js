@@ -479,9 +479,9 @@ export default class PullRequests extends View {
         this.mergedHeads.clear();
         this.boardSync.refresh(cx);
       },
-      { busy: this.boardSync.reading },
+      { busy: this.boardSync.reading, tooltip: "Refresh" },
     );
-    const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx));
+    const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx), { tooltip: "Settings" });
     const head = header(t, "Pull requests", [scopeButton, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
 
     const parts = board.notes.map((message, index) => errorLine(t, message).id(`note-${index}`));
