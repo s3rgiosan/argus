@@ -74,6 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The snooze menu of `argus-agents` is 250 px wide, as Herdr's new-tab menu, so "Tomorrow morning" shows in full next to its wake time.
 - Group by in the `argus-issues` scope list stays at the bottom of the list, and Show and In scroll above it, so Group by shows with many projects in the open spaces. `menuPopup` in `lib/ui.js` takes `head` and `foot` parts that stay in view around the scrolling list.
 - The Issue tab of the `argus-pull-requests` New worktree view shows an empty list for a GitHub repo that has issues turned off, with no error.
+- Threads and Assignees in the `argus-tsk` scope list stay at the bottom of the list, and In scrolls above them, so they show with many projects. Long Threads and Assignees lists scroll on their own and leave In room for three rows.
 
 ### Security
 

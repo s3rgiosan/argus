@@ -20,7 +20,7 @@ import { createGate } from "./gate.js";
 import { shouldFetch, takeLock, holdsLock, releasedLock } from "./sync.js";
 import { frame, header, subHeader, badge, iconButton, chip as tint, dropdownButton, fieldLabel, hint, errorLine, row, scrollArea, field, textBox, button, footer, sectionTitle, note, toggle, menuRow, commandField, menuPopup } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
-import { menuKey, menuHeight, startAt } from "./menu.js";
+import { MENU_ROW, MENU_TITLE, footHeight, menuKey, menuHeight, startAt } from "./menu.js";
 import { openModPane, setTitle, shareTitle, createInputs } from "./pane.js";
 
 const BOARD_KEY = "argus-tsk.board";
@@ -973,18 +973,27 @@ export default class Tasks extends View {
       });
     };
 
+    // In scrolls, and Threads and Assignees stay at the bottom, with a scroll of their own when they are long.
     let index = 0;
     const parts = [];
+    const foot = [];
     for (const [title, list] of groups) {
-      parts.push(sectionTitle(t, title));
-      for (const entry of list) parts.push(item(entry, index++));
+      const into = title === "In" ? parts : foot;
+      into.push(sectionTitle(t, title));
+      for (const entry of list) into.push(item(entry, index++));
     }
+    const height = menuHeight(index, groups.length, { extra, max: SCOPES_HEIGHT });
+    // In always has its place rows, so it is the first group.
+    const inRows = groups[0][1].length;
+    const footContent = (index - inRows) * MENU_ROW + (groups.length - 1) * MENU_TITLE;
     return menuPopup(t, {
       id: "argus-tsk-scopes",
       listId: "argus-tsk-scope-list",
       handle: this.handle,
-      height: menuHeight(index, groups.length, { extra, max: SCOPES_HEIGHT }),
+      height,
       parts,
+      foot,
+      footHeight: foot.length > 0 ? footHeight(footContent, MENU_TITLE + inRows * MENU_ROW + extra, height) : null,
       onKey: (e, cx) => {
         // Keys in the rename field belong to the field, while the field shows.
         if (renaming) return;

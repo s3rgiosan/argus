@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { menuKey, startAt } from "../lib/menu.js";
+import { MENU_LIST_MIN, MENU_PAD, footHeight, menuKey, startAt } from "../lib/menu.js";
 
 test("menuKey: down moves to the next row and wraps", () => {
   assert.deepEqual(menuKey(0, "down", 3), { handled: true, at: 1, action: null });
@@ -48,4 +48,17 @@ test("menuHeight adds the padding, the rows and the titles, up to the cap", asyn
   assert.equal(menuHeight(3, 2), 10 + 93 + 60);
   assert.equal(menuHeight(3, 2, { extra: 7 }), 10 + 93 + 60 + 7);
   assert.equal(menuHeight(30, 2, { max: 420 }), 420);
+});
+
+test("footHeight: the foot takes its content when it fits", () => {
+  const height = 2 * MENU_PAD + 400;
+  assert.equal(footHeight(120, 100, height), 120);
+  assert.equal(footHeight(277, 340, height), 277);
+});
+
+test("footHeight: a long foot leaves the list above its title and three rows", () => {
+  const height = 2 * MENU_PAD + 400;
+  assert.equal(footHeight(500, 340, height), 400 - MENU_LIST_MIN);
+  assert.equal(footHeight(500, 60, height), 340);
+  assert.equal(footHeight(500, 0, height), 400);
 });

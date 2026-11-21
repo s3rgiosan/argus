@@ -374,12 +374,14 @@ export function meter(t, percent, tick = null) {
  * A popup menu: the popover background, keys through `onKey`, and a scroll of
  * `parts` with the menu padding. Give it the height from `menuHeight`.
  * `head` and `foot` stay in view above and below the scroll, so a long list in
- * `parts` scrolls and the choices around it can always be reached.
+ * `parts` scrolls and the choices around it can always be reached. With
+ * `footHeight` (from `footHeight` in `lib/menu.js`), the foot scrolls on its own
+ * in that height, for a foot that can be long too.
  *
- * @param {{ id: string, listId: string, handle: object, height: number, head?: object[], parts: object[], foot?: object[], onKey: (event: object, cx: object) => void }} menu
+ * @param {{ id: string, listId: string, handle: object, height: number, head?: object[], parts: object[], foot?: object[], footHeight?: number|null, onKey: (event: object, cx: object) => void }} menu
  *   `handle` is the view's focus handle, so the keys reach the menu.
  */
-export function menuPopup(t, { id, listId, handle, height, head = [], parts, foot = [], onKey }) {
+export function menuPopup(t, { id, listId, handle, height, head = [], parts, foot = [], footHeight = null, onKey }) {
   const fixed = head.length > 0 || foot.length > 0;
   const popup = v_flex()
     .id(id)
@@ -395,7 +397,11 @@ export function menuPopup(t, { id, listId, handle, height, head = [], parts, foo
     .p(MENU_PAD)
     .child(v_flex().flex_none().children(head))
     .child(scrollArea(listId, parts, { padding: 0 }))
-    .child(v_flex().flex_none().children(foot));
+    .child(
+      footHeight === null
+        ? v_flex().flex_none().children(foot)
+        : v_flex().flex_none().h(footHeight).child(scrollArea(`${listId}-foot`, foot, { padding: 0 })),
+    );
 }
 
 /**
