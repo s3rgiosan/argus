@@ -1,6 +1,6 @@
 // The issues board in Herdr. One mod with views picked by `props().view`: the board (the
-// layout's panel, with a settings page), the scope list (a popup) and an issue (a pane beside
-// the terminals). Reads go through `git`, `gh` and `glab`. The mod writes nothing to a forge.
+// layout's panel, with a settings page), the scope and group list (a popup) and an issue (a pane
+// beside the terminals). Reads go through `git`, `gh` and `glab`. The mod writes nothing to a forge.
 
 import { div, View } from "gpui-kit";
 import { h_flex } from "gpui-base";
@@ -15,7 +15,7 @@ import { readForge, saveForge } from "./forge-settings.js";
 import { mapPool } from "./pool.js";
 import { ghSearchArgs, ghListArgs, ghViewArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY } from "./forge.js";
 import { issueKey, parseGhSearch, parseGhList, parseGhView, parseGlUser, parseGlProject, parseGlDetail } from "./model.js";
-import { assembleBoard, normalizeBoard, normalizeScope, issuesInScope, scopeItems, scopeTitle, mentionsNote, buildGroups, shownOrder, matchesFilter, rowDetail, assigneesText, emptyMessage, issuePaneTitle, issueSignature, keptLists } from "./board.js";
+import { GROUPINGS, assembleBoard, normalizeBoard, normalizeScope, normalizeGrouping, issuesInScope, scopeItems, scopeTitle, mentionsNote, buildGroups, shownOrder, matchesFilter, rowDetail, assigneesText, emptyMessage, issuePaneTitle, issueSignature, keptLists } from "./board.js";
 import { SECTIONS, namesOf, commentItems, sectionSummaries } from "./detail.js";
 import { issuePane } from "./detail-view.js";
 import { followFolder } from "./follow.js";
@@ -27,6 +27,7 @@ import { menuKey, menuHeight, startAt } from "./menu.js";
 const MOD = "argus-issues";
 const BOARD_KEY = "argus-issues.board";
 const SCOPE_KEY = "argus-issues.scope";
+const GROUP_KEY = "argus-issues.groupBy";
 const SELECTED_KEY = "argus-issues.selected";
 const SETTINGS_KEY = "argus-issues.settings";
 const LOCK_KEY = "argus-issues.lock";
@@ -286,9 +287,10 @@ export default class Issues extends View {
     } else if (shown.length === 0) {
       parts.push(note(t, text.trim() === "" ? emptyMessage(board, scopeRepos(board, scope, followed)) : "Nothing matches the filter"));
     } else {
-      for (const group of buildGroups(shown)) {
+      // An issue with several assignees or labels has a row in each of their groups.
+      for (const group of buildGroups(shown, readGrouping())) {
         parts.push(sectionTitle(t, `${group.title} · ${group.issues.length}`));
-        for (const issue of group.issues) parts.push(issueRow(t, `issue-${issueKey(issue)}`, issue, issueKey(issue) === selected, now));
+        for (const issue of group.issues) parts.push(issueRow(t, `issue-${group.key}-${issueKey(issue)}`, issue, issueKey(issue) === selected, now));
       }
     }
 
@@ -301,42 +303,52 @@ export default class Issues extends View {
   renderScopes(t) {
     const board = readBoard();
     const items = scopeItems(board, followedOf(board), readScope());
+    const grouping = readGrouping();
     const icon = iconResolver(MOD, this.found);
-    const entries = [...items.show, ...items.where, ...items.projects];
+    const scopeRow = (entry, indent = false) => ({ key: entry.key, label: entry.label, count: String(entry.count), current: entry.current, indent, pick: () => pickScope(entry.scope) });
+    // Show, In and Group by are separate choices; picking a row keeps the list open for the others.
+    const sections = [
+      ["Show", items.show.map((entry) => scopeRow(entry))],
+      // Each project is one more In choice, indented under All repos.
+      ["In", [...items.where.map((entry) => scopeRow(entry)), ...items.projects.map((entry) => scopeRow(entry, true))]],
+      ["Group by", GROUPINGS.map(([id, label]) => ({ key: id, label, count: null, current: grouping === id, indent: false, pick: () => pickGrouping(id) }))],
+    ];
+    const entries = sections.flatMap(([, rows]) => rows);
     const active = this.at ?? startAt(entries);
-    const item = (entry, index, indent = false) =>
-      menuRow(t, `scope-${index}-${entry.key}`, {
-        label: entry.label,
-        indent,
-        count: String(entry.count),
-        active: index === active,
-        current: entry.current,
-        tick: icon("check"),
-        // The keyboard highlight follows a click, so Up and Down start from the picked row.
-        onClick: () => {
-          this.at = index;
-          pickScope(entry.scope);
-        },
-      });
-
-    // Show and In are separate choices; picking a row keeps the list open for the other one.
-    const parts = [sectionTitle(t, "Show")];
-    items.show.forEach((entry, index) => parts.push(item(entry, index)));
-    parts.push(sectionTitle(t, "In"));
-    items.where.forEach((entry, index) => parts.push(item(entry, items.show.length + index)));
-    // Each project is one more In choice, indented under All repos.
-    items.projects.forEach((entry, index) => parts.push(item(entry, items.show.length + items.where.length + index, true)));
+    const parts = [];
+    let index = 0;
+    for (const [title, rows] of sections) {
+      parts.push(sectionTitle(t, title));
+      for (const entry of rows) {
+        const at = index++;
+        parts.push(
+          menuRow(t, `scope-${at}-${entry.key}`, {
+            label: entry.label,
+            indent: entry.indent,
+            count: entry.count,
+            active: at === active,
+            current: entry.current,
+            tick: icon("check"),
+            // The keyboard highlight follows a click, so Up and Down start from the picked row.
+            onClick: () => {
+              this.at = at;
+              entry.pick();
+            },
+          }),
+        );
+      }
+    }
     return menuPopup(t, {
       id: "argus-issues-scopes",
       listId: "argus-issues-scope-list",
       handle: this.handle,
-      height: menuHeight(entries.length, 2, { max: SCOPES_HEIGHT }),
+      height: menuHeight(entries.length, sections.length, { max: SCOPES_HEIGHT }),
       parts,
       onKey: (e, cx) => {
         const next = menuKey(active, e.key, entries.length);
         if (!next.handled) return;
         this.at = next.at;
-        if (next.action === "pick") pickScope(entries[next.at].scope);
+        if (next.action === "pick") entries[next.at].pick();
         else if (next.action === "close") closeOverlay(props()?.overlay);
         cx.notify();
       },
@@ -445,7 +457,7 @@ export default class Issues extends View {
 
     const detail = shown.detail;
     const key = shown.key;
-    const position = positionIn(shownOrder(board, readScope(), followedOf(board)), key);
+    const position = positionIn(shownOrder(board, readScope(), followedOf(board), readGrouping()), key);
     const folds = this.folds.get(key) ?? {};
     const open = new Set(SECTIONS.map(([id]) => id).filter((id) => folds[id] !== false));
     // Moves to a neighbour in the board's order, as a row click does.
@@ -505,9 +517,14 @@ function openScopes() {
   openOverlay({ mod: MOD, props: { view: "scopes" }, kind: "popup", width: SCOPES_WIDTH, height: SCOPES_HEIGHT });
 }
 
-/** Sets the scope; the list stays open so the other choice can be picked too. Escape or a click outside closes it. */
+/** Sets the scope; the list stays open so the other choices can be picked too. Escape or a click outside closes it. */
 function pickScope(scope) {
   setShared(SCOPE_KEY, scope);
+}
+
+/** Sets how the board groups its issues; the list stays open, as for the scope. */
+function pickGrouping(id) {
+  setShared(GROUP_KEY, id);
 }
 
 /** Makes `issue` the selected issue, which every issue pane shows. */
@@ -532,6 +549,10 @@ function writeSettings(patch) {
 
 function readScope() {
   return normalizeScope(shared(SCOPE_KEY));
+}
+
+function readGrouping() {
+  return normalizeGrouping(shared(GROUP_KEY));
 }
 
 /** The project key of the focused space, or null. */

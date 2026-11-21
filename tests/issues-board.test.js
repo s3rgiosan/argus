@@ -17,6 +17,8 @@ import {
   issuePaneTitle,
   issueSignature,
   keptLists,
+  normalizeGrouping,
+  GROUPINGS,
 } from "../mods/argus-issues/board.js";
 import { stateText, namesOf, openedLine, commentItems, sectionSummaries, hiddenText } from "../mods/argus-issues/detail.js";
 import { displayName, KEEP_LIST_MS } from "../lib/forge-board.js";
@@ -175,6 +177,50 @@ test("buildGroups makes one group per repo, A to Z, newest first inside", () => 
     ["example-org/example-repo", [2, 1]],
   ]);
   assert.deepEqual(shownOrder(board(), { show: "all", where: "project", key: github.key }, null), ["github.com/example-org/example-repo#2", "github.com/example-org/example-repo#1"]);
+});
+
+test("normalizeGrouping defaults to Repo", () => {
+  assert.deepEqual(GROUPINGS.map(([id]) => id), ["repo", "assignee", "label"]);
+  assert.equal(normalizeGrouping(undefined), "repo");
+  assert.equal(normalizeGrouping("label"), "label");
+  assert.equal(normalizeGrouping("__proto__"), "repo");
+});
+
+test("buildGroups by assignee shows an issue under each assignee, and No assignee last", () => {
+  const both = issue({ number: 5, updatedAt: "2026-01-05T00:00:00Z", assignees: [{ login: "octo-user", name: "" }, { login: "other-user", name: "" }] });
+  const one = issue({ number: 6, updatedAt: "2026-01-06T00:00:00Z", assignees: [{ login: "other-user", name: "" }] });
+  const none = issue({ number: 7 });
+  const sameLogin = issue({ provider: "gitlab", host: "gitlab.example.com", repo: "example-group/example-project", number: 8, assignees: [{ login: "octo-user", name: "" }] });
+  const groups = buildGroups([none, both, one, sameLogin], "assignee");
+  assert.deepEqual(groups.map((g) => [g.key, g.title, g.issues.map((i) => i.number)]), [
+    ["github.com/octo-user", "octo-user", [5]],
+    ["gitlab.example.com/octo-user", "octo-user", [8]],
+    ["github.com/other-user", "other-user", [6, 5]],
+    ["", "No assignee", [7]],
+  ]);
+});
+
+test("buildGroups by label shows an issue under each label, one group per name in any case, and No label last", () => {
+  const groups = buildGroups([issue({ number: 1, labels: ["bug", "docs"] }), issue({ repo: "example-org/another-repo", number: 2, labels: ["Bug"] }), issue({ number: 3 })], "label");
+  assert.deepEqual(groups.map((g) => [g.title, g.issues.map((i) => i.number)]), [
+    ["Bug", [2, 1]],
+    ["docs", [1]],
+    ["No label", [3]],
+  ]);
+});
+
+test("shownOrder counts an issue in several groups once", () => {
+  const b = assembleBoard({
+    projects: [github],
+    folders: [],
+    assigned: [],
+    created: [],
+    mentions: [],
+    projectIssues: { [github.key]: [issue({ number: 1, updatedAt: "2026-01-02T00:00:00Z", labels: ["a", "b"] }), issue({ number: 2, labels: ["b"] })] },
+    notes: [],
+    readAt: 5,
+  });
+  assert.deepEqual(shownOrder(b, { show: "all", where: "all" }, null, "label"), ["github.com/example-org/example-repo#1", "github.com/example-org/example-repo#2"]);
 });
 
 test("matchesFilter looks at title, number, author, labels and assignees", () => {

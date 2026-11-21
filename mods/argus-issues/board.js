@@ -25,6 +25,7 @@ import {
  * @typedef {import("./remote.js").Project} Project
  * @typedef {"assigned" | "created" | "mentions" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
+ * @typedef {"repo" | "assignee" | "label"} Grouping
  * @typedef {{issues: Issue[], scopes: {assigned: string[], created: string[], mentions: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], listedAt: Record<string, number>}} Board
  *   `listedAt` holds the time of the last successful issue list of each project, keyed by `projectKey`.
  * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} Item
@@ -36,6 +37,13 @@ export const SHOWS = /** @type {Array<[Show, string]>} */ ([
   ["created", "Created by me"],
   ["mentions", "Mentions me"],
   ["all", "All open"],
+]);
+
+/** The Group by choices, as [id, label]; the first is the default. */
+export const GROUPINGS = /** @type {Array<[Grouping, string]>} */ ([
+  ["repo", "Repo"],
+  ["assignee", "Assignee"],
+  ["label", "Label"],
 ]);
 
 function isStringArray(value) {
@@ -183,26 +191,63 @@ export function mentionsNote(board, scope, followed) {
 // Groups
 
 /**
- * One group per repo, repos A to Z; newest update first inside a group, then the higher number.
- * @param {Issue[]} issues
- * @returns {Array<{key: string, title: string, issues: Issue[]}>}
+ * The Group by choice: "repo" (the default), "assignee" or "label".
+ * @param {unknown} value
+ * @returns {Grouping}
  */
-export function buildGroups(issues) {
-  const time = (issue) => Date.parse(issue.updatedAt) || 0;
-  const newest = [...issues].sort((a, b) => time(b) - time(a) || b.number - a.number);
-  return groupItems(newest, (issue) => [{ key: projectKey(issue), title: issue.repo }], { key: "", title: "" }).map((group) => ({ key: group.key, title: group.title, issues: group.items }));
+export function normalizeGrouping(value) {
+  const found = GROUPINGS.find(([id]) => id === value);
+  return found ? found[0] : GROUPINGS[0][0];
 }
 
 /**
- * The issue keys in the order the board shows them for `scope`.
+ * The groups an issue shows in for a Group by choice: its repo, each of its assignees, or each of
+ * its labels. An assignee is one login on one host. Labels of the same name in any case share a group.
+ * @param {Issue} issue
+ * @param {Grouping} by
+ * @returns {Array<{key: string, title: string}>}
+ */
+function groupsOf(issue, by) {
+  switch (by) {
+    case "assignee":
+      return issue.assignees.map((person) => ({ key: `${issue.host}/${person.login}`.toLowerCase(), title: person.login }));
+    case "label":
+      return issue.labels.map((label) => ({ key: label.toLowerCase(), title: label }));
+    default:
+      return [{ key: projectKey(issue), title: issue.repo }];
+  }
+}
+
+/** The group of the issues that have no assignee or no label, by Group by choice. */
+const NONE_GROUPS = { assignee: "No assignee", label: "No label" };
+
+/**
+ * The board's groups for a Group by choice, A to Z, each with its issues newest update first
+ * (then the higher number). An issue with several assignees or labels shows under each one; an
+ * issue with none shows under "No assignee" or "No label", the last group.
+ * @param {Issue[]} issues
+ * @param {Grouping} [by]
+ * @returns {Array<{key: string, title: string, issues: Issue[]}>}
+ */
+export function buildGroups(issues, by = "repo") {
+  const time = (issue) => Date.parse(issue.updatedAt) || 0;
+  const newest = [...issues].sort((a, b) => time(b) - time(a) || b.number - a.number);
+  const none = { key: "", title: Object.hasOwn(NONE_GROUPS, by) ? NONE_GROUPS[by] : "" };
+  return groupItems(newest, (issue) => groupsOf(issue, by), none).map((group) => ({ key: group.key, title: group.title, issues: group.items }));
+}
+
+/**
+ * The issue keys in the order the board shows them for `scope` and `by`. An issue in several
+ * groups counts once, at its first place.
  * @param {Board} board
  * @param {Scope} scope
  * @param {?string} followed
+ * @param {Grouping} [by]
  * @returns {string[]}
  */
-export function shownOrder(board, scope, followed) {
+export function shownOrder(board, scope, followed, by = "repo") {
   return orderOf(
-    buildGroups(issuesInScope(board, scope, followed)).map((group) => group.issues),
+    buildGroups(issuesInScope(board, scope, followed), by).map((group) => group.issues),
     issueKey,
   );
 }
