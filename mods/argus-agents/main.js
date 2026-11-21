@@ -3,7 +3,7 @@
 // the board (the layout's panel) and the snooze menu (a popup).
 
 import { View, div, image, svg } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex } from "gpui-base";
 import { agents, terminals, spaces, theme, shared, setShared, props, run, openOverlay, closeOverlay, checking, readTextFile, appHome } from "herdr";
 import {
   SNOOZES,
@@ -20,9 +20,9 @@ import {
   untilLabel,
   wakeLabel,
 } from "./model.js";
-import { frame, header, badge, iconButton, row, scrollArea, sectionTitle, note, menuRow, MENU_PAD, MENU_ROW } from "./ui.js";
+import { frame, header, badge, iconButton, row, scrollArea, sectionTitle, note, menuRow, menuPopup, foldTitle } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
-import { menuKey } from "./menu.js";
+import { menuKey, menuHeight } from "./menu.js";
 
 const MOD = "argus-agents";
 const TRACK_KEY = "argus-agents.track";
@@ -30,10 +30,8 @@ const HOLDS_KEY = "argus-agents.holds";
 // How often the tracker looks at the agents, and how often the times redraw.
 const TICK = 1_000;
 const CLOCK = 30_000;
-// The icons Herdr ships in `workspace-chrome` that this mod uses.
-const HERDR_ICONS = ["chevron-down", "chevron-right", "check", "clock"];
 const SNOOZE_WIDTH = 220;
-const SNOOZE_HEIGHT = 2 * MENU_PAD + SNOOZES.length * MENU_ROW;
+const SNOOZE_HEIGHT = menuHeight(SNOOZES.length);
 
 const SECTIONS = [
   { key: "waiting", title: "Needs you", color: (t) => t.blocked },
@@ -55,7 +53,7 @@ export default class AgentsBoard extends View {
     if (checking()) return;
     cx.spawn(async (cx) => {
       await cx.sleep(0);
-      this.found = await probeIcons(readTextFile, appHome(), HERDR_ICONS);
+      this.found = await probeIcons(readTextFile, appHome());
       cx.notify();
     });
     if (this.view === "snooze") {
@@ -91,7 +89,7 @@ export default class AgentsBoard extends View {
 
     const actions = [];
     if (sections.working > 0) actions.push(div().flex_none().text_size(11).text_color(t.dim).child(`${sections.working} working`));
-    const head = header(t, "Agents", actions, { badge: badge(t, String(count)) });
+    const head = header(t, "Overview", actions, { badge: badge(t, String(count)) });
 
     const parts = [];
     for (const section of SECTIONS) {
@@ -113,24 +111,14 @@ export default class AgentsBoard extends View {
 
   /** The Snoozed heading: a click folds or unfolds the shelf. */
   shelfTitle(t, total) {
-    return h_flex()
-      .id("snoozed")
-      .px(8)
-      .pt(10)
-      .pb(4)
-      .gap(4)
-      .items_center()
-      .cursor_pointer()
-      .text_size(11.5)
-      .font_medium()
-      .text_color(t.dim)
-      .hover((s) => s.text_color(t.foreground))
-      .on_click((_e, cx) => {
+    return foldTitle(t, "snoozed", {
+      label: `Snoozed · ${total}`,
+      chevron: this.icon(this.shelfOpen ? "chevron-down" : "chevron-right"),
+      onToggle: (cx) => {
         this.shelfOpen = !this.shelfOpen;
         cx.notify();
-      })
-      .child(div().child(`Snoozed · ${total}`))
-      .child(svg(this.icon(this.shelfOpen ? "chevron-down" : "chevron-right")).size(11).flex_none());
+      },
+    });
   }
 
   /**
@@ -206,23 +194,21 @@ export default class AgentsBoard extends View {
         onClick: () => pickSnooze(p, choice.id),
       }),
     );
-    return v_flex()
-      .id("argus-agents-snooze")
-      .track_focus(this.handle)
-      .w_full()
-      .h(SNOOZE_HEIGHT)
-      .bg(t.popover)
-      .text_color(t.foreground)
-      .text_size(12.8)
-      .on_key_down((e, cx) => {
+    return menuPopup(t, {
+      id: "argus-agents-snooze",
+      listId: "argus-agents-snooze-list",
+      handle: this.handle,
+      height: SNOOZE_HEIGHT,
+      parts: rows,
+      onKey: (e, cx) => {
         const next = menuKey(active, e.key, SNOOZES.length);
         if (!next.handled) return;
         this.at = next.at;
         if (next.action === "pick") pickSnooze(p, SNOOZES[next.at].id);
         else if (next.action === "close") closeOverlay(p.overlay);
         cx.notify();
-      })
-      .child(scrollArea("argus-agents-snooze-list", rows, { padding: MENU_PAD }));
+      },
+    });
   }
 }
 
