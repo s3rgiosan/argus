@@ -20,7 +20,8 @@ esac
 
 tmp=${TMPDIR:-/tmp}
 # Folders left by a run that was killed outright, where no cleanup could run.
-find "$tmp" -maxdepth 1 -type d -name 'argus-claude-usage.*' -mmin +60 -exec rm -rf {} + 2>/dev/null
+# Only folders of the current user are removed.
+find "$tmp" -maxdepth 1 -type d -name 'argus-claude-usage.*' -user "$(id -u)" -mmin +60 -exec rm -rf {} + 2>/dev/null
 
 dir=$(mktemp -d "$tmp/argus-claude-usage.XXXXXX") || exit 1
 pid=
@@ -55,7 +56,8 @@ exec 3>"$dir/in"
 printf '%s\n' '{"type":"control_request","request_id":"argus-claude-usage","request":{"subtype":"get_usage","skip_behaviors":true}}' >&3
 
 found=
-ticks=$((timeout * 5))
+# Check twice a second.
+ticks=$((timeout * 2))
 i=0
 while [ "$i" -lt "$ticks" ]; do
   if grep -q '"control_response"' "$dir/out" 2>/dev/null; then
@@ -63,7 +65,7 @@ while [ "$i" -lt "$ticks" ]; do
     break
   fi
   kill -0 "$pid" 2>/dev/null || break
-  sleep 0.2
+  sleep 0.5
   i=$((i + 1))
 done
 

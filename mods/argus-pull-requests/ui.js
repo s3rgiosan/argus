@@ -6,7 +6,10 @@
 // panels. Colors come from `theme()` only.
 
 import { div, svg } from "gpui-kit";
-import { v_flex, h_flex, Input, Textarea, Scrollbar } from "gpui-base";
+import { v_flex, h_flex, Input, Textarea, Scrollbar, TextView } from "gpui-base";
+import { MENU_PAD, MENU_ROW } from "./menu.js";
+
+export { MENU_PAD, MENU_ROW };
 
 /** One turn of a busy icon, in ms, as Herdr's spinner. */
 const SPIN_MS = 900;
@@ -266,10 +269,48 @@ export function segmented(t, id, options, current, onPick) {
     );
 }
 
-/** Padding around the rows of a menu, as in Herdr's menu. */
-export const MENU_PAD = 5;
-/** Height of one menu row. */
-export const MENU_ROW = 31;
+/**
+ * A settings field for a command or a folder: a section title, a 32 px text
+ * field and a help line under it.
+ *
+ * @param {string} id The field's id, also the `focused` id of the input.
+ * @param {string} title
+ * @param {object} state The field's `InputState`.
+ * @param {boolean} focused
+ * @param {string} help
+ * @returns {object[]}
+ */
+export function commandField(t, id, title, state, focused, help) {
+  return [sectionTitle(t, title), h_flex().px(8).py(4).child(field(t, id, state, focused)), hint(t, help).px(8)];
+}
+
+/**
+ * The gh and glab command fields that every forge mod shares. The inputs have
+ * the ids "gh" and "glab"; both save on Enter or when focus leaves them.
+ *
+ * @param {{ gh: object, glab: object }} inputs The `InputState` of each field.
+ * @param {string | null} focused The id of the focused input.
+ * @returns {object[]}
+ */
+export function forgeCommandFields(t, inputs, focused) {
+  return [
+    ...commandField(t, "gh", "gh command", inputs.gh, focused === "gh", "Leave empty to use gh from PATH, else its usual install folders."),
+    ...commandField(t, "glab", "glab command", inputs.glab, focused === "glab", "Leave empty to use glab from PATH, else its usual install folders. Both fields save on Enter or when you leave them."),
+  ];
+}
+
+/**
+ * The "Refresh every" setting: a section title and a segmented control of minutes.
+ *
+ * @param {number[]} intervals The choices, in minutes.
+ * @param {number} current
+ * @param {(minutes: number, cx: object) => void} onPick
+ * @returns {object[]}
+ */
+export function intervalPicker(t, intervals, current, onPick) {
+  const options = intervals.map((minutes) => ({ value: minutes, label: `${minutes} min` }));
+  return [sectionTitle(t, "Refresh every"), h_flex().px(8).py(4).child(segmented(t, "interval", options, current, onPick))];
+}
 
 /**
  * A 31 px menu row with Herdr's menu metrics. `active` is the row the keys
@@ -327,4 +368,141 @@ export function meter(t, percent, tick = null) {
   if (tick === null || tick === undefined) return track;
   const at = Math.min(Math.max(tick, 0), 100);
   return track.child(div().absolute().top(-2).left(`${at}%`).w(1).h(10).bg(t.foreground));
+}
+
+/**
+ * A popup menu: the popover background, keys through `onKey`, and a scroll of
+ * `parts` with the menu padding. Give it the height from `menuHeight`.
+ * `head` and `foot` stay in view above and below the scroll, so a long list in
+ * `parts` scrolls and the choices around it can always be reached. With
+ * `footHeight` (from `footHeight` in `lib/menu.js`), the foot scrolls on its own
+ * in that height, for a foot that can be long too.
+ *
+ * @param {{ id: string, listId: string, handle: object, height: number, head?: object[], parts: object[], foot?: object[], footHeight?: number|null, onKey: (event: object, cx: object) => void }} menu
+ *   `handle` is the view's focus handle, so the keys reach the menu.
+ */
+export function menuPopup(t, { id, listId, handle, height, head = [], parts, foot = [], footHeight = null, onKey }) {
+  const fixed = head.length > 0 || foot.length > 0;
+  const popup = v_flex()
+    .id(id)
+    .track_focus(handle)
+    .w_full()
+    .h(height)
+    .bg(t.popover)
+    .text_color(t.foreground)
+    .text_size(12.8)
+    .on_key_down(onKey);
+  if (!fixed) return popup.child(scrollArea(listId, parts, { padding: MENU_PAD }));
+  return popup
+    .p(MENU_PAD)
+    .child(v_flex().flex_none().children(head))
+    .child(scrollArea(listId, parts, { padding: 0 }))
+    .child(
+      footHeight === null
+        ? v_flex().flex_none().children(foot)
+        : v_flex().flex_none().h(footHeight).child(scrollArea(`${listId}-foot`, foot, { padding: 0 })),
+    );
+}
+
+/**
+ * The heading of a folding section in a pane: a chevron, the label and, on
+ * the right, a summary for the folded section. A click folds or opens it.
+ *
+ * @param {{ label: string, chevron: string, summary?: string, onToggle: (cx: object) => void }} fold
+ *   `chevron` is the path of the chevron icon for the current state (down when open, right when folded).
+ */
+export function foldTitle(t, id, { label, chevron, summary = "", onToggle }) {
+  return h_flex()
+    .id(id)
+    .mt(4)
+    .px(14)
+    .py(6)
+    .gap(6)
+    .items_center()
+    .cursor_pointer()
+    .hover((s) => s.bg(t.hover))
+    .on_click((_e, cx) => onToggle(cx))
+    .child(svg(chevron).size(12).flex_none().text_color(t.dim))
+    .child(div().flex_none().text_size(11.5).font_medium().text_color(t.dim).child(label))
+    .child(div().flex_1())
+    .child(div().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(summary));
+}
+
+/**
+ * A 44 px board row of two lines. The first line holds `#number`, the title,
+ * then `marks` and the age; the second holds the dim `detail`, then `tail`.
+ *
+ * @param {{ number: number, title: string, age: string, detail: string, selected?: boolean, marks?: object[], tail?: object[], onClick: Function }} item
+ */
+export function twoLineRow(t, id, { number, title, age, detail, selected = false, marks = [], tail = [], onClick }) {
+  return v_flex()
+    .id(id)
+    .h(44)
+    .flex_none()
+    .px(8)
+    .gap(2)
+    .justify_center()
+    .rounded(7)
+    .cursor_pointer()
+    .when(selected, (el) => el.bg(t.selected))
+    .hover((s) => s.bg(t.hover))
+    .on_click(onClick)
+    .child(
+      h_flex()
+        .gap(8)
+        .items_center()
+        .child(div().flex_none().text_size(12).text_color(t.muted).child(`#${number}`))
+        .child(div().flex_1().min_w(0).truncate().child(title))
+        .children(marks)
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(age)),
+    )
+    .child(h_flex().gap(8).items_center().text_size(11).text_color(t.dim).child(div().flex_1().min_w(0).truncate().child(detail)).children(tail));
+}
+
+/**
+ * The top of an item pane: the provider icon and `place` (for example
+ * `owner/repo · #12`), the item's place in the board's order with Previous
+ * and Next buttons, the `actions`, then the title at 16 px. Add more children
+ * to the result for the lines under the title.
+ *
+ * @param {{ provider: string, place: string, title: string, position: { index: number, total: number, prev: string | null, next: string | null } | null, noun: string, idPrefix: string, icon: (name: string) => string, onPrev: Function, onNext: Function, actions?: object[] }} head
+ *   `noun` names the item in the button tooltips ("pull request", "issue"); `icon` gives an icon's path.
+ */
+export function paneHead(t, { provider, place, title, position, noun, idPrefix, icon, onPrev, onNext, actions = [] }) {
+  return v_flex()
+    .px(14)
+    .pt(12)
+    .gap(6)
+    .child(
+      h_flex()
+        .gap(6)
+        .items_center()
+        .child(svg(icon(provider === "gitlab" ? "gitlab" : "github")).size(14).flex_none().text_color(t.muted))
+        .child(div().min_w(0).truncate().text_size(12).text_color(t.muted).child(place))
+        .child(div().flex_1())
+        .when(position !== null, (el) =>
+          el
+            .child(div().flex_none().text_size(12).text_color(t.dim).child(`${position.index} of ${position.total}`))
+            .child(iconButton(t, `${idPrefix}-prev`, icon("arrow-up"), (_e, cx) => onPrev(cx), { enabled: position.prev !== null, tooltip: `Previous ${noun}` }))
+            .child(iconButton(t, `${idPrefix}-next`, icon("arrow-down"), (_e, cx) => onNext(cx), { enabled: position.next !== null, tooltip: `Next ${noun}` })),
+        )
+        .children(actions),
+    )
+    .child(div().text_size(16).font_semibold().whitespace_normal().child(title));
+}
+
+/** Muted text inside a pane section, with no padding of its own, so it lines up with the other rows. */
+export function mutedText(t, text) {
+  return div().text_color(t.muted).whitespace_normal().child(text);
+}
+
+/** Markdown from a comment or a description, as Herdr's TextView draws it. A link goes to `onLink(url, cx)`. */
+export function markdown(t, id, text, onLink) {
+  return div().text_color(t.foreground).child(TextView.markdown(id, text).selectable(true).on_link_click((url, cx) => onLink(url, cx)));
+}
+
+/** A display name with the login as its tooltip, so a display name cannot stand in for another login. */
+export function nameLabel(id, name, login) {
+  const el = div().id(id).min_w(0).truncate().child(name);
+  return login !== "" ? el.tooltip(`@${login}`) : el;
 }

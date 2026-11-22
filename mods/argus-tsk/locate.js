@@ -1,5 +1,7 @@
 // Where the `tsk` binary and its store live, and which tsk versions work.
 
+import { expandHome } from "./paths.js";
+
 /** Oldest supported tsk version. */
 export const MIN_TSK = [0, 13, 0];
 
@@ -74,32 +76,6 @@ export function versionAtLeast(versionText, min) {
     if (v[i] !== min[i]) return v[i] > min[i];
   }
   return true;
-}
-
-/**
- * Expands a leading `~` to `home`, trims spaces and drops a trailing slash.
- * @param {string} path
- * @param {string} home
- * @returns {string}
- */
-export function expandHome(path, home) {
-  let out = String(path ?? "").trim();
-  if (out === "~") out = home;
-  else if (out.startsWith("~/")) out = home + out.slice(1);
-  return out.length > 1 ? out.replace(/\/+$/, "") : out;
-}
-
-/**
- * Shows a path inside `home` with `~` in place of the home folder.
- * @param {string} path
- * @param {string} home
- * @returns {string}
- */
-export function tildePath(path, home) {
-  const root = String(home ?? "").replace(/\/+$/, "");
-  if (root === "") return path;
-  if (path === root) return "~";
-  return path.startsWith(`${root}/`) ? `~${path.slice(root.length)}` : path;
 }
 
 /**

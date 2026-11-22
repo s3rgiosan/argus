@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mapPool } from "../lib/pool.js";
+import { createLimiter, mapPool } from "../lib/pool.js";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
 
@@ -42,4 +42,32 @@ test("mapPool: a rejection rejects the call", async () => {
     if (n === 2) throw new Error("boom");
     return n;
   }), { message: "boom" });
+});
+
+test("createLimiter runs at most its limit at once, across nested lists, in order", async () => {
+  const limit = createLimiter(2);
+  let active = 0;
+  let most = 0;
+  const started = [];
+  const task = (name) => () => {
+    active += 1;
+    most = Math.max(most, active);
+    started.push(name);
+    return new Promise((resolve) => setTimeout(() => {
+      active -= 1;
+      resolve(name);
+    }, 2));
+  };
+  const outer = ["a", "b", "c"].map(async (group) => Promise.all([1, 2, 3].map((n) => limit(task(`${group}${n}`)))));
+  const results = await Promise.all(outer);
+  assert.equal(most, 2);
+  assert.deepEqual(results, [["a1", "a2", "a3"], ["b1", "b2", "b3"], ["c1", "c2", "c3"]]);
+  assert.deepEqual(started, ["a1", "a2", "a3", "b1", "b2", "b3", "c1", "c2", "c3"]);
+});
+
+test("createLimiter passes a rejection on and keeps going", async () => {
+  const limit = createLimiter(0);
+  await assert.rejects(limit(() => Promise.reject(new Error("boom"))), /boom/);
+  await assert.rejects(limit(() => { throw new Error("sync"); }), /sync/);
+  assert.equal(await limit(async () => 5), 5);
 });

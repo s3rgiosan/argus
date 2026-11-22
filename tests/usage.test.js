@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { parseReply, pace, paceText, SESSION_MS } from "../mods/argus-claude-usage/usage.js";
+import { parseReply, mergeEntry, pace, paceText, SESSION_MS } from "../mods/argus-claude-usage/usage.js";
 
 const read = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 const line = (inner) =>
@@ -86,4 +86,32 @@ test("parseReply sorts scoped windows by name, ignoring case", () => {
   const limits = [scoped("beta"), scoped("Zed"), scoped("alpha"), scoped("Alpha"), scoped("Beta")];
   const r = parseReply(line({ subscription_type: "team", rate_limits_available: true, rate_limits: { limits } }));
   assert.deepEqual(r.windows.map((w) => w.label), ["Alpha", "alpha", "Beta", "beta", "Zed"]);
+});
+
+test("mergeEntry keeps a good reply when a fetch fails", () => {
+  const good = { state: "ok", windows: [] };
+  const err = { state: "error", reason: "No usage reply" };
+  const previous = { reply: good, updatedAt: 1000 };
+  assert.deepEqual(mergeEntry(previous, err, 2000, 5000), {
+    reply: good,
+    updatedAt: 1000,
+    lastError: { message: "No usage reply", at: 2000 },
+  });
+  // A second error keeps the same good reply.
+  const again = mergeEntry(mergeEntry(previous, err, 2000, 5000), err, 3000, 5000);
+  assert.equal(again.updatedAt, 1000);
+  assert.equal(again.lastError.at, 3000);
+});
+
+test("mergeEntry drops lastError after a good reply", () => {
+  const fresh = { state: "ok", windows: [] };
+  const previous = { reply: fresh, updatedAt: 1000, lastError: { message: "x", at: 1500 } };
+  assert.deepEqual(mergeEntry(previous, fresh, 2000, 5000), { reply: fresh, updatedAt: 2000 });
+});
+
+test("mergeEntry uses the error when there is no usable good reply", () => {
+  const err = { state: "error", reason: null };
+  assert.deepEqual(mergeEntry(undefined, err, 2000, 5000), { reply: err, updatedAt: 2000 });
+  assert.deepEqual(mergeEntry({ reply: { state: "ok" }, updatedAt: 1000 }, err, 9000, 5000), { reply: err, updatedAt: 9000 });
+  assert.deepEqual(mergeEntry({ reply: { state: "signed-out" }, updatedAt: 1000 }, err, 2000, 5000), { reply: err, updatedAt: 2000 });
 });

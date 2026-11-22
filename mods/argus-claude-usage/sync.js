@@ -38,3 +38,27 @@ export function takeLock(owner, now) {
 export function holdsLock(lock, owner, now) {
   return Boolean(lock) && lock.owner === owner && lock.until > now;
 }
+
+/**
+ * True when the lock that `owner` holds ends in less than half of `lockMs`. Only then does a
+ * long read write the lock again, so it does not render every mod after each step.
+ *
+ * @param {{ owner: string, until: number } | null | undefined} lock
+ * @param {string} owner
+ * @param {number} now
+ * @param {number} [lockMs]
+ * @returns {boolean}
+ */
+export function lockNeedsRenewal(lock, owner, now, lockMs = LOCK_MS) {
+  return holdsLock(lock, owner, now) && lock.until - now < lockMs / 2;
+}
+
+/**
+ * The lock value that gives the lock back: the same owner, already ended, so
+ * another copy can read at once.
+ *
+ * @param {string} owner
+ */
+export function releasedLock(owner) {
+  return { owner, until: 0 };
+}

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ghMergedListArgs, GL_MERGED_LIST_QUERY } from "../mods/argus-pull-requests/forge.js";
 import { parseGhMergedList, parseGlMergedList } from "../mods/argus-pull-requests/model.js";
+import { parseGhMergedFull, parseGlMergedFull } from "../mods/argus-pull-requests/model.js";
 import { countMerged } from "../mods/argus-pull-requests/cleanup.js";
 
 const A = "a".repeat(40);
@@ -49,10 +50,11 @@ test("countMerged: a reused branch name at another commit does not count", () =>
   assert.equal(countMerged([wt("feat/a", B)], [head(1, "feat/a", A)], "main"), 0);
 });
 
-test("countMerged: a merge into another base does not count, unless the base or the default is unknown", () => {
+test("countMerged: a merge into another base does not count, unless the base is unknown; an unknown default counts nothing", () => {
   assert.equal(countMerged([wt("feat/a")], [head(1, "feat/a", A, "release")], "main"), 0);
   assert.equal(countMerged([wt("feat/a")], [head(1, "feat/a", A, null)], "main"), 1);
-  assert.equal(countMerged([wt("feat/a")], [head(1, "feat/a", A, "release")], null), 1);
+  assert.equal(countMerged([wt("feat/a")], [head(1, "feat/a", A, "release")], null), 0);
+  assert.equal(countMerged([wt("feat/a"), wt("argus/review-3-x", B, 3)], [head(3, "feat/z", A, null)], null), 0);
 });
 
 test("countMerged: a review worktree counts by its number, once", () => {
@@ -64,4 +66,47 @@ test("countMerged: a review worktree counts by its number, once", () => {
 
 test("countMerged counts each matching worktree once", () => {
   assert.equal(countMerged([wt("feat/a"), wt("feat/b")], [head(1, "feat/a"), head(2, "feat/a")], "main"), 1);
+});
+
+test("parseGlMergedList keeps a merge request without project ids, as parseGlMerged does", () => {
+  const nodes = [
+    { iid: "4", sourceBranch: "feat/a", diffHeadSha: A, mergedAt: null, targetBranch: "main" },
+    { iid: "5", sourceBranch: "feat/b", diffHeadSha: B, mergedAt: null, targetBranch: "main", sourceProjectId: 7 },
+    { iid: "6", sourceBranch: "feat/c", diffHeadSha: B, mergedAt: null, targetBranch: "main", sourceProjectId: 8, targetProjectId: 7 },
+  ];
+  assert.deepEqual(parseGlMergedList(JSON.stringify({ data: { project: { mergeRequests: { nodes } } } })).map((entry) => entry.number), [4, 5]);
+});
+
+test("parseGhMergedFull keeps forks and entries with a bad head, and counts the items", () => {
+  const text = JSON.stringify([
+    { number: 1, headRefName: "feat/a", headRefOid: A, mergedAt: "2026-11-10T00:00:00Z", baseRefName: "main", isCrossRepository: false },
+    { number: 2, headRefName: "feat/a", headRefOid: B, mergedAt: "2026-11-11T00:00:00Z", baseRefName: "main", isCrossRepository: true },
+    { number: 3, headRefName: "feat/c", headRefOid: "nope", mergedAt: "2026-11-11T00:00:00Z", baseRefName: "main", isCrossRepository: false },
+    { number: 0, headRefName: "feat/d", headRefOid: A },
+  ]);
+  assert.deepEqual(parseGhMergedFull(text), {
+    total: 4,
+    entries: [
+      { number: 1, branch: "feat/a", cross: false, merged: { number: 1, headSha: A, mergedAt: "2026-11-10T00:00:00Z", base: "main" } },
+      { number: 2, branch: "feat/a", cross: true, merged: { number: 2, headSha: B, mergedAt: "2026-11-11T00:00:00Z", base: "main" } },
+      { number: 3, branch: "feat/c", cross: false, merged: null },
+    ],
+  });
+  assert.throws(() => parseGhMergedFull("{}"));
+});
+
+test("parseGlMergedFull marks merge requests from another project", () => {
+  const nodes = [
+    { iid: "4", sourceBranch: "feat/a", diffHeadSha: A, mergedAt: null, targetBranch: "main", sourceProjectId: 7, targetProjectId: 7 },
+    { iid: "5", sourceBranch: "feat/a", diffHeadSha: B, mergedAt: "2026-11-11T00:00:00Z", targetBranch: "main", sourceProjectId: 8, targetProjectId: 7 },
+    { iid: "x", sourceBranch: "feat/c", diffHeadSha: A },
+  ];
+  assert.deepEqual(parseGlMergedFull(JSON.stringify({ data: { project: { mergeRequests: { nodes } } } })), {
+    total: 3,
+    entries: [
+      { number: 4, branch: "feat/a", cross: false, merged: { number: 4, headSha: A, mergedAt: null, base: "main" } },
+      { number: 5, branch: "feat/a", cross: true, merged: { number: 5, headSha: B, mergedAt: "2026-11-11T00:00:00Z", base: "main" } },
+    ],
+  });
+  assert.throws(() => parseGlMergedFull(JSON.stringify({ data: { project: null } })));
 });

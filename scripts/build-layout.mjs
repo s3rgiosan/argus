@@ -7,7 +7,7 @@
 //
 //   node scripts/build-layout.mjs [--name Argus] [--switch]
 
-import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync, copyFileSync, mkdirSync, mkdtempSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync, renameSync, rmSync, mkdirSync, mkdtempSync, statSync, lstatSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -165,6 +165,23 @@ function syntaxError(source) {
 }
 
 /**
+ * Writes a file through a temporary file in the same folder, so a cut-off write
+ * never leaves a half-written file at `path`.
+ * @param {string} path
+ * @param {string} text
+ */
+function writeAtomic(path, text) {
+  const temp = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, text);
+    renameSync(temp, path);
+  } catch (error) {
+    rmSync(temp, { force: true });
+    throw error;
+  }
+}
+
+/**
  * Writes an Argus copy of a shipped mod again from the shipped files, so a Herdr
  * update reaches it on the next run. A missing shipped mod writes nothing and is
  * no error. The copy's folder may be missing, empty, or one this script wrote.
@@ -180,6 +197,13 @@ function writeCopy({ shipped, copy: name, what, patch, manifest, owns, PatchErro
     return { written: false, error: null };
   }
   const copy = join(modsDir, name);
+  let linked = false;
+  try {
+    linked = lstatSync(copy).isSymbolicLink();
+  } catch {
+    linked = false;
+  }
+  if (linked) return { written: false, error: `${copy} is a symbolic link` };
   if (existsSync(copy)) {
     let empty;
     try {
@@ -203,8 +227,8 @@ function writeCopy({ shipped, copy: name, what, patch, manifest, owns, PatchErro
   try {
     mkdirSync(copy, { recursive: true });
     // mod.json goes first: its marker lets the next run repair a copy that stopped half way.
-    writeFileSync(join(copy, "mod.json"), JSON.stringify(manifest(readJson(join(modsDir, shipped, "mod.json")) ?? {}), null, 2) + "\n");
-    writeFileSync(join(copy, "main.js"), patched);
+    writeAtomic(join(copy, "mod.json"), JSON.stringify(manifest(readJson(join(modsDir, shipped, "mod.json")) ?? {}), null, 2) + "\n");
+    writeAtomic(join(copy, "main.js"), patched);
   } catch (error) {
     return { written: false, error: `cannot write ${copy} (${error.message})` };
   }
@@ -228,8 +252,8 @@ for (const { spec, use } of copies) {
 }
 
 const preview = `layouts/${name}.svg`;
-copyFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "layouts", "Argus.svg"), join(layouts, `${name}.svg`));
-writeFileSync(target, JSON.stringify({ ...layout, preview, generated_by: MARKER }, null, 2) + "\n");
+writeAtomic(join(layouts, `${name}.svg`), readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "layouts", "Argus.svg"), "utf8"));
+writeAtomic(target, JSON.stringify({ ...layout, preview, generated_by: MARKER }, null, 2) + "\n");
 console.log(`${name}: ${panels.length} panel(s): ${panels.map((p) => p.label).join(", ") || "none"}`);
 
 // A shown layout that was just renamed would no longer exist, so show the new one.

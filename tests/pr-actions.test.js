@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DRAFT_KEPT, DRAFT_TEXT, DRAFTS_UNREAD, LOGIN_TTL, NEEDS_BODY, NO_METHOD, NO_SHA, RUN_LIMIT, actionCommand, actionFailure, afterAction, bodyError, canAct, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, ownPr, ghMethodArgs, leavePr, mergePrompt, pendingDrafts, pickMergeMethod, runningOf, withRunning, withoutRunning } from "../mods/argus-pull-requests/actions.js";
+import { DRAFT_KEPT, DRAFT_TEXT, DRAFTS_UNREAD, HEAD_MOVED, HEAD_UNREAD, LOGIN_TTL, NEEDS_BODY, NO_METHOD, NO_SHA, RUN_LIMIT, actionCommand, ghHeadArgs, glHeadArgs, headRefusal, actionFailure, afterAction, bodyError, canAct, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, ownPr, ghMethodArgs, leavePr, mergePrompt, pendingDrafts, pickMergeMethod, runningOf, withRunning, withoutRunning } from "../mods/argus-pull-requests/actions.js";
 
 const GL_URL = "https://gitlab.example.com/example-group/example-sub/example-project";
 
@@ -37,16 +37,45 @@ const detail = (p) => ({
 const gh = detail(pr("github", "github.com", "example-org/example-repo"));
 const gl = detail(pr("gitlab", "gitlab.example.com", "example-group/example-sub/example-project"));
 
-test("gh approve", () => {
+test("gh approve reads the head first", () => {
   assert.deepEqual(actionCommand({ kind: "approve", detail: gh, body: "" }), {
     name: "gh",
-    args: ["pr", "review", "12", "--repo", "example-org/example-repo", "--approve"],
+    args: ["api", "--method", "POST", "--hostname", "github.com", "repos/example-org/example-repo/pulls/12/reviews", "-f", `commit_id=${gh.headSha}`, "-f", "event=APPROVE"],
+    check: ["pr", "view", "12", "--repo", "example-org/example-repo", "--json", "headRefOid"],
   });
+  // -f is a raw string, so a body that starts with @ or - stays text.
+  assert.deepEqual(actionCommand({ kind: "request_changes", detail: gh, body: "@file" }).args.slice(-4), ["-f", "event=REQUEST_CHANGES", "-f", "body=@file"]);
+});
+
+test("gh request changes reads the head first; comment does not", () => {
+  assert.deepEqual(actionCommand({ kind: "request_changes", detail: gh, body: "Fix it" }).check, ghHeadArgs("example-org/example-repo", 12));
+  assert.equal(actionCommand({ kind: "comment", detail: gh, body: "Looks fine" }).check, undefined);
+  for (const kind of ["approve", "comment"]) {
+    assert.equal(actionCommand({ kind, detail: gl, body: "Text" }).check, undefined);
+  }
+});
+
+test("gl request changes reads the head first", () => {
+  const command = actionCommand({ kind: "request_changes", detail: gl, body: "Fix it" });
+  assert.deepEqual(command.check, glHeadArgs(gl.pr));
+  assert.deepEqual(actionCommand({ kind: "request_changes", detail: gl, body: "Fix it", publishOnly: true }).check, glHeadArgs(gl.pr));
+  assert.equal(headRefusal(gl.headSha, JSON.stringify({ data: { project: { mergeRequest: { diffHeadSha: gl.headSha } } } })), null);
+  assert.equal(headRefusal(gl.headSha, JSON.stringify({ data: { project: { mergeRequest: { diffHeadSha: "other" } } } })), HEAD_MOVED);
+  assert.equal(headRefusal(gl.headSha, JSON.stringify({ data: { project: { mergeRequest: null } } })), HEAD_UNREAD);
+});
+
+test("headRefusal compares the current head with the shown head", () => {
+  assert.equal(headRefusal("abc123", JSON.stringify({ headRefOid: "abc123" })), null);
+  assert.equal(headRefusal("abc123", JSON.stringify({ headRefOid: "def456" })), HEAD_MOVED);
+  assert.equal(headRefusal(null, JSON.stringify({ headRefOid: "def456" })), HEAD_MOVED);
+  for (const stdout of ["", "not json", "null", "[]", JSON.stringify({}), JSON.stringify({ headRefOid: "" }), JSON.stringify({ headRefOid: 7 })]) {
+    assert.equal(headRefusal("abc123", stdout), HEAD_UNREAD);
+  }
 });
 
 test("gh request changes and comment", () => {
   assert.deepEqual(actionCommand({ kind: "request_changes", detail: gh, body: "Fix it" }).args, [
-    "pr", "review", "12", "--repo", "example-org/example-repo", "--request-changes", "--body=Fix it",
+    "api", "--method", "POST", "--hostname", "github.com", "repos/example-org/example-repo/pulls/12/reviews", "-f", "commit_id=abc123", "-f", "event=REQUEST_CHANGES", "-f", "body=Fix it",
   ]);
   assert.deepEqual(actionCommand({ kind: "comment", detail: gh, body: "Looks fine" }).args, [
     "pr", "review", "12", "--repo", "example-org/example-repo", "--comment", "--body=Looks fine",
@@ -89,10 +118,10 @@ test("GitLab merge follows the picked method", () => {
 });
 
 test("missing sha refuses", () => {
-  for (const [kind, d] of [["merge", gh], ["merge", gl], ["approve", gl]]) {
-    assert.deepEqual(actionCommand({ kind, detail: { ...d, headSha: null }, body: "", method: "merge" }), { error: NO_SHA });
+  for (const [kind, d] of [["merge", gh], ["merge", gl], ["approve", gl], ["approve", gh], ["request_changes", gh]]) {
+    assert.deepEqual(actionCommand({ kind, detail: { ...d, headSha: null }, body: "Text", method: "merge" }), { error: NO_SHA });
   }
-  assert.equal(actionCommand({ kind: "approve", detail: { ...gh, headSha: null }, body: "" }).name, "gh");
+  assert.equal(actionCommand({ kind: "comment", detail: { ...gh, headSha: null }, body: "Text" }).name, "gh");
 });
 
 test("gh merge without a method refuses", () => {
@@ -154,6 +183,7 @@ test("glab request changes creates a draft, then publishes it", () => {
     name: "glab",
     args: ["mr", "note", "draft", "create", "12", "-R", GL_URL, "--message=Fix it"],
     then: ["mr", "note", "draft", "publish", "12", "-R", GL_URL, "--reviewer-state=requested_changes", "--yes"],
+    check: glHeadArgs(gl.pr),
   });
   assert.equal("then" in actionCommand({ kind: "comment", detail: gl, body: "ok" }), false);
 });
@@ -171,6 +201,7 @@ test("a kept GitLab draft is only published on retry", () => {
   assert.deepEqual(actionCommand({ kind: "request_changes", detail: gl, body: "Fix it", publishOnly: true }), {
     name: "glab",
     args: ["mr", "note", "draft", "publish", "12", "-R", GL_URL, "--reviewer-state=requested_changes", "--yes"],
+    check: glHeadArgs(gl.pr),
   });
   // A publish still needs the comment that was drafted, so an empty box refuses.
   assert.deepEqual(actionCommand({ kind: "request_changes", detail: gl, body: " ", publishOnly: true }), { error: "Write a comment first." });

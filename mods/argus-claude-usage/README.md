@@ -22,7 +22,9 @@ The mod finds the accounts by itself: `~/.claude` and every `~/.claude-*` folder
 - In the `Argus` layout: the Usage button beside the tab bar opens a panel on the right. It takes its width and drag limits from Herdr's own `panel` block in `main.json` (368 px, 280 to 900 px today).
 - As a popup: `herdr-app do mod.open '{"name":"argus-claude-usage"}'`. Its pane icon opens it as a pane beside your terminals.
 
-Usage refreshes while the mod is open. All open copies share one refresh, and at most one `claude` process runs at a time.
+Usage refreshes while the mod is open. All open copies share one refresh, and at most one `claude` process runs at a time. The accounts found stay in memory for 1 hour. The refresh button, a change of the extra folders and a forced refresh find them again.
+
+When a refresh of an account fails, the account keeps its last good usage and adds the line "Last refresh failed · <reason> · <ago>". A good reply removes the line. A good reply older than twice the interval plus one minute is not kept.
 
 ## How it gets the numbers
 

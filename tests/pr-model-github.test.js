@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { THREADS_LIMIT_NOTE, ghCheckList, mergeThreads, parseGhDetail, parseGhList, parseGhSearch, parseGhThreads, parsePrUrl, prKey, summarize } from "../mods/argus-pull-requests/model.js";
+import { parseGhPr } from "../mods/argus-pull-requests/model.js";
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 const repo = "example-org/example-repo";
@@ -212,4 +213,21 @@ test("parseGhDetail ignores a review state or merge state that names an Object p
   const d = parseGhDetail(JSON.stringify(raw), "example-org/example-repo");
   assert.deepEqual(d.reviewers.filter((r) => r.name === "octo-user"), []);
   assert.equal(d.merge.reason, null);
+});
+
+test("parseGhPr: changesRequestedBy holds the latest reviews that request changes, each login once", () => {
+  const raw = {
+    number: 3,
+    latestReviews: [
+      { author: { login: "review-user" }, state: "CHANGES_REQUESTED" },
+      { author: { login: "review-user" }, state: "CHANGES_REQUESTED" },
+      { author: { login: "octo-user" }, state: "APPROVED" },
+      { author: {}, state: "CHANGES_REQUESTED" },
+      { state: "CHANGES_REQUESTED" },
+      null,
+    ],
+  };
+  assert.deepEqual(parseGhPr(raw, repo).changesRequestedBy, ["review-user"]);
+  assert.deepEqual(parseGhPr({ number: 4 }, repo).changesRequestedBy, []);
+  assert.deepEqual(parseGhPr({ number: 5, latestReviews: "x" }, repo).changesRequestedBy, []);
 });

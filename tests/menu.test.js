@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { menuKey, startAt } from "../lib/menu.js";
+import { MENU_LIST_MIN, MENU_PAD, footHeight, menuKey, startAt } from "../lib/menu.js";
 
 test("menuKey: down moves to the next row and wraps", () => {
   assert.deepEqual(menuKey(0, "down", 3), { handled: true, at: 1, action: null });
@@ -37,4 +37,28 @@ test("startAt: the current row, else the first", () => {
   assert.equal(startAt([{ current: false }, { current: true }]), 1);
   assert.equal(startAt([{ current: false }]), 0);
   assert.equal(startAt([]), 0);
+});
+
+test("menuHeight adds the padding, the rows and the titles, up to the cap", async () => {
+  const { menuHeight, MENU_PAD, MENU_ROW, MENU_TITLE } = await import("../lib/menu.js");
+  assert.equal(MENU_PAD, 5);
+  assert.equal(MENU_ROW, 31);
+  assert.equal(MENU_TITLE, 30);
+  assert.equal(menuHeight(3), 10 + 93);
+  assert.equal(menuHeight(3, 2), 10 + 93 + 60);
+  assert.equal(menuHeight(3, 2, { extra: 7 }), 10 + 93 + 60 + 7);
+  assert.equal(menuHeight(30, 2, { max: 420 }), 420);
+});
+
+test("footHeight: the foot takes its content when it fits", () => {
+  const height = 2 * MENU_PAD + 400;
+  assert.equal(footHeight(120, 100, height), 120);
+  assert.equal(footHeight(277, 340, height), 277);
+});
+
+test("footHeight: a long foot leaves the list above its title and three rows", () => {
+  const height = 2 * MENU_PAD + 400;
+  assert.equal(footHeight(500, 340, height), 400 - MENU_LIST_MIN);
+  assert.equal(footHeight(500, 60, height), 340);
+  assert.equal(footHeight(500, 0, height), 400);
 });

@@ -1,13 +1,12 @@
 // Builds `gh` and `glab` argument lists and the GitLab GraphQL query text.
 
+import { LIST_LIMIT } from "./forge-cli.js";
+
 /** @typedef {import("./remote.js").Provider} Provider */
 
-/** How many items every list, search and query asks for. */
-export const LIST_LIMIT = 100;
-
 export const GH_LIST_FIELDS =
-  "number,title,url,author,headRefName,baseRefName,isDraft,state,reviewDecision,statusCheckRollup,mergeable,mergeStateStatus,updatedAt";
-export const GH_VIEW_FIELDS = `${GH_LIST_FIELDS},body,headRefOid,latestReviews,reviewRequests,reviews,comments`;
+  "number,title,url,author,headRefName,baseRefName,isDraft,state,reviewDecision,latestReviews,statusCheckRollup,mergeable,mergeStateStatus,updatedAt";
+export const GH_VIEW_FIELDS = `${GH_LIST_FIELDS},body,headRefOid,reviewRequests,reviews,comments`;
 
 export const GL_MR_FIELDS =
   "iid title webUrl draft state sourceBranch targetBranch updatedAt author { username } approvedBy { nodes { username } } conflicts detailedMergeStatus headPipeline { status } targetProject { fullPath }";
@@ -73,35 +72,12 @@ export function ghThreadsArgs(repo, number) {
 }
 
 /**
- * @param {string} host
- * @param {string} query
- * @param {Record<string, string>} [vars]
- * @returns {string[]}
- */
-export function glabArgs(host, query, vars = {}) {
-  const args = ["api", "graphql", "--hostname", host, "-f", `query=${query}`];
-  for (const [key, value] of Object.entries(vars)) args.push("-f", `${key}=${value}`);
-  return args;
-}
-
-/**
  * @param {Provider} provider
  * @param {number} number
  * @returns {string}
  */
 export function fetchRef(provider, number) {
   return provider === "gitlab" ? `refs/merge-requests/${number}/head` : `refs/pull/${number}/head`;
-}
-
-/**
- * The note for a list that reached the limit, so the reader knows more may exist; null otherwise.
- * @param {string} what What the list holds, for example "pull requests of owner/repo".
- * @param {number} count How many items came back.
- * @param {number} [limit]
- * @returns {?string}
- */
-export function limitNote(what, count, limit = LIST_LIMIT) {
-  return count >= limit ? `Showing the first ${limit} ${what}.` : null;
 }
 
 /**
@@ -130,18 +106,6 @@ export const GL_MERGED_QUERY = `query($path: ID!, $branch: String!) { project(fu
 /** The state and head commit of one merge request. Variables: `path`, `iid`. */
 export const GL_MR_STATE_QUERY = `query($path: ID!, $iid: String!) { project(fullPath: $path) { mergeRequest(iid: $iid) { iid state diffHeadSha mergedAt targetBranch } } }`;
 
-/**
- * The arguments that print a GitHub repo's default branch name.
- * @param {string} repo
- * @returns {string[]}
- */
-export function ghDefaultBranchArgs(repo) {
-  return ["repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"];
-}
-
-/** The default branch of a GitLab project. Variable: `path`. */
-export const GL_DEFAULT_BRANCH_QUERY = `query($path: ID!) { project(fullPath: $path) { repository { rootRef } } }`;
-
 /** How many issues the New worktree view asks for. */
 export const ISSUE_LIMIT = 50;
 
@@ -153,9 +117,6 @@ export const ISSUE_LIMIT = 50;
 export function ghIssuesArgs(repo) {
   return ["issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open", "--limit", String(ISSUE_LIMIT), "--json", "number,title,updatedAt"];
 }
-
-/** The signed-in GitLab user's username. */
-export const GL_USERNAME_QUERY = "query { currentUser { username } }";
 
 /** The open issues of a GitLab project that one user has. Variables: `path`, `user`. */
 export const GL_ISSUES_QUERY = `query($path: ID!, $user: String!) { project(fullPath: $path) { issues(state: opened, assigneeUsernames: [$user], first: ${ISSUE_LIMIT}) { nodes { iid title updatedAt } } } }`;

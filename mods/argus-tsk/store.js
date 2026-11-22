@@ -6,9 +6,9 @@
 /** The file tsk keeps the board in, inside the store folder. */
 export const DATA_FILE = "tsk.json";
 
-// BSD stat (macOS) first, then GNU stat (Linux). Both print
-// "<mtime with fractions> <size>".
-const STAMP_SCRIPT = 'stat -f "%Fm %z" "$1" 2>/dev/null || stat -c "%.9Y %s" "$1" 2>/dev/null';
+// GNU stat (Linux) first, then BSD stat (macOS). GNU `stat -f` reads the
+// filesystem, so it must not run first. Both print "<mtime with fractions> <size>".
+const STAMP_SCRIPT = 'stat -c "%.9Y %s" "$1" 2>/dev/null || stat -f "%Fm %z" "$1" 2>/dev/null';
 
 /**
  * The command and arguments that print the data file's stamp. The path is

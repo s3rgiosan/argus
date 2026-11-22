@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuses a commit message that breaks the repo rules. Turn it on once per clone:
+#   git config core.hooksPath .githooks
+exec node "$(git rev-parse --show-toplevel)/scripts/check-commits.mjs" --file "$1"
