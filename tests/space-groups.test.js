@@ -10,6 +10,7 @@ import {
   FLIP_WINDOW,
   groupMenu,
   groupOf,
+  guardStamp,
   guardPaused,
   memberKey,
   moveGroup,
@@ -20,6 +21,7 @@ import {
   sections,
   setMember,
   sortRows,
+  stickyKey,
 } from "../lib/space-groups.js";
 
 const EMPTY = { groups: [], members: {} };
@@ -221,4 +223,24 @@ test("groupMenu: the group popup rows, without moves past the edges", () => {
   assert.deepEqual(groupMenu(store, "gone"), []);
   assert.deepEqual(groupMenu(store, "B").map((item) => item.label), ["Add spaces…", "Rename", "Move up", "Move down", "Delete group"]);
   assert.deepEqual(groupMenu(addGroup(EMPTY, "Only", "o"), "o").map((item) => item.id), ["add", "rename", "delete"]);
+});
+
+test("stickyKey: keeps the last repo key while git for the current folder is unknown", () => {
+  const repo = JSON.stringify([null, "/home/test/example-repo/.git"]);
+  const space = JSON.stringify(["space", "s1"]);
+  assert.equal(stickyKey({ id: "s1" }, { repo }, undefined), repo);
+  assert.equal(stickyKey({ id: "s1" }, undefined, repo), repo);
+  assert.equal(stickyKey({ id: "s1" }, undefined, undefined), space);
+  assert.equal(stickyKey({ id: "s1" }, null, repo), space);
+});
+
+test("guardStamp: changes with a membership key or the nesting, not with Herdr's order", () => {
+  const store = two();
+  const a = { w: { id: "a" }, g: null, tree: null };
+  const b = { w: { id: "b" }, g: { repo: "rb" }, tree: null };
+  const stamp = guardStamp(store, [a, b], keyOf);
+  assert.equal(guardStamp(store, [b, a], keyOf), stamp);
+  assert.notEqual(guardStamp(store, [a, { ...b, g: null }], keyOf), stamp);
+  assert.notEqual(guardStamp(store, [a, { ...b, tree: "└─" }], keyOf), stamp);
+  assert.notEqual(guardStamp(setMember(store, "rb", "A"), [a, b], keyOf), stamp);
 });

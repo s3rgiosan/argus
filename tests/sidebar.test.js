@@ -90,7 +90,7 @@ function parses(source) {
 const HOOKS = [
   'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton } from "./space-groups-view.js";',
   "    argusInit(this);",
-  "    out.splice(0, out.length, ...argusSort(this, out, sp));",
+  "    out.splice(0, out.length, ...argusSort(this, out, sp, (w) => this.git[where(w, ps)]));",
   "      const argus = argusSections(this, rows, draw, t, collapsed, null);\n      this.activeAt = argus.active;\n      return argus.items;",
   "      const argusMine = argusSections(this, mine, draw, t, collapsed, m);\n      const items = [cell(head), ...guidance, ...(folded ? [] : mine.length ? argusMine.items :",
   "      const first = folded ? -1 : argusMine.active;",
@@ -113,6 +113,8 @@ const ANCHORS = [
   ['import { spaces, machines, panes, run, openOverlay, shared, setShared } from "herdr";', 'import { spaces, machines, panes, run, openOverlay, shared, setShared } from "herdr-kit";'],
   ["    this.machines = [];", "    this.machines = new Array();"],
   ["    const order = sp.map(w => w.id);", "    const order = sp.map((w) => w.id);"],
+  ["const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);", "const whereOf = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);"],
+  ["    const sp = spaces(), ps = panes();", "    const sp = spaces(), panesNow = panes();"],
   ["      this.activeAt = rows.findIndex(r => r.w.active);", "      this.activeAt = rows.findIndex((r) => r.w.active);"],
   ["      return rows.map(draw);", "      return rows.map((r) => draw(r));"],
   ["mine.length ? mine.map(draw) :", "mine.length ? mine.map((r) => draw(r)) :"],

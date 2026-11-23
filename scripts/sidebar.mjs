@@ -118,6 +118,9 @@ const ANCHORS = {
   herdrImport: (text) => HERDR_IMPORT.test(text),
   init: (text) => text === "this.machines = [];",
   sort: (text) => text === "const order = sp.map(w => w.id);",
+  // The sort hook reads the git info of a space with `where(w, ps)` in `ordered()`.
+  where: (text) => text.startsWith("const where = (s, ps) =>"),
+  spacesAndPanes: (text) => text === "const sp = spaces(), ps = panes();",
   localActive: (text) => text === "this.activeAt = rows.findIndex(r => r.w.active);",
   localReturn: (text) => text === "return rows.map(draw);",
   remoteItems: (text) => text.startsWith(ITEMS_START) && text.includes(ITEMS_DRAW),
@@ -150,7 +153,7 @@ export function addGroups(source) {
   const replace = new Map();
   after.set(at.herdrImport, [GROUPS_IMPORT]);
   after.set(at.init, [`${indent(at.init)}argusInit(this);`]);
-  before.set(at.sort, [`${indent(at.sort)}out.splice(0, out.length, ...argusSort(this, out, sp));`]);
+  before.set(at.sort, [`${indent(at.sort)}out.splice(0, out.length, ...argusSort(this, out, sp, (w) => this.git[where(w, ps)]));`]);
   const local = indent(at.localActive);
   replace.set(at.localActive, [
     `${local}const argus = argusSections(this, rows, draw, t, collapsed, null);`,

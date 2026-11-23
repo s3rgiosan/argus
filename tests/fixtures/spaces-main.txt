@@ -3,6 +3,9 @@
 import { View, div, svg } from "gpui-kit";
 import { spaces, machines, panes, run, openOverlay, shared, setShared } from "herdr";
 
+const place = (s, ps) => ps.find((p) => p.cwd)?.cwd || s.folder;
+const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);
+
 export default class Spaces extends View {
   init(_props, cx) {
     this.shown = new Set();

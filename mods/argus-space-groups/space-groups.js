@@ -346,3 +346,35 @@ export function groupMenu(store, id) {
     { id: "delete", label: "Delete group" },
   ];
 }
+
+/**
+ * The membership key of a space while its git info can be unknown for a
+ * moment. A `cd` gives the space a new folder, and git for it is read after a
+ * short delay; until then the space keeps its last repo key, so it does not
+ * jump to No group and back.
+ *
+ * @param {{ id: string }} space
+ * @param {{ repo?: unknown } | null | undefined} git The sidebar's git info: undefined while unknown, null for no repo.
+ * @param {string | undefined} previous The space's last repo key.
+ * @returns {string}
+ */
+export function stickyKey(space, git, previous) {
+  if (git === undefined && previous !== undefined) return previous;
+  return memberKey(space, git ?? null);
+}
+
+/**
+ * The stamp of one machine for `guardPaused`: the groups, and each space with
+ * its membership key and its nesting. It leaves out Herdr's order, so only an
+ * order change counts as a flip, not a change this app makes to its own target.
+ *
+ * @template {{ w: { id: string }, tree?: string | null }} Row
+ * @param {Store} store
+ * @param {Row[]} rows The rows of one machine.
+ * @param {(row: Row) => string} keyOf
+ * @returns {string}
+ */
+export function guardStamp(store, rows, keyOf) {
+  const spaces = rows.map((row) => JSON.stringify([row.w.id, keyOf(row), Boolean(row.tree)])).sort();
+  return JSON.stringify([store, spaces]);
+}

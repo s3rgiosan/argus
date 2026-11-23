@@ -3,7 +3,7 @@
 // spaces checklist and the group name field.
 
 import { View } from "gpui-kit";
-import { v_flex } from "gpui-base";
+import { h_flex, v_flex } from "gpui-base";
 import { spaces, theme, shared, setShared, props, openOverlay, closeOverlay, checking, readTextFile, appHome } from "herdr";
 import {
   GROUP_POPUP,
@@ -186,7 +186,8 @@ export default class SpaceGroups extends View {
       .gap(4)
       .bg(t.popover)
       .text_color(t.foreground)
-      .child(field(t, "name", this.nameInput, this.focused === "name"))
+      // `field` grows along its parent's axis, so a row keeps it 32 px tall.
+      .child(h_flex().child(field(t, "name", this.nameInput, this.focused === "name")))
       .when(this.error !== null, (el) => el.child(errorLine(t, this.error)));
   }
 
