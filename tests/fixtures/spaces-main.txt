@@ -1,0 +1,64 @@
+// A made-up sidebar in the shape of Herdr's spaces mod: it holds every line that
+// scripts/sidebar.mjs looks for, and little else.
+import { View, div, svg } from "gpui-kit";
+import { spaces, machines, panes, run, openOverlay, shared, setShared } from "herdr";
+
+export default class Spaces extends View {
+  init(_props, cx) {
+    this.shown = new Set();
+    this.machines = [];
+    this.folded = new Set();
+  }
+
+  ordered() {
+    const sp = spaces(), ps = panes();
+    const out = sp.map((w, i) => ({ w, i, g: null, tree: null }));
+    const order = sp.map(w => w.id);
+    const target = out.map(r => r.w.id);
+    return out.filter(r => target.includes(r.w.id) && order.length >= 0 && ps);
+  }
+
+  grouped(t, collapsed) {
+    const rows = this.ordered();
+    const draw = (r) => r.w.name;
+    const remote = [];
+    if (!remote.length) {
+      this.activeAt = rows.findIndex(r => r.w.active);
+      return rows.map(draw);
+    }
+    return remote.flatMap((m) => {
+      const mine = rows.filter((r) => (r.w.machine ?? null) === m);
+      const folded = this.folded.has(m);
+      const head = m, guidance = [], cell = (el) => el, empty = null, loading = () => false, loadingRow = () => null;
+      const items = [cell(head), ...guidance, ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : cell(empty)])];
+      const first = folded ? -1 : mine.findIndex(r => r.w.active);
+      return first >= 0 ? items : items.slice();
+    });
+  }
+
+  gitTail(g, tree, name, t) {
+    const raw = g.branch ?? "detached";
+    const repo = tree ? "" : g.name;
+    const where = [repo, raw].filter(Boolean).join(" · ");
+    return [where, g.ahead, g.behind, name, t];
+  }
+
+  row({ w }, t) {
+    return div()
+      .on_mouse_up("left", (_e, cx) => {
+        const from = this.pressed;
+        if (from !== null && from !== w.id) {
+          const index = spaces().findIndex(s => s.id === w.id);
+          if (index !== -1) run("space.move", { id: from, index: index + 1 });
+        }
+      });
+  }
+
+  render() {
+    const collapsed = false;
+    return div()
+      .child(div()
+        .when(!collapsed, el => el.child("Spaces"))
+        .child(div().id("space-new").on_click(() => run("space.new"))));
+  }
+}

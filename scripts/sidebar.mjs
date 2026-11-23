@@ -43,7 +43,7 @@ export function patchSidebar(source) {
 
   const [line, indent] = wheres[0];
   const at = start + wheres[0].index;
-  const patched = `${indent}// Argus leaves out the repo and branch text; the ahead and behind counts stay. The locals above\n${indent}// stay unused, so the copy differs from Herdr's sidebar on this line only.\n${indent}const where = "";`;
+  const patched = `${indent}// Argus leaves out the repo and branch text; the ahead and behind counts stay.\n${indent}// The locals above stay unused.\n${indent}const where = "";`;
   return source.slice(0, at) + patched + source.slice(at + line.length);
 }
 
@@ -85,4 +85,87 @@ export function useSidebar(layout, mod) {
   };
   visit(out);
   return out;
+}
+
+/** Herdr's sidebar no longer has the lines the groups hooks need. */
+export class GroupsError extends Error {
+  constructor(reason) {
+    super(`the groups hooks do not apply (${reason})`);
+    this.name = "GroupsError";
+  }
+}
+
+/** The files the copy with groups needs next to its `main.js`: copy path to repo path. */
+export const GROUP_FILES = {
+  "space-groups.js": "lib/space-groups.js",
+  "space-groups-view.js": "lib/space-groups-view.js",
+  "icons/ellipsis.svg": "mods/argus-space-groups/icons/ellipsis.svg",
+  "icons/LICENSE-Lucide.txt": "mods/argus-space-groups/icons/LICENSE-Lucide.txt",
+};
+
+const GROUPS_IMPORT = 'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton } from "./space-groups-view.js";';
+const HERDR_IMPORT = /^import \{[^}]*\} from "herdr";$/;
+const ITEMS_START = "const items = [cell(head),";
+const ITEMS_DRAW = "mine.length ? mine.map(draw) :";
+
+/**
+ * The lines of each anchor, found by their trimmed text. Each anchor must be
+ * on exactly one line.
+ */
+const ANCHORS = {
+  herdrImport: (text) => HERDR_IMPORT.test(text),
+  init: (text) => text === "this.machines = [];",
+  sort: (text) => text === "const order = sp.map(w => w.id);",
+  localActive: (text) => text === "this.activeAt = rows.findIndex(r => r.w.active);",
+  localReturn: (text) => text === "return rows.map(draw);",
+  remoteItems: (text) => text.startsWith(ITEMS_START) && text.includes(ITEMS_DRAW),
+  remoteFirst: (text) => text === "const first = folded ? -1 : mine.findIndex(r => r.w.active);",
+  drop: (text) => text === "const index = spaces().findIndex(s => s.id === w.id);",
+  title: (text) => text.startsWith('.child(div().id("space-new")'),
+};
+
+/**
+ * The patched sidebar source with the space groups hooks: one-line calls into
+ * `space-groups-view.js`, which `build-layout` writes next to the copy. Every
+ * hook applies, or none does.
+ *
+ * @param {string} source The sidebar source after `patchSidebar`.
+ * @returns {string}
+ * @throws {GroupsError} When an anchor is missing or is on more than one line.
+ */
+export function addGroups(source) {
+  const lines = source.split("\n");
+  const at = {};
+  for (const [name, matches] of Object.entries(ANCHORS)) {
+    const found = lines.flatMap((line, i) => (matches(line.trim()) ? [i] : []));
+    if (found.length !== 1) throw new GroupsError(`expected one ${name} line, found ${found.length}`);
+    at[name] = found[0];
+  }
+  if (at.localReturn !== at.localActive + 1) throw new GroupsError("the local return does not follow the active row");
+  const indent = (i) => lines[i].match(/^[ \t]*/)[0];
+  const before = new Map();
+  const after = new Map();
+  const replace = new Map();
+  after.set(at.herdrImport, [GROUPS_IMPORT]);
+  after.set(at.init, [`${indent(at.init)}argusInit(this);`]);
+  before.set(at.sort, [`${indent(at.sort)}out.splice(0, out.length, ...argusSort(this, out, sp));`]);
+  const local = indent(at.localActive);
+  replace.set(at.localActive, [
+    `${local}const argus = argusSections(this, rows, draw, t, collapsed, null);`,
+    `${local}this.activeAt = argus.active;`,
+    `${local}return argus.items;`,
+  ]);
+  replace.set(at.localReturn, []);
+  before.set(at.remoteItems, [`${indent(at.remoteItems)}const argusMine = argusSections(this, mine, draw, t, collapsed, m);`]);
+  replace.set(at.remoteItems, [lines[at.remoteItems].replace("mine.map(draw)", "argusMine.items")]);
+  replace.set(at.remoteFirst, [`${indent(at.remoteFirst)}const first = folded ? -1 : argusMine.active;`]);
+  before.set(at.drop, [`${indent(at.drop)}argusDropOnRow(this, from, w);`]);
+  before.set(at.title, [`${indent(at.title)}.when(!collapsed, el => el.child(argusNewGroupButton(this, t)))`]);
+  const out = [];
+  lines.forEach((line, i) => {
+    out.push(...(before.get(i) ?? []));
+    out.push(...(replace.has(i) ? replace.get(i) : [line]));
+    out.push(...(after.get(i) ?? []));
+  });
+  return out.join("\n");
 }
