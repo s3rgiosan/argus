@@ -5,6 +5,17 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- The Argus sidebar has space groups, such as "Personal" and "Work". A New group button in its title row makes one, and each group gets a header that folds. Spaces without a group show under "No group".
+- A new mod, `argus-space-groups`, holds the group popups. The options button on a group header (or a right-click) opens Add spaces…, Rename, Move up, Move down and Delete group.
+- A drag of a space onto a group header, or onto a space in another group, puts it in that group.
+- A group belongs to the repo of a space, so worktree spaces stay with their repo and a repo that opens again comes back in its group. A space outside any repo is grouped on its own until it closes.
+- Herdr's space order follows the groups, so the rail numbers match the sidebar. When two Herdr apps with different groups move the same spaces back and forth, the sidebar stops sorting that machine until the groups or its spaces change.
+- `scripts/build-layout.mjs` prints "the sidebar has no groups" and writes the sidebar copy without groups when the group hooks no longer fit Herdr's sidebar.
+
 ## [1.13.0] - 2026-11-22
 
 ### Added
