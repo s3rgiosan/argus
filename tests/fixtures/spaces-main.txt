@@ -15,7 +15,8 @@ export default class Spaces extends View {
 
   ordered() {
     const sp = spaces(), ps = panes();
-    const out = sp.map((w, i) => ({ w, i, g: null, tree: null }));
+    const out = [];
+    for (const [i, w] of sp.entries()) out.push({ w, i, g: null, tree: null });
     const order = sp.map(w => w.id);
     const target = out.map(r => r.w.id);
     return out.filter(r => target.includes(r.w.id) && order.length >= 0 && ps);
@@ -29,7 +30,8 @@ export default class Spaces extends View {
       this.activeAt = rows.findIndex(r => r.w.active);
       return rows.map(draw);
     }
-    return remote.flatMap((m) => {
+    const machineNames = [null, ...remote];
+    return machineNames.flatMap((m) => {
       const mine = rows.filter((r) => (r.w.machine ?? null) === m);
       const folded = this.folded.has(m);
       const head = m, guidance = [], cell = (el) => el, empty = null, loading = () => false, loadingRow = () => null;
@@ -58,7 +60,8 @@ export default class Spaces extends View {
   }
 
   render() {
-    const collapsed = false;
+    const t = theme();
+    const collapsed = narrow();
     return div()
       .child(div()
         .when(!collapsed, el => el.child("Spaces"))

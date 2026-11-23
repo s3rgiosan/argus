@@ -320,6 +320,10 @@ const GROUP_COPIES = {
   "ui.js": "lib/ui.js",
   "icons/ellipsis.svg": "mods/argus-space-groups/icons/ellipsis.svg",
   "icons/LICENSE-Lucide.txt": "mods/argus-space-groups/icons/LICENSE-Lucide.txt",
+  "icons.js": "lib/icons.js",
+  "icons/folder-plus.svg": "mods/argus-space-groups/icons/folder-plus.svg",
+  "icons/chevron-down.svg": "mods/argus-space-groups/icons/chevron-down.svg",
+  "icons/chevron-right.svg": "mods/argus-space-groups/icons/chevron-right.svg",
 };
 
 test("sidebar: writes the groups files with the copy", () => {

@@ -89,10 +89,10 @@ function parses(source) {
 
 const HOOKS = [
   'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton } from "./space-groups-view.js";',
-  "    argusInit(this);",
+  "    argusInit(this, cx);",
   "    out.splice(0, out.length, ...argusSort(this, out, sp, (w) => this.git[where(w, ps)]));",
   "      const argus = argusSections(this, rows, draw, t, collapsed, null);\n      this.activeAt = argus.active;\n      return argus.items;",
-  "      const argusMine = argusSections(this, mine, draw, t, collapsed, m);\n      const items = [cell(head), ...guidance, ...(folded ? [] : mine.length ? argusMine.items :",
+  "      const argusMine = argusSections(this, mine, draw, t, collapsed, m);\n      const items = [cell(head), ...guidance, ...(folded ? [] : argusMine.items.length ? argusMine.items :",
   "      const first = folded ? -1 : argusMine.active;",
   "          argusDropOnRow(this, from, w);\n          const index = spaces().findIndex(s => s.id === w.id);",
   "        .when(!collapsed, el => el.child(argusNewGroupButton(this, t)))\n        .child(div().id(\"space-new\")",
@@ -104,6 +104,7 @@ test("addGroups: adds every hook", () => {
   assert.doesNotMatch(out, /mine\.map\(draw\)/);
   assert.doesNotMatch(out, /return rows\.map\(draw\);/);
   assert.doesNotMatch(out, /mine\.findIndex/);
+  assert.doesNotMatch(out, /mine\.length \?/);
   assert.match(out, /^    const where = "";$/m);
   assert.ok(parses(out));
 });
@@ -115,6 +116,13 @@ const ANCHORS = [
   ["    const order = sp.map(w => w.id);", "    const order = sp.map((w) => w.id);"],
   ["const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);", "const whereOf = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);"],
   ["    const sp = spaces(), ps = panes();", "    const sp = spaces(), panesNow = panes();"],
+  ["  init(_props, cx) {", "  init(_props, context) {"],
+  ["    const out = [];", "    const rows = [];"],
+  ["  grouped(t, collapsed) {", "  grouped(theme, narrowed) {"],
+  ["    return machineNames.flatMap((m) => {", "    return machineNames.flatMap((machine) => {"],
+  ["        const from = this.pressed;", "        const source = this.pressed;"],
+  ["    const t = theme();", "    const colors = theme();"],
+  ["    const collapsed = narrow();", "    const rail = narrow();"],
   ["      this.activeAt = rows.findIndex(r => r.w.active);", "      this.activeAt = rows.findIndex((r) => r.w.active);"],
   ["      return rows.map(draw);", "      return rows.map((r) => draw(r));"],
   ["mine.length ? mine.map(draw) :", "mine.length ? mine.map((r) => draw(r)) :"],
@@ -141,7 +149,7 @@ test("addGroups: refuses a doubled anchor", () => {
 
 test("addGroups: a blank line before an anchor keeps the indent", () => {
   const out = addGroups(FIXTURE.replace("    this.machines = [];", "\n    this.machines = [];"));
-  assert.match(out, /\n\n    this\.machines = \[\];\n    argusInit\(this\);\n/);
+  assert.match(out, /\n\n    this\.machines = \[\];\n    argusInit\(this, cx\);\n/);
 });
 
 test("addGroups: the error names the hooks", () => {
@@ -156,5 +164,9 @@ test("GROUP_FILES: the copy's extra files and their repo sources", () => {
     "ui.js": "lib/ui.js",
     "icons/ellipsis.svg": "mods/argus-space-groups/icons/ellipsis.svg",
     "icons/LICENSE-Lucide.txt": "mods/argus-space-groups/icons/LICENSE-Lucide.txt",
+    "icons.js": "lib/icons.js",
+    "icons/folder-plus.svg": "mods/argus-space-groups/icons/folder-plus.svg",
+    "icons/chevron-down.svg": "mods/argus-space-groups/icons/chevron-down.svg",
+    "icons/chevron-right.svg": "mods/argus-space-groups/icons/chevron-right.svg",
   });
 });

@@ -103,6 +103,10 @@ export const GROUP_FILES = {
   "ui.js": "lib/ui.js",
   "icons/ellipsis.svg": "mods/argus-space-groups/icons/ellipsis.svg",
   "icons/LICENSE-Lucide.txt": "mods/argus-space-groups/icons/LICENSE-Lucide.txt",
+  "icons.js": "lib/icons.js",
+  "icons/folder-plus.svg": "mods/argus-space-groups/icons/folder-plus.svg",
+  "icons/chevron-down.svg": "mods/argus-space-groups/icons/chevron-down.svg",
+  "icons/chevron-right.svg": "mods/argus-space-groups/icons/chevron-right.svg",
 };
 
 const GROUPS_IMPORT = 'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton } from "./space-groups-view.js";';
@@ -121,6 +125,14 @@ const ANCHORS = {
   // The sort hook reads the git info of a space with `where(w, ps)` in `ordered()`.
   where: (text) => text.startsWith("const where = (s, ps) =>"),
   spacesAndPanes: (text) => text === "const sp = spaces(), ps = panes();",
+  // The names the hook lines use, so a rename in Herdr refuses the hooks.
+  initCx: (text) => text === "init(_props, cx) {",
+  outList: (text) => text === "const out = [];",
+  groupedArgs: (text) => text === "grouped(t, collapsed) {",
+  machineArg: (text) => text === "return machineNames.flatMap((m) => {",
+  dragFrom: (text) => text === "const from = this.pressed;",
+  renderTheme: (text) => text === "const t = theme();",
+  renderCollapsed: (text) => text === "const collapsed = narrow();",
   localActive: (text) => text === "this.activeAt = rows.findIndex(r => r.w.active);",
   localReturn: (text) => text === "return rows.map(draw);",
   remoteItems: (text) => text.startsWith(ITEMS_START) && text.includes(ITEMS_DRAW),
@@ -152,7 +164,7 @@ export function addGroups(source) {
   const after = new Map();
   const replace = new Map();
   after.set(at.herdrImport, [GROUPS_IMPORT]);
-  after.set(at.init, [`${indent(at.init)}argusInit(this);`]);
+  after.set(at.init, [`${indent(at.init)}argusInit(this, cx);`]);
   before.set(at.sort, [`${indent(at.sort)}out.splice(0, out.length, ...argusSort(this, out, sp, (w) => this.git[where(w, ps)]));`]);
   const local = indent(at.localActive);
   replace.set(at.localActive, [
@@ -162,7 +174,8 @@ export function addGroups(source) {
   ]);
   replace.set(at.localReturn, []);
   before.set(at.remoteItems, [`${indent(at.remoteItems)}const argusMine = argusSections(this, mine, draw, t, collapsed, m);`]);
-  replace.set(at.remoteItems, [lines[at.remoteItems].replace("mine.map(draw)", "argusMine.items")]);
+  // The group headers show also when this machine has no spaces, so an empty group stays reachable.
+  replace.set(at.remoteItems, [lines[at.remoteItems].replace(ITEMS_DRAW, "argusMine.items.length ? argusMine.items :")]);
   replace.set(at.remoteFirst, [`${indent(at.remoteFirst)}const first = folded ? -1 : argusMine.active;`]);
   before.set(at.drop, [`${indent(at.drop)}argusDropOnRow(this, from, w);`]);
   before.set(at.title, [`${indent(at.title)}.when(!collapsed, el => el.child(argusNewGroupButton(this, t)))`]);
