@@ -12,14 +12,14 @@ const MISSING = "argus.json does not exist yet. Save creates it.";
 const UNSAVED = "Unsaved changes";
 
 /**
- * Whether the editor text differs from the file. A file that does not exist
- * (`base` null) always has unsaved text.
+ * Whether the editor text has edits: it differs from the file, or from the
+ * template when the file does not exist (`base` null).
  *
  * @param {string} value The editor text.
  * @param {string | null} base The file text at the last read or save, or null.
  */
 export function isDirty(value, base) {
-  return base === null || value !== base;
+  return value !== (base ?? TEMPLATE);
 }
 
 /**

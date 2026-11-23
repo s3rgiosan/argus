@@ -25,6 +25,8 @@ export default class ArgusSettings extends View {
     this.error = null;
     this.asking = false;
     this.saving = false;
+    // A read runs; Save and Revert wait for it.
+    this.loading = false;
     this.saved = null;
     this.load(cx);
   }
@@ -36,6 +38,7 @@ export default class ArgusSettings extends View {
 
   /** Reads the file into the editor: its text, or the template when it is missing. */
   load(cx) {
+    this.loading = true;
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       try {
@@ -46,8 +49,12 @@ export default class ArgusSettings extends View {
         if (this.state) this.state.set_value(value);
         else this.state = this.editor(value);
       } catch (error) {
-        this.loadError = `Could not read ${FILE} (${error instanceof Error ? error.message : String(error)})`;
+        const message = `Could not read ${FILE} (${error instanceof Error ? error.message : String(error)})`;
+        // With an editor on screen, the reason goes to the status line.
+        if (this.state) this.error = message;
+        else this.loadError = message;
       } finally {
+        this.loading = false;
         this.loaded = true;
         cx.notify();
       }
@@ -77,7 +84,7 @@ export default class ArgusSettings extends View {
 
   /** Checks the text, then writes it only when the file still holds the text last read. */
   save(cx) {
-    if (!this.state || this.saving) return;
+    if (!this.state || this.saving || this.loading) return;
     const text = this.state.value();
     const expected = this.base;
     this.asking = false;
@@ -113,6 +120,7 @@ export default class ArgusSettings extends View {
 
   /** Reloads the file. With unsaved changes, the first click asks and the second reloads. */
   revert(cx) {
+    if (this.saving || this.loading) return;
     if (revertStep(this.dirty(), this.asking) === "ask") {
       this.asking = true;
       cx.notify();
@@ -130,6 +138,7 @@ export default class ArgusSettings extends View {
     const path = div().min_w(0).truncate().text_size(12).text_color(t.dim).child(tildePath(this.path, home()));
     const status = statusText({ base: this.base, dirty: this.dirty(), asking: this.asking, problems: this.problems, saved: this.saved, error: this.error });
     const font = settings();
+    const busy = this.saving || this.loading;
     let body;
     if (this.state) {
       body = Editor.new(this.state).font_family(font.font_family).text_size(font.font_size).flex_1().min_h(0);
@@ -149,8 +158,8 @@ export default class ArgusSettings extends View {
               .text_color(status.level === "error" ? t.blocked : t.dim)
               .children(status.text.split("\n").filter(Boolean).map((line) => div().whitespace_normal().child(line))),
           )
-          .child(button(t, "argus-settings-revert", "Revert", (_e, cx) => this.revert(cx)))
-          .child(button(t, "argus-settings-save", this.saving ? "Saving…" : "Save", (_e, cx) => this.save(cx), { primary: true, enabled: Boolean(this.state) && !this.saving })),
+          .child(button(t, "argus-settings-revert", "Revert", (_e, cx) => this.revert(cx), { enabled: !busy }))
+          .child(button(t, "argus-settings-save", this.saving ? "Saving…" : "Save", (_e, cx) => this.save(cx), { primary: true, enabled: Boolean(this.state) && !busy })),
       );
   }
 }

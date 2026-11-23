@@ -7,10 +7,14 @@ test("TEMPLATE: the default toolbar display, with a final newline", () => {
   assert.ok(TEMPLATE.endsWith("}\n"));
 });
 
-test("isDirty: text that differs from the last read, and a file not saved yet", () => {
+test("isDirty: text that differs from the last read", () => {
   assert.equal(isDirty("{}", "{}"), false);
   assert.equal(isDirty("{ }", "{}"), true);
-  assert.equal(isDirty(TEMPLATE, null), true);
+});
+
+test("isDirty: with no file, only an edited template is dirty", () => {
+  assert.equal(isDirty(TEMPLATE, null), false);
+  assert.equal(isDirty("{}", null), true);
 });
 
 test("revertStep: asks first only when there are unsaved changes", () => {
