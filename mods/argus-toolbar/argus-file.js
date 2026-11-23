@@ -1,0 +1,129 @@
+// Reads and checks the settings in `argus.json`, the file in Herdr's app folder
+// that people edit by hand. No Herdr imports, so Node can test it.
+
+import { expandHome } from "./paths.js";
+
+/** @typedef {{key: string, instructions: string|null, promptFile: string|null}} AccountSettings */
+
+/** The ways a button shows: icon only, label only, or both. */
+export const DISPLAYS = ["icons", "labels", "both"];
+/** Errors that leave the other setting valid. */
+export const ORDER_ERROR = "toolbar.order is not a list";
+export const DISPLAY_ERROR = 'toolbar.display is not "icons", "labels" or "both"';
+/**
+ * The toolbar settings in the text of `argus.json`:
+ * `{ "toolbar": { "order": [ids], "display": "icons" | "labels" | "both" } }`.
+ * A missing, empty or blank file, or a missing key, gives the defaults
+ * (`order: null`, `display: "both"`). Text that is not JSON gives the
+ * defaults and an `error`. A value of the wrong type or an unknown `display`
+ * gives an `error` and the default for that setting only; the other setting
+ * keeps its valid value.
+ *
+ * @param {string | null | undefined} text
+ * @returns {{ order: string[] | null, display: "icons" | "labels" | "both", error: string | null }}
+ */
+export function toolbarSettings(text) {
+  const result = { order: null, display: "both", error: null };
+  if (text === null || text === undefined || text.trim() === "") return result;
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    return { ...result, error: error.message };
+  }
+  if (!isObject(data)) return { ...result, error: "the file is not an object" };
+  if (!("toolbar" in data)) return result;
+  const toolbar = data.toolbar;
+  if (!isObject(toolbar)) return { ...result, error: "toolbar is not an object" };
+  if ("order" in toolbar) {
+    if (Array.isArray(toolbar.order)) result.order = toolbar.order.filter((id) => typeof id === "string" && id !== "");
+    else result.error = ORDER_ERROR;
+  }
+  if ("display" in toolbar) {
+    if (DISPLAYS.includes(toolbar.display)) result.display = toolbar.display;
+    else result.error ??= DISPLAY_ERROR;
+  }
+  return result;
+}
+
+/**
+ * The review settings from the text of `argus.json`: `pullRequests.review.instructions`, text
+ * added to every review prompt, `pullRequests.review.promptFile`, a file whose text replaces
+ * the built-in prompt, and `pullRequests.review.accounts`, the same two settings per Claude Code
+ * account folder. `accounts` is keyed by the folder with `~` expanded and has no prototype; each entry
+ * keeps its key as written. A key must be non-empty and expand to an absolute folder, and no two keys
+ * may expand to the same folder. A missing file or key gives none and no error.
+ * @param {string|null} text
+ * @param {string} [home]
+ * @returns {{instructions: string|null, promptFile: string|null, accounts: Record<string, AccountSettings>, error: string|null}}
+ */
+export function reviewInstructions(text, home = "") {
+  const none = { instructions: null, promptFile: null, accounts: {}, error: null };
+  if (text === null || text === undefined || text.trim() === "") return none;
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    return { ...none, error: `argus.json is not valid JSON (${error instanceof Error ? error.message : String(error)})` };
+  }
+  const review = data?.pullRequests?.review;
+  // Reads one text value of an object: null when missing or empty.
+  const read = (source, key, name) => {
+    const value = source?.[key];
+    if (value === undefined || value === null) return { value: null };
+    if (typeof value !== "string") return { error: `${name} is not text` };
+    const trimmed = value.trim();
+    return { value: trimmed === "" ? null : trimmed };
+  };
+  const instructions = read(review, "instructions", "pullRequests.review.instructions");
+  if (instructions.error) return { ...none, error: instructions.error };
+  const promptFile = read(review, "promptFile", "pullRequests.review.promptFile");
+  if (promptFile.error) return { ...none, error: promptFile.error };
+  const accounts = Object.create(null);
+  const raw = review?.accounts;
+  if (raw !== undefined && raw !== null) {
+    if (typeof raw !== "object" || Array.isArray(raw)) return { ...none, error: "pullRequests.review.accounts is not an object" };
+    /** @type {Map<string, string>} */
+    const named = new Map();
+    for (const [key, entry] of Object.entries(raw)) {
+      const name = `pullRequests.review.accounts[${JSON.stringify(key)}]`;
+      const folder = expandHome(key, home);
+      if (key.trim() === "") return { ...none, error: "pullRequests.review.accounts has an empty key." };
+      if (key === "__proto__") return { ...none, error: `${name} is not a valid key.` };
+      if (!folder.startsWith("/")) return { ...none, error: `${name} must be an absolute or ~/ folder.` };
+      if (named.has(folder)) return { ...none, error: `${named.get(folder)} and ${name} name the same account folder.` };
+      named.set(folder, name);
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return { ...none, error: `${name} is not an object` };
+      const text = read(entry, "instructions", `${name}.instructions`);
+      if (text.error) return { ...none, error: text.error };
+      const file = read(entry, "promptFile", `${name}.promptFile`);
+      if (file.error) return { ...none, error: file.error };
+      accounts[folder] = { key, instructions: text.value, promptFile: file.value };
+    }
+  }
+  return { instructions: instructions.value, promptFile: promptFile.value, accounts, error: null };
+}
+
+/**
+ * The problems in the text of `argus.json`, one line each, with the same rules
+ * that the mods use when they read the file. Blank text has no problems,
+ * because the mods then use the defaults.
+ *
+ * @param {string} text
+ * @param {string} home
+ * @returns {string[]} Empty when the text is good.
+ */
+export function checkArgusFile(text, home) {
+  if (text.trim() === "") return [];
+  try {
+    JSON.parse(text);
+  } catch (error) {
+    return [`argus.json is not valid JSON (${error instanceof Error ? error.message : String(error)})`];
+  }
+  const errors = [toolbarSettings(text).error, reviewInstructions(text, home).error];
+  return errors.filter((error) => error !== null);
+}
+
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

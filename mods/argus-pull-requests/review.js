@@ -13,7 +13,7 @@ import { fetchRef } from "./forge.js";
 /**
  * @typedef {{key: string, name: string, icon: string|null, tint: boolean, agent: boolean, installed: boolean, run: string[]}} KnownAgent
  * @typedef {{id: string, label: string, argv: string[], model: boolean, icon: string|null, tint: boolean, folder: string|null}} Choice
- * @typedef {{key: string, instructions: string|null, promptFile: string|null}} AccountSettings
+ * @typedef {import("./argus-file.js").AccountSettings} AccountSettings
  */
 
 /** The agents that take `--model <name>`. Only Claude Code is checked live. */
@@ -114,64 +114,6 @@ export function reviewPlan({ localPath, root, branch }) {
     check: ["check-ref-format", "--branch", branch],
     add: ["worktree", "add", "-b", branch, path, "HEAD"],
   };
-}
-
-/**
- * The review settings from the text of `argus.json`: `pullRequests.review.instructions`, text
- * added to every review prompt, `pullRequests.review.promptFile`, a file whose text replaces
- * the built-in prompt, and `pullRequests.review.accounts`, the same two settings per Claude Code
- * account folder. `accounts` is keyed by the folder with `~` expanded and has no prototype; each entry
- * keeps its key as written. A key must be non-empty and expand to an absolute folder, and no two keys
- * may expand to the same folder. A missing file or key gives none and no error.
- * @param {string|null} text
- * @param {string} [home]
- * @returns {{instructions: string|null, promptFile: string|null, accounts: Record<string, AccountSettings>, error: string|null}}
- */
-export function reviewInstructions(text, home = "") {
-  const none = { instructions: null, promptFile: null, accounts: {}, error: null };
-  if (text === null || text === undefined || text.trim() === "") return none;
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (error) {
-    return { ...none, error: `argus.json is not valid JSON (${error instanceof Error ? error.message : String(error)})` };
-  }
-  const review = data?.pullRequests?.review;
-  // Reads one text value of an object: null when missing or empty.
-  const read = (source, key, name) => {
-    const value = source?.[key];
-    if (value === undefined || value === null) return { value: null };
-    if (typeof value !== "string") return { error: `${name} is not text` };
-    const trimmed = value.trim();
-    return { value: trimmed === "" ? null : trimmed };
-  };
-  const instructions = read(review, "instructions", "pullRequests.review.instructions");
-  if (instructions.error) return { ...none, error: instructions.error };
-  const promptFile = read(review, "promptFile", "pullRequests.review.promptFile");
-  if (promptFile.error) return { ...none, error: promptFile.error };
-  const accounts = Object.create(null);
-  const raw = review?.accounts;
-  if (raw !== undefined && raw !== null) {
-    if (typeof raw !== "object" || Array.isArray(raw)) return { ...none, error: "pullRequests.review.accounts is not an object" };
-    /** @type {Map<string, string>} */
-    const named = new Map();
-    for (const [key, entry] of Object.entries(raw)) {
-      const name = `pullRequests.review.accounts[${JSON.stringify(key)}]`;
-      const folder = expandHome(key, home);
-      if (key.trim() === "") return { ...none, error: "pullRequests.review.accounts has an empty key." };
-      if (key === "__proto__") return { ...none, error: `${name} is not a valid key.` };
-      if (!folder.startsWith("/")) return { ...none, error: `${name} must be an absolute or ~/ folder.` };
-      if (named.has(folder)) return { ...none, error: `${named.get(folder)} and ${name} name the same account folder.` };
-      named.set(folder, name);
-      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return { ...none, error: `${name} is not an object` };
-      const text = read(entry, "instructions", `${name}.instructions`);
-      if (text.error) return { ...none, error: text.error };
-      const file = read(entry, "promptFile", `${name}.promptFile`);
-      if (file.error) return { ...none, error: file.error };
-      accounts[folder] = { key, instructions: text.value, promptFile: file.value };
-    }
-  }
-  return { instructions: instructions.value, promptFile: promptFile.value, accounts, error: null };
 }
 
 /**

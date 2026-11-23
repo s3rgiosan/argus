@@ -12,7 +12,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { toolbarSettings } from "../mods/argus-toolbar/toolbar-logic.js";
+import { toolbarSettings } from "../lib/argus-file.js";
 import { PANE_HEADER, SHIPPED_HEADER, PaneHeaderError, ownsHeader, paneHeaderManifest, patchPaneHeader, useHeader } from "./pane-header.mjs";
 import { GROUP_FILES, GroupsError, SIDEBAR, SHIPPED_SIDEBAR, SidebarError, addGroups, ownsSidebar, sidebarManifest, patchSidebar, useSidebar } from "./sidebar.mjs";
 import { buildLayout, panelsFromManifests, planLayoutFile, planStateFile, ArgusBlocksError, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";

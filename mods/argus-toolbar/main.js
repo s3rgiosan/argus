@@ -7,7 +7,8 @@
 import { View, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { theme, props, layout, run, appHome, readTextFile, watchFolder, notify, checking } from "herdr";
-import { isOpen, clickCommands, toolbarSettings, waitAfter, badFileToast, measuredResize, POLL_MS } from "./toolbar-logic.js";
+import { toolbarSettings } from "./argus-file.js";
+import { isOpen, clickCommands, waitAfter, badFileToast, measuredResize, POLL_MS } from "./toolbar-logic.js";
 import { sortButtons } from "./order.js";
 
 const FILE = "argus.json";

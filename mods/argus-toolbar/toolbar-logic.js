@@ -1,11 +1,8 @@
 // What the toolbar shows as open and what a click does. No Herdr imports, so
 // Node can test it.
 
-/** The ways a button shows: icon only, label only, or both. */
-export const DISPLAYS = ["icons", "labels", "both"];
-/** Errors that leave the other setting valid. */
-const ORDER_ERROR = "toolbar.order is not a list";
-const DISPLAY_ERROR = 'toolbar.display is not "icons", "labels" or "both"';
+import { ORDER_ERROR, DISPLAY_ERROR } from "./argus-file.js";
+
 /** How long to wait for a burst of changes to end before reading the file. */
 export const SETTLE_MS = 300;
 /** How long to wait between reads when the folder watch is not available. */
@@ -41,42 +38,6 @@ export function clickCommands(tree, ids, target) {
     ["layout.select", { stack: ids.stack, child: target }],
     ["layout.show", { id: ids.panel }],
   ];
-}
-
-/**
- * The toolbar settings in the text of `argus.json`:
- * `{ "toolbar": { "order": [ids], "display": "icons" | "labels" | "both" } }`.
- * A missing, empty or blank file, or a missing key, gives the defaults
- * (`order: null`, `display: "both"`). Text that is not JSON gives the
- * defaults and an `error`. A value of the wrong type or an unknown `display`
- * gives an `error` and the default for that setting only; the other setting
- * keeps its valid value.
- *
- * @param {string | null | undefined} text
- * @returns {{ order: string[] | null, display: "icons" | "labels" | "both", error: string | null }}
- */
-export function toolbarSettings(text) {
-  const result = { order: null, display: "both", error: null };
-  if (text === null || text === undefined || text.trim() === "") return result;
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (error) {
-    return { ...result, error: error.message };
-  }
-  if (!isObject(data)) return { ...result, error: "the file is not an object" };
-  if (!("toolbar" in data)) return result;
-  const toolbar = data.toolbar;
-  if (!isObject(toolbar)) return { ...result, error: "toolbar is not an object" };
-  if ("order" in toolbar) {
-    if (Array.isArray(toolbar.order)) result.order = toolbar.order.filter((id) => typeof id === "string" && id !== "");
-    else result.error = ORDER_ERROR;
-  }
-  if ("display" in toolbar) {
-    if (DISPLAYS.includes(toolbar.display)) result.display = toolbar.display;
-    else result.error ??= DISPLAY_ERROR;
-  }
-  return result;
 }
 
 /**
@@ -130,9 +91,6 @@ export function badFileToast(error) {
   };
 }
 
-function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function find(node, id) {
   if (!node || typeof node !== "object") return null;

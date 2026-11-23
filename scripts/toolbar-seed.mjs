@@ -2,7 +2,7 @@
 // toolbar mod measures its buttons once it shows and resizes the block to
 // that width, so the estimate only has to be close.
 
-import { DISPLAYS } from "../mods/argus-toolbar/toolbar-logic.js";
+import { DISPLAYS } from "../lib/argus-file.js";
 
 /** The width of the toolbar's own padding. */
 const BAR_PAD = 10;

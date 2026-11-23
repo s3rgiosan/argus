@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewInstructions, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, removePlan, branchDelete, dirtyRefusal, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, accountSettings, prefillNext, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, quoted, DATA_START, DATA_END, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, removePlan, branchDelete, dirtyRefusal, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, accountSettings, prefillNext, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, quoted, DATA_START, DATA_END, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
+import { reviewInstructions } from "../lib/argus-file.js";
 
 const known = [
   { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true, agent: true, installed: true, run: ["claude"] },
