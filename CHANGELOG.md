@@ -5,6 +5,16 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A new mod, `argus-settings`, adds a Settings panel that shows `argus.json` in Herdr's code editor. Save checks the text with the rules the mods use and lists each problem. It does not overwrite a change made to the file by another program, and Revert reads the file again.
+
+### Changed
+
+- The `argus.json` checks of `argus-toolbar` and `argus-pull-requests` moved to `lib/argus-file.js`, with no change in behavior.
+
 ## [1.14.0] - 2026-11-23
 
 ### Added
