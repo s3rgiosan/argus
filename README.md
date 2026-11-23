@@ -14,7 +14,7 @@ Not affiliated with Herdr or Anthropic.
 | [`argus-issues`](mods/argus-issues/README.md) | GitHub and GitLab issues: an Issues panel with scopes (assigned to you, created by you, mentioning you, all open), groups by repo, assignee or label, and a filter, and a pane with the description, labels, assignees and comments, where New worktree starts a worktree for the issue. It writes nothing to GitHub or GitLab. |
 | [`argus-agents`](mods/argus-agents/README.md) | Overview: the agents that need you on one board, waiting on you, failed or finished, with folded lists of working, idle and older agents, and snooze and reopen. A finished agent stays until it works again or you snooze it. |
 | [`argus-space-groups`](mods/argus-space-groups/README.md) | Space groups: named groups of spaces in the Argus sidebar, such as "Personal" and "Work". Make, rename, move and delete groups from the group headers, and drag a space onto a group. A group belongs to the repo, so worktrees and reopened repos stay in it. |
-| [`argus-settings`](mods/argus-settings/README.md) | A Settings panel that edits `argus.json` in Herdr's code editor. Save checks the settings first and does not overwrite a change made on disk. |
+| [`argus-settings`](mods/argus-settings/README.md) | A Settings window that edits `argus.json` in Herdr's code editor, opened with `mod.open:argus-settings` from a key. Save checks the settings first and does not overwrite a change made on disk. |
 | [`argus-stay-awake`](mods/argus-stay-awake/README.md) | A coffee-cup button at the right end of the tab row that keeps the display awake. Right-click keeps it awake until no agent is working. |
 | [`argus-toolbar`](mods/argus-toolbar/README.md) | Buttons beside Herdr's tab bar that open this repo's panel mods in a panel on the right. |
 
@@ -59,7 +59,7 @@ Theme picks are kept per layout, so pick your theme once in `Argus`.
 
 ## Settings file
 
-Argus reads `~/.config/herdr-app/argus.json`. The install script does not create it. The Settings panel (`argus-settings`) shows the file and creates it on the first save. Without it, every setting has its default: the toolbar buttons sort A to Z by label and show an icon and a label.
+Argus reads `~/.config/herdr-app/argus.json`. The install script does not create it. The Settings window (`argus-settings`) shows the file and creates it on the first save. Without it, every setting has its default: the toolbar buttons sort A to Z by label and show an icon and a label.
 
 ```json
 { "toolbar": { "order": ["argus-tsk", "argus-claude-usage"], "display": "icons" } }

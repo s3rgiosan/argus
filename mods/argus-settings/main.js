@@ -1,6 +1,6 @@
-// The Settings panel: `argus.json` in Herdr's code editor. Save checks the
+// The Settings window: `argus.json` in Herdr's code editor. Save checks the
 // text with the rules the mods use, and writes only when the file on disk is
-// still the text the panel last read.
+// still the text the window last read.
 
 import { View, div } from "gpui-kit";
 import { v_flex, Editor, EditorState } from "gpui-base";
