@@ -25,6 +25,8 @@ test("plainVersion: drops a leading v and spaces", () => {
   assert.equal(plainVersion("v0.1.17"), "0.1.17");
   assert.equal(plainVersion(" 0.1.17 "), "0.1.17");
   assert.equal(plainVersion("herdr-app 0.1.17"), "0.1.17");
+  assert.equal(plainVersion("0.1.17-rc1"), "0.1.17");
+  assert.equal(plainVersion("herdr-app 0.1.17-rc1"), "0.1.17");
 });
 
 test("compareVersions: compares each number", () => {

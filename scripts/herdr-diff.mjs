@@ -14,7 +14,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { changelogSections, plainVersion, trackedChanges } from "./herdr-diff-lib.mjs";
+import { changelogSections, compareVersions, plainVersion, trackedChanges } from "./herdr-diff-lib.mjs";
 import * as paneHeader from "./pane-header.mjs";
 import * as sidebar from "./sidebar.mjs";
 
@@ -28,7 +28,10 @@ function fail(message) {
 const args = process.argv.slice(2);
 const option = (name) => {
   const at = args.indexOf(name);
-  return at >= 0 && args[at + 1] ? args[at + 1] : null;
+  if (at < 0) return null;
+  const value = args[at + 1];
+  if (!value || value.startsWith("-")) fail(`${name} needs a value`);
+  return value;
 };
 const from = option("--from");
 if (!from) fail("usage: node scripts/herdr-diff.mjs --from 0.1.16 [--to 0.1.17] [--repo <dir>]");
@@ -40,6 +43,7 @@ if (!to) {
     fail("cannot read the installed version; pass --to");
   }
 }
+if (compareVersions(from, to) >= 0) fail(`--from ${plainVersion(from)} is not older than --to ${plainVersion(to)}`);
 const repo = option("--repo") ?? join(tmpdir(), "argus-herdr-app");
 
 const git = (...gitArgs) => execFileSync("git", ["-C", repo, ...gitArgs], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });

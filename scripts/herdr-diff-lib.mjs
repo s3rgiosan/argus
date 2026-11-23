@@ -15,13 +15,14 @@ export const TRACKED = [
 ];
 
 /**
- * A version without a leading "v", a program name or spaces: "herdr-app 0.1.17" gives "0.1.17".
+ * A version without a leading "v", a program name, a suffix or spaces: "herdr-app 0.1.17" gives "0.1.17".
  *
  * @param {string} text
  * @returns {string}
  */
 export function plainVersion(text) {
-  const found = String(text).trim().match(/v?(\d+(?:\.\d+)*)$/);
+  // The last version-like word, without a prerelease or build suffix: "herdr-app 0.1.17-rc1" gives "0.1.17".
+  const found = String(text).trim().match(/(?:^|\s)v?(\d+(?:\.\d+)*)[^\s]*$/);
   return found ? found[1] : String(text).trim();
 }
 
