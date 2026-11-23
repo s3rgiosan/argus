@@ -14,7 +14,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { toolbarSettings } from "../mods/argus-toolbar/toolbar-logic.js";
 import { PANE_HEADER, SHIPPED_HEADER, PaneHeaderError, ownsHeader, paneHeaderManifest, patchPaneHeader, useHeader } from "./pane-header.mjs";
-import { SIDEBAR, SHIPPED_SIDEBAR, SidebarError, ownsSidebar, sidebarManifest, patchSidebar, useSidebar } from "./sidebar.mjs";
+import { GROUP_FILES, GroupsError, SIDEBAR, SHIPPED_SIDEBAR, SidebarError, addGroups, ownsSidebar, sidebarManifest, patchSidebar, useSidebar } from "./sidebar.mjs";
 import { buildLayout, panelsFromManifests, planLayoutFile, planStateFile, ArgusBlocksError, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";
 
 const MARKER = "argus";
@@ -86,6 +86,8 @@ try {
 }
 
 const modsDir = join(appHome, "mods");
+/** The root of this repo, where the extra files of a copy come from. */
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (!existsSync(join(modsDir, "argus-toolbar", "main.js"))) {
   console.error("build-layout: install the toolbar first: sh scripts/install.sh argus-toolbar");
   process.exit(1);
@@ -185,11 +187,15 @@ function writeAtomic(path, text) {
  * Writes an Argus copy of a shipped mod again from the shipped files, so a Herdr
  * update reaches it on the next run. A missing shipped mod writes nothing and is
  * no error. The copy's folder may be missing, empty, or one this script wrote.
+ * An `extend` step adds more to the patched source and writes its `files`
+ * (copy path to repo path) next to `main.js`. When it does not apply, the copy
+ * is written without it and `warning` says why.
  * @param {{ shipped: string, copy: string, what: string, patch: (source: string) => string,
- *   manifest: (shipped: object) => object, owns: (manifest: object | null) => boolean, PatchError: Function }} spec
- * @returns {{ written: boolean, error: string | null }}
+ *   manifest: (shipped: object) => object, owns: (manifest: object | null) => boolean, PatchError: Function,
+ *   extend?: { apply: (source: string) => string, files: Record<string, string>, PatchError: Function } }} spec
+ * @returns {{ written: boolean, error: string | null, warning?: string | null }}
  */
-function writeCopy({ shipped, copy: name, what, patch, manifest, owns, PatchError }) {
+function writeCopy({ shipped, copy: name, what, patch, manifest, owns, PatchError, extend }) {
   let source;
   try {
     source = readFileSync(join(modsDir, shipped, "main.js"), "utf8");
@@ -224,15 +230,50 @@ function writeCopy({ shipped, copy: name, what, patch, manifest, owns, PatchErro
   }
   const parse = syntaxError(patched);
   if (parse !== null) return { written: false, error: `the patched ${what} does not parse (${parse})` };
+  const extended = extend ? extendCopy(patched, extend) : { source: patched, files: {}, warning: null };
   try {
     mkdirSync(copy, { recursive: true });
     // mod.json goes first: its marker lets the next run repair a copy that stopped half way.
     writeAtomic(join(copy, "mod.json"), JSON.stringify(manifest(readJson(join(modsDir, shipped, "mod.json")) ?? {}), null, 2) + "\n");
-    writeAtomic(join(copy, "main.js"), patched);
+    // The extra files go before main.js, because main.js imports them.
+    for (const [path, text] of Object.entries(extended.files)) {
+      mkdirSync(dirname(join(copy, path)), { recursive: true });
+      writeAtomic(join(copy, path), text);
+    }
+    writeAtomic(join(copy, "main.js"), extended.source);
   } catch (error) {
     return { written: false, error: `cannot write ${copy} (${error.message})` };
   }
-  return { written: true, error: null };
+  return { written: true, error: null, warning: extended.warning };
+}
+
+/**
+ * The patched source with the `extend` step and the text of its files, or the
+ * patched source alone and a warning when the step or a file fails.
+ * @param {string} patched
+ * @param {{ apply: (source: string) => string, files: Record<string, string>, PatchError: Function }} extend
+ * @returns {{ source: string, files: Record<string, string>, warning: string | null }}
+ */
+function extendCopy(patched, { apply, files, PatchError }) {
+  const without = (warning) => ({ source: patched, files: {}, warning });
+  let source;
+  try {
+    source = apply(patched);
+  } catch (error) {
+    if (error instanceof PatchError) return without(error.message);
+    throw error;
+  }
+  const parse = syntaxError(source);
+  if (parse !== null) return without(`the extended copy does not parse (${parse})`);
+  const texts = {};
+  for (const [path, from] of Object.entries(files)) {
+    try {
+      texts[path] = readFileSync(join(repoRoot, from), "utf8");
+    } catch (error) {
+      return without(`cannot read ${from} (${error.message})`);
+    }
+  }
+  return { source, files: texts, warning: null };
 }
 
 const copies = [
@@ -241,18 +282,29 @@ const copies = [
     use: (out) => useHeader(out, PANE_HEADER),
   },
   {
-    spec: { shipped: SHIPPED_SIDEBAR, copy: SIDEBAR, what: "sidebar", patch: patchSidebar, manifest: sidebarManifest, owns: ownsSidebar, PatchError: SidebarError },
+    spec: {
+      shipped: SHIPPED_SIDEBAR,
+      copy: SIDEBAR,
+      what: "sidebar",
+      patch: patchSidebar,
+      manifest: sidebarManifest,
+      owns: ownsSidebar,
+      PatchError: SidebarError,
+      extend: { apply: addGroups, files: GROUP_FILES, PatchError: GroupsError },
+    },
+    warning: "the sidebar has no groups",
     use: (out) => useSidebar(out, SIDEBAR),
   },
 ];
-for (const { spec, use } of copies) {
+for (const { spec, use, warning } of copies) {
   const result = writeCopy(spec);
   if (result.error !== null) console.error(`build-layout: ${result.error}; the layout uses Herdr's ${spec.what}`);
+  if (result.warning) console.error(`build-layout: ${result.warning}; ${warning}`);
   if (result.written) layout = use(layout);
 }
 
 const preview = `layouts/${name}.svg`;
-writeAtomic(join(layouts, `${name}.svg`), readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "layouts", "Argus.svg"), "utf8"));
+writeAtomic(join(layouts, `${name}.svg`), readFileSync(join(repoRoot, "layouts", "Argus.svg"), "utf8"));
 writeAtomic(target, JSON.stringify({ ...layout, preview, generated_by: MARKER }, null, 2) + "\n");
 console.log(`${name}: ${panels.length} panel(s): ${panels.map((p) => p.label).join(", ") || "none"}`);
 

@@ -150,6 +150,8 @@ test("GROUP_FILES: the copy's extra files and their repo sources", () => {
   assert.deepEqual(GROUP_FILES, {
     "space-groups.js": "lib/space-groups.js",
     "space-groups-view.js": "lib/space-groups-view.js",
+    "menu.js": "lib/menu.js",
+    "ui.js": "lib/ui.js",
     "icons/ellipsis.svg": "mods/argus-space-groups/icons/ellipsis.svg",
     "icons/LICENSE-Lucide.txt": "mods/argus-space-groups/icons/LICENSE-Lucide.txt",
   });
