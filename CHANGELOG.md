@@ -5,6 +5,16 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The Overview board of `argus-agents` keeps a leading emoji in an agent's title, and drops the status marks ✋ and ⏳, as the agents list of Herdr 0.1.17 does.
+
+### Fixed
+
+- The pane header of a pull request, issue or task pane shows a name given with Rename in Herdr's pane menu, in place of the item title.
+
 ## [1.13.0] - 2026-11-22
 
 ### Added
