@@ -354,3 +354,15 @@ test("cleanTitle drops a leading status glyph and keeps brackets", () => {
   assert.equal(cleanTitle("[web] login"), "[web] login");
   assert.equal(cleanTitle(null), "");
 });
+
+test("cleanTitle keeps a leading emoji, as Herdr's agents list does", () => {
+  assert.equal(cleanTitle("🔴 Example"), "🔴 Example");
+  assert.equal(cleanTitle("❤️ Example"), "❤️ Example");
+  assert.equal(cleanTitle("#️⃣ Example"), "#️⃣ Example");
+});
+
+test("cleanTitle drops the status marks ✋ and ⏳", () => {
+  assert.equal(cleanTitle("✋ Example"), "Example");
+  assert.equal(cleanTitle("⏳ Example"), "Example");
+  assert.equal(cleanTitle("✋️ Example"), "Example");
+});

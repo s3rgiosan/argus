@@ -36,17 +36,17 @@ export const SNOOZES = [
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /**
- * Drops what an agent puts before its title: a status glyph or spinner and
- * the separator after it, and a "[ ! ] " or "[ . ] " mark. A title that
- * starts with a bracket or a quote keeps it.
+ * Drops what an agent puts before its title, as Herdr's agents list does: a
+ * status glyph or spinner and the separator after it, a "[ ! ] " or "[ . ] "
+ * mark, and the status marks ✋ and ⏳. A title that starts with a bracket, a
+ * quote or another emoji keeps it.
  *
  * @param {unknown} title
  */
 export function cleanTitle(title) {
   const text = typeof title === "string" ? title : "";
   return text
-    .replace(/^[^\p{L}\p{N}\p{Ps}\p{Pi}]+/u, "")
-    .replace(/^\[ [!.] \] /, "")
+    .replace(/^(?:\[ [!.] \] |[✋⏳]\uFE0F?(?=\s)|(?!(?:\p{Emoji}\uFE0F|[#*]\u20E3))[^\p{L}\p{N}\p{Ps}\p{Pi}\p{Emoji_Presentation}])+/u, "")
     .trim();
 }
 
