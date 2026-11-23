@@ -5,10 +5,10 @@ The popups of the space groups in Argus's sidebar copy (`argus-spaces`): the gro
 ## What you see
 
 - `mod.json`: `{ "place": "none", "title": "Space groups" }`. No panel; only the sidebar copy opens it.
-- One mod, three views picked by `props().view`, each a popup:
+- One mod, three views picked by `props().view`: two pointer popups and one dialog.
   - `"group"` (200 px wide): `menuRow`s from `groupMenu(store, group)`: "Add spaces…", "Rename", "Move up" (not on the first group), "Move down" (not on the last), "Delete group". A deleted group shows one disabled row, "This group was deleted.".
   - `"add"` (260 px): one `menuRow` per `props().rows` entry (`{ key, name }`). `current` (the accent tick) when the row is in this group; `count` is the name of the other group it is in. No rows: a disabled "No open spaces". Up to 420 px tall, then it scrolls.
-  - `"name"` (260 × 84 px): one `field` with "Group name" as the placeholder, and an `errorLine` under it when the name is refused.
+  - `"name"` (a 260 × 84 px dialog): one `field` with "Group name" as the placeholder, and an `errorLine` under it when the name is refused.
 - Sidebar copy: group headers copy Herdr's machine header (26 px, 11 px `dim`, chevron 11 px) without the machine icon. On hover, an `iconButton` with the Lucide ellipsis ("Group options"). An open empty group shows a dim 28 px "No spaces" line. The title row gets an `iconButton` with Herdr's `folder-plus` ("New group") left of Herdr's `+`. On the narrow rail: no headers, and a 20 × 1 px `border` line between groups.
 
 ## How it behaves
@@ -33,4 +33,5 @@ The popups of the space groups in Argus's sidebar copy (`argus-spaces`): the gro
 - The sidebar copy is Herdr's `spaces` mod written again by `build-layout`. When a hook anchor is gone after a Herdr update, `build-layout` prints "the sidebar has no groups" and writes the copy without groups; fix the anchors in `scripts/sidebar.mjs`.
 - Herdr's space menu cannot take items, so the group actions live on the group header.
 - Groups are kept per Herdr app (`shared.json`); the space order is kept per machine. See the fight guard.
+- A pointer popup (`kind: "popup"`) closes when a text field in it takes focus, so the name view opens as a `dialog`.
 - `herdr-app check` renders only the `"group"` view with no props; the other views, the clicks and the sidebar hooks need a live check.

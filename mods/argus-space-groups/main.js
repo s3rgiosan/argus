@@ -35,10 +35,10 @@ function save(next) {
   setShared(KEY, pruneSpaces(next, new Set(spaces().map((space) => space.id))));
 }
 
-/** Closes this popup and opens `view` of this mod with `extra` props. */
-function switchTo(p, view, extra, width, height) {
+/** Closes this popup and opens `view` of this mod with `extra` props, as `kind` ("popup" or "dialog"). */
+function switchTo(p, view, extra, width, height, kind = "popup") {
   if (p.overlay) closeOverlay(p.overlay);
-  openOverlay({ mod: GROUP_POPUP, kind: "popup", width, height, props: { view, ...extra } });
+  openOverlay({ mod: GROUP_POPUP, kind, width, height, props: { view, ...extra } });
 }
 
 export default class SpaceGroups extends View {
@@ -118,7 +118,8 @@ export default class SpaceGroups extends View {
         return;
       }
       case "rename":
-        switchTo(p, "name", { group: p.group }, WIDE_WIDTH, NAME_HEIGHT);
+        // A pointer popup closes when its text field takes focus, so the name field is a dialog.
+        switchTo(p, "name", { group: p.group }, WIDE_WIDTH, NAME_HEIGHT, "dialog");
         return;
       case "up":
         save(moveGroup(current, p.group, -1));
