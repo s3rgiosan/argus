@@ -20,7 +20,7 @@ export default class Pane extends View {
 test("patchPaneHeader: a mod pane shows the title its mod shares, else the shipped name", () => {
   const out = patchPaneHeader(SHIPPED);
   assert.match(out, /import \{ panes, props, run, theme, home, layout, shared \} from "herdr";/);
-  assert.match(out, /const name = paneTitle\(p\) \?\? \(\(\(p\.program\?\.agent \|\| p\.program\?\.shell\) && p\.program\.name\) \|\| p\.title \|\| p\.program\?\.name \|\| "shell"\);/);
+  assert.match(out, /const name = p\.name \|\| \(paneTitle\(p\) \?\? \(\(\(p\.program\?\.agent \|\| p\.program\?\.shell\) && p\.program\.name\) \|\| p\.title \|\| p\.program\?\.name \|\| "shell"\)\);/);
   assert.match(out, /function paneTitle\(p\)/);
 });
 
@@ -84,7 +84,7 @@ test("patchPaneHeader: changes the name line itself, not an earlier copy of its 
   const source = SHIPPED.replace("export default", `//${line}\nexport default`);
   const out = patchPaneHeader(source);
   assert.ok(out.includes(`//${line}\n`));
-  assert.match(out, /^    const name = paneTitle\(p\) \?\? \(\(\(p\.program/m);
+  assert.match(out, /^    const name = p\.name \|\| \(paneTitle\(p\) \?\? \(\(\(p\.program/m);
 });
 
 test("ownsHeader: only a mod.json with the marker", () => {
@@ -95,7 +95,7 @@ test("ownsHeader: only a mod.json with the marker", () => {
 
 test("patchPaneHeader: a blank line before the name line keeps the indent", () => {
   const out = patchPaneHeader(SHIPPED.replace("    const name =", "\n    const name ="));
-  assert.match(out, /\n\n    const name = paneTitle\(p\)/);
+  assert.match(out, /\n\n    const name = p\.name \|\| \(paneTitle\(p\)/);
 });
 
 test("patchPaneHeader: the name shrinks, so a long title leaves room for the hover buttons", () => {
@@ -106,4 +106,10 @@ test("patchPaneHeader: the name shrinks, so a long title leaves room for the hov
 
 test("patchPaneHeader: refuses a header whose name element changed", () => {
   assert.throws(() => patchPaneHeader(SHIPPED.replace(".flex_none().truncate().max_w(260)", ".truncate()")), PaneHeaderError);
+});
+
+test("patchPaneHeader: a name given with pane.rename comes before the shared title", () => {
+  const out = patchPaneHeader(SHIPPED);
+  const line = out.split("\n").find((l) => l.includes("const name ="));
+  assert.ok(line.trim().startsWith("const name = p.name || (paneTitle(p) ?? ("), line);
 });

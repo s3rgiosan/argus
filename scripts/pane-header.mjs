@@ -35,8 +35,9 @@ export class PaneHeaderError extends Error {
 
 /**
  * Herdr's pane header source with the title patch: the `herdr` import adds
- * `shared`, the `name` line puts the shared title of a mod pane first, and the
- * name element shrinks, so a long title leaves room for the hover buttons.
+ * `shared`, the `name` line puts a name the person gave the pane first, then the
+ * shared title of a mod pane, and the name element shrinks, so a long title
+ * leaves room for the hover buttons.
  *
  * @param {string} source The shipped `mods/pane/main.js`.
  * @returns {string}
@@ -59,7 +60,8 @@ export function patchPaneHeader(source) {
   // Each part is replaced at its own position, so the same text elsewhere stays.
   const [line, indent, value] = names[0];
   const at = names[0].index;
-  const named = `${source.slice(0, at)}${indent}const name = paneTitle(p) ?? (${value});${source.slice(at + line.length)}`;
+  // A name the person gave the pane (`pane.rename`, Herdr 0.1.17) comes first, then the mod's shared title.
+  const named = `${source.slice(0, at)}${indent}const name = p.name || (paneTitle(p) ?? (${value}));${source.slice(at + line.length)}`;
   const importAt = named.indexOf(imports[0]);
   const imported = `${named.slice(0, importAt)}import { ${list.join(", ")} } from "herdr";${named.slice(importAt + imports[0].length)}`;
   // The name element may shrink and truncate, so the hover buttons keep their room.

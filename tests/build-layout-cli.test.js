@@ -177,7 +177,7 @@ test("pane header: writes the copy and points the layout at it", () => {
   const r = run(dir);
   assert.equal(r.status, 0, r.stderr);
   const main = readFileSync(join(dir, "mods", "argus-pane", "main.js"), "utf8");
-  assert.match(main, /const name = paneTitle\(p\) \?\? \(p\.title \|\| "shell"\);/);
+  assert.match(main, /const name = p\.name \|\| \(paneTitle\(p\) \?\? \(p\.title \|\| "shell"\)\);/);
   assert.equal(JSON.parse(readFileSync(join(dir, "mods", "argus-pane", "mod.json"), "utf8")).generated_by, "argus");
   assert.equal(headerMod(dir), "argus-pane");
 });
