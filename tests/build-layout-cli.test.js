@@ -311,6 +311,45 @@ test("sidebar: a changed shipped sidebar keeps the shipped one, with a message",
   assert.equal(sidebarMod(dir), "spaces");
 });
 
+const repoFile = (path) => readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), "utf8");
+const GROUPS_SIDEBAR = repoFile("tests/fixtures/spaces-main.txt");
+const GROUP_COPIES = {
+  "space-groups.js": "lib/space-groups.js",
+  "space-groups-view.js": "lib/space-groups-view.js",
+  "menu.js": "lib/menu.js",
+  "ui.js": "lib/ui.js",
+  "icons/ellipsis.svg": "mods/argus-space-groups/icons/ellipsis.svg",
+  "icons/LICENSE-Lucide.txt": "mods/argus-space-groups/icons/LICENSE-Lucide.txt",
+  "icons.js": "lib/icons.js",
+  "icons/folder-plus.svg": "mods/argus-space-groups/icons/folder-plus.svg",
+  "icons/chevron-down.svg": "mods/argus-space-groups/icons/chevron-down.svg",
+  "icons/chevron-right.svg": "mods/argus-space-groups/icons/chevron-right.svg",
+};
+
+test("sidebar: writes the groups files with the copy", () => {
+  const dir = withSidebar(GROUPS_SIDEBAR);
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /no groups/);
+  for (const [copy, source] of Object.entries(GROUP_COPIES)) {
+    assert.equal(readFileSync(join(dir, "mods", "argus-spaces", copy), "utf8"), repoFile(source), copy);
+  }
+  assert.match(readFileSync(join(dir, "mods", "argus-spaces", "main.js"), "utf8"), /from "\.\/space-groups-view\.js";/);
+  assert.equal(sidebarMod(dir), "argus-spaces");
+});
+
+test("sidebar: a sidebar without the groups anchors keeps the copy with a warning", () => {
+  const dir = withSidebar();
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /^build-layout: the groups hooks do not apply .*; the sidebar has no groups$/m);
+  const main = readFileSync(join(dir, "mods", "argus-spaces", "main.js"), "utf8");
+  assert.match(main, /^    const where = "";$/m);
+  assert.doesNotMatch(main, /space-groups-view/);
+  assert.equal(existsSync(join(dir, "mods", "argus-spaces", "space-groups-view.js")), false);
+  assert.equal(sidebarMod(dir), "argus-spaces");
+});
+
 test("sidebar: a folder this script did not write is left alone", () => {
   const dir = withSidebar();
   mkdirSync(join(dir, "mods", "argus-spaces"));
@@ -361,7 +400,7 @@ test("both copies: one run writes both and the layout uses both", () => {
 });
 
 test("both copies: a failing pane header still writes the sidebar", () => {
-  const dir = withBoth({ header: SHIPPED_HEADER.replace("const name =", "const label =") });
+  const dir = withBoth({ header: SHIPPED_HEADER.replace("const name =", "const label ="), sidebar: GROUPS_SIDEBAR });
   const r = run(dir);
   assert.equal(r.status, 0);
   assert.match(r.stderr, /the layout uses Herdr's pane header/);

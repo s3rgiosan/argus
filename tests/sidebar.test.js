@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SIDEBAR, SidebarError, ownsSidebar, patchSidebar, sidebarManifest, useSidebar } from "../scripts/sidebar.mjs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { GROUP_FILES, GroupsError, SIDEBAR, SidebarError, addGroups, ownsSidebar, patchSidebar, sidebarManifest, useSidebar } from "../scripts/sidebar.mjs";
 
 // The part of Herdr's sidebar that the patch changes, in the shape it ships.
 const SHIPPED = `export default class Spaces {
@@ -67,4 +71,102 @@ test("patchSidebar: a blank line before gitTail or its where line keeps the inde
 
 test("patchSidebar: refuses a gitTail with two where lines", () => {
   assert.throws(() => patchSidebar(SHIPPED.replace('    const where = [repo', '    const where = "";\n    const where = [repo')), SidebarError);
+});
+
+// The groups hooks, against a made-up sidebar that holds every anchor.
+const FIXTURE = readFileSync(new URL("./fixtures/spaces-main.txt", import.meta.url), "utf8");
+
+/** True when `source` parses as an ES module. */
+function parses(source) {
+  const dir = mkdtempSync(join(tmpdir(), "argus-sidebar-"));
+  try {
+    writeFileSync(join(dir, "main.mjs"), source);
+    return spawnSync(process.execPath, ["--check", join(dir, "main.mjs")]).status === 0;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const HOOKS = [
+  'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton } from "./space-groups-view.js";',
+  "    argusInit(this, cx);",
+  "    out.splice(0, out.length, ...argusSort(this, out, sp, (w) => this.git[where(w, ps)]));",
+  "      const argus = argusSections(this, rows, draw, t, collapsed, null);\n      this.activeAt = argus.active;\n      return argus.items;",
+  "      const argusMine = argusSections(this, mine, draw, t, collapsed, m);\n      const items = [cell(head), ...guidance, ...(folded ? [] : argusMine.items.length ? argusMine.items :",
+  "      const first = folded ? -1 : argusMine.active;",
+  "          argusDropOnRow(this, from, w);\n          const index = spaces().findIndex(s => s.id === w.id);",
+  "        .when(!collapsed, el => el.child(argusNewGroupButton(this, t)))\n        .child(div().id(\"space-new\")",
+];
+
+test("addGroups: adds every hook", () => {
+  const out = addGroups(patchSidebar(FIXTURE));
+  for (const hook of HOOKS) assert.ok(out.includes(hook), hook);
+  assert.doesNotMatch(out, /mine\.map\(draw\)/);
+  assert.doesNotMatch(out, /return rows\.map\(draw\);/);
+  assert.doesNotMatch(out, /mine\.findIndex/);
+  assert.doesNotMatch(out, /mine\.length \?/);
+  assert.match(out, /^    const where = "";$/m);
+  assert.ok(parses(out));
+});
+
+// Each anchor and a change that removes it.
+const ANCHORS = [
+  ['import { spaces, machines, panes, run, openOverlay, shared, setShared } from "herdr";', 'import { spaces, machines, panes, run, openOverlay, shared, setShared } from "herdr-kit";'],
+  ["    this.machines = [];", "    this.machines = new Array();"],
+  ["    const order = sp.map(w => w.id);", "    const order = sp.map((w) => w.id);"],
+  ["const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);", "const whereOf = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);"],
+  ["    const sp = spaces(), ps = panes();", "    const sp = spaces(), panesNow = panes();"],
+  ["  init(_props, cx) {", "  init(_props, context) {"],
+  ["    const out = [];", "    const rows = [];"],
+  ["  grouped(t, collapsed) {", "  grouped(theme, narrowed) {"],
+  ["    return machineNames.flatMap((m) => {", "    return machineNames.flatMap((machine) => {"],
+  ["        const from = this.pressed;", "        const source = this.pressed;"],
+  ["    const t = theme();", "    const colors = theme();"],
+  ["    const collapsed = narrow();", "    const rail = narrow();"],
+  ["      this.activeAt = rows.findIndex(r => r.w.active);", "      this.activeAt = rows.findIndex((r) => r.w.active);"],
+  ["      return rows.map(draw);", "      return rows.map((r) => draw(r));"],
+  ["mine.length ? mine.map(draw) :", "mine.length ? mine.map((r) => draw(r)) :"],
+  ["      const first = folded ? -1 : mine.findIndex(r => r.w.active);", "      const first = folded ? -1 : mine.findIndex((r) => r.w.active);"],
+  ["          const index = spaces().findIndex(s => s.id === w.id);", "          const index = spaces().findIndex((s) => s.id === w.id);"],
+  ['        .child(div().id("space-new")', '        .child(div().id("space-add")'],
+];
+
+test("addGroups: refuses a missing anchor", () => {
+  for (const [anchor, changed] of ANCHORS) {
+    assert.ok(FIXTURE.includes(anchor), anchor);
+    assert.throws(() => addGroups(FIXTURE.replace(anchor, changed)), GroupsError, anchor);
+  }
+});
+
+test("addGroups: refuses a doubled anchor", () => {
+  const lines = FIXTURE.split("\n");
+  for (const [anchor] of ANCHORS) {
+    const at = lines.findIndex((line) => line.includes(anchor));
+    const doubled = [...lines.slice(0, at + 1), lines[at], ...lines.slice(at + 1)].join("\n");
+    assert.throws(() => addGroups(doubled), GroupsError, anchor);
+  }
+});
+
+test("addGroups: a blank line before an anchor keeps the indent", () => {
+  const out = addGroups(FIXTURE.replace("    this.machines = [];", "\n    this.machines = [];"));
+  assert.match(out, /\n\n    this\.machines = \[\];\n    argusInit\(this, cx\);\n/);
+});
+
+test("addGroups: the error names the hooks", () => {
+  assert.throws(() => addGroups("export default class Spaces {}\n"), (error) => error instanceof GroupsError && error.name === "GroupsError" && /^the groups hooks do not apply \(/.test(error.message));
+});
+
+test("GROUP_FILES: the copy's extra files and their repo sources", () => {
+  assert.deepEqual(GROUP_FILES, {
+    "space-groups.js": "lib/space-groups.js",
+    "space-groups-view.js": "lib/space-groups-view.js",
+    "menu.js": "lib/menu.js",
+    "ui.js": "lib/ui.js",
+    "icons/ellipsis.svg": "mods/argus-space-groups/icons/ellipsis.svg",
+    "icons/LICENSE-Lucide.txt": "mods/argus-space-groups/icons/LICENSE-Lucide.txt",
+    "icons.js": "lib/icons.js",
+    "icons/folder-plus.svg": "mods/argus-space-groups/icons/folder-plus.svg",
+    "icons/chevron-down.svg": "mods/argus-space-groups/icons/chevron-down.svg",
+    "icons/chevron-right.svg": "mods/argus-space-groups/icons/chevron-right.svg",
+  });
 });
