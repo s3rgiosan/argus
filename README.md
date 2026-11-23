@@ -18,7 +18,7 @@ Not affiliated with Herdr or Anthropic.
 
 ## Requirements
 
-- Herdr desktop app (tested on 0.1.17), macOS or Linux.
+- Herdr desktop app 0.1.17 or later, macOS or Linux.
 - Node.js 20 or later, for the scripts and tests.
 - `argus-claude-usage`: Claude Code (tested on 2.1.327), signed in with a Claude plan.
 - `argus-stay-awake`: macOS only, because it runs `caffeinate`.
@@ -97,6 +97,7 @@ node scripts/sync-lib.mjs              # after editing a lib/*.js file: copy eac
 node scripts/sync-lib.mjs --check      # exit 1 when a copy differs or a copy is not imported
 git config core.hooksPath .githooks    # once per clone: check each commit message
 node scripts/check-commits.mjs         # check the messages in main..HEAD
+node scripts/herdr-diff.mjs --from 0.1.16  # after a Herdr update: release notes, changed files and patch checks up to the installed version
 ```
 
 - Each mod lives in `mods/<name>/` with a `README.md` for people and a `RECIPE.md` for an agent rebuilding it.

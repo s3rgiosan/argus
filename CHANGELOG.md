@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/herdr-diff.mjs` shows what changed in Herdr between two versions: the release notes, the changed shipped files, the diff of each file Argus follows, and whether the `argus-pane` and `argus-spaces` patches still apply.
+
 ### Changed
 
+- Argus needs Herdr 0.1.17 or later.
 - The Overview board of `argus-agents` keeps a leading emoji in an agent's title, and drops the status marks ✋ and ⏳, as the agents list of Herdr 0.1.17 does.
 
 ### Fixed
