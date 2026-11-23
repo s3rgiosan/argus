@@ -43,7 +43,7 @@ export function patchSidebar(source) {
 
   const [line, indent] = wheres[0];
   const at = start + wheres[0].index;
-  const patched = `${indent}// Argus leaves out the repo and branch text; the ahead and behind counts stay. The locals above\n${indent}// stay unused, so the copy differs from Herdr's sidebar on this line only.\n${indent}const where = "";`;
+  const patched = `${indent}// Argus leaves out the repo and branch text; the ahead and behind counts stay.\n${indent}// The locals above stay unused.\n${indent}const where = "";`;
   return source.slice(0, at) + patched + source.slice(at + line.length);
 }
 
@@ -85,4 +85,105 @@ export function useSidebar(layout, mod) {
   };
   visit(out);
   return out;
+}
+
+/** Herdr's sidebar no longer has the lines the groups hooks need. */
+export class GroupsError extends Error {
+  constructor(reason) {
+    super(`the groups hooks do not apply (${reason})`);
+    this.name = "GroupsError";
+  }
+}
+
+/** The files the copy with groups needs next to its `main.js`: copy path to repo path. */
+export const GROUP_FILES = {
+  "space-groups.js": "lib/space-groups.js",
+  "space-groups-view.js": "lib/space-groups-view.js",
+  "menu.js": "lib/menu.js",
+  "ui.js": "lib/ui.js",
+  "icons/ellipsis.svg": "mods/argus-space-groups/icons/ellipsis.svg",
+  "icons/LICENSE-Lucide.txt": "mods/argus-space-groups/icons/LICENSE-Lucide.txt",
+  "icons.js": "lib/icons.js",
+  "icons/folder-plus.svg": "mods/argus-space-groups/icons/folder-plus.svg",
+  "icons/chevron-down.svg": "mods/argus-space-groups/icons/chevron-down.svg",
+  "icons/chevron-right.svg": "mods/argus-space-groups/icons/chevron-right.svg",
+};
+
+const GROUPS_IMPORT = 'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton } from "./space-groups-view.js";';
+const HERDR_IMPORT = /^import \{[^}]*\} from "herdr";$/;
+const ITEMS_START = "const items = [cell(head),";
+const ITEMS_DRAW = "mine.length ? mine.map(draw) :";
+
+/**
+ * The lines of each anchor, found by their trimmed text. Each anchor must be
+ * on exactly one line.
+ */
+const ANCHORS = {
+  herdrImport: (text) => HERDR_IMPORT.test(text),
+  init: (text) => text === "this.machines = [];",
+  sort: (text) => text === "const order = sp.map(w => w.id);",
+  // The sort hook reads the git info of a space with `where(w, ps)` in `ordered()`.
+  where: (text) => text.startsWith("const where = (s, ps) =>"),
+  spacesAndPanes: (text) => text === "const sp = spaces(), ps = panes();",
+  // The names the hook lines use, so a rename in Herdr refuses the hooks.
+  initCx: (text) => text === "init(_props, cx) {",
+  outList: (text) => text === "const out = [];",
+  groupedArgs: (text) => text === "grouped(t, collapsed) {",
+  machineArg: (text) => text === "return machineNames.flatMap((m) => {",
+  dragFrom: (text) => text === "const from = this.pressed;",
+  renderTheme: (text) => text === "const t = theme();",
+  renderCollapsed: (text) => text === "const collapsed = narrow();",
+  localActive: (text) => text === "this.activeAt = rows.findIndex(r => r.w.active);",
+  localReturn: (text) => text === "return rows.map(draw);",
+  remoteItems: (text) => text.startsWith(ITEMS_START) && text.includes(ITEMS_DRAW),
+  remoteFirst: (text) => text === "const first = folded ? -1 : mine.findIndex(r => r.w.active);",
+  drop: (text) => text === "const index = spaces().findIndex(s => s.id === w.id);",
+  title: (text) => text.startsWith('.child(div().id("space-new")'),
+};
+
+/**
+ * The patched sidebar source with the space groups hooks: one-line calls into
+ * `space-groups-view.js`, which `build-layout` writes next to the copy. Every
+ * hook applies, or none does.
+ *
+ * @param {string} source The sidebar source after `patchSidebar`.
+ * @returns {string}
+ * @throws {GroupsError} When an anchor is missing or is on more than one line.
+ */
+export function addGroups(source) {
+  const lines = source.split("\n");
+  const at = {};
+  for (const [name, matches] of Object.entries(ANCHORS)) {
+    const found = lines.flatMap((line, i) => (matches(line.trim()) ? [i] : []));
+    if (found.length !== 1) throw new GroupsError(`expected one ${name} line, found ${found.length}`);
+    at[name] = found[0];
+  }
+  if (at.localReturn !== at.localActive + 1) throw new GroupsError("the local return does not follow the active row");
+  const indent = (i) => lines[i].match(/^[ \t]*/)[0];
+  const before = new Map();
+  const after = new Map();
+  const replace = new Map();
+  after.set(at.herdrImport, [GROUPS_IMPORT]);
+  after.set(at.init, [`${indent(at.init)}argusInit(this, cx);`]);
+  before.set(at.sort, [`${indent(at.sort)}out.splice(0, out.length, ...argusSort(this, out, sp, (w) => this.git[where(w, ps)]));`]);
+  const local = indent(at.localActive);
+  replace.set(at.localActive, [
+    `${local}const argus = argusSections(this, rows, draw, t, collapsed, null);`,
+    `${local}this.activeAt = argus.active;`,
+    `${local}return argus.items;`,
+  ]);
+  replace.set(at.localReturn, []);
+  before.set(at.remoteItems, [`${indent(at.remoteItems)}const argusMine = argusSections(this, mine, draw, t, collapsed, m);`]);
+  // The group headers show also when this machine has no spaces, so an empty group stays reachable.
+  replace.set(at.remoteItems, [lines[at.remoteItems].replace(ITEMS_DRAW, "argusMine.items.length ? argusMine.items :")]);
+  replace.set(at.remoteFirst, [`${indent(at.remoteFirst)}const first = folded ? -1 : argusMine.active;`]);
+  before.set(at.drop, [`${indent(at.drop)}argusDropOnRow(this, from, w);`]);
+  before.set(at.title, [`${indent(at.title)}.when(!collapsed, el => el.child(argusNewGroupButton(this, t)))`]);
+  const out = [];
+  lines.forEach((line, i) => {
+    out.push(...(before.get(i) ?? []));
+    out.push(...(replace.has(i) ? replace.get(i) : [line]));
+    out.push(...(after.get(i) ?? []));
+  });
+  return out.join("\n");
 }
