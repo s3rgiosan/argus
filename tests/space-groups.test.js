@@ -8,6 +8,7 @@ import {
   deleteGroup,
   FLIP_LIMIT,
   FLIP_WINDOW,
+  groupMenu,
   groupOf,
   guardPaused,
   memberKey,
@@ -209,4 +210,15 @@ test("guardPaused: each machine keeps its own flips, and a first unsettled call 
   ask(null, true, 7);
   assert.equal(ask(null, false, 8), true);
   assert.equal(ask("remote1", false, 9), false);
+});
+
+test("groupMenu: the group popup rows, without moves past the edges", () => {
+  const store = addGroup(two(), "C", "C");
+  const ids = (id) => groupMenu(store, id).map((item) => item.id);
+  assert.deepEqual(ids("A"), ["add", "rename", "down", "delete"]);
+  assert.deepEqual(ids("B"), ["add", "rename", "up", "down", "delete"]);
+  assert.deepEqual(ids("C"), ["add", "rename", "up", "delete"]);
+  assert.deepEqual(groupMenu(store, "gone"), []);
+  assert.deepEqual(groupMenu(store, "B").map((item) => item.label), ["Add spaces…", "Rename", "Move up", "Move down", "Delete group"]);
+  assert.deepEqual(groupMenu(addGroup(EMPTY, "Only", "o"), "o").map((item) => item.id), ["add", "rename", "delete"]);
 });
