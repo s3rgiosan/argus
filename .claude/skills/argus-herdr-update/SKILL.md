@@ -11,7 +11,7 @@ Every Herdr release can change the mod API, the shipped mods that Argus patches 
 
 - Never install a Herdr update yourself. It restarts Herdr and the person's terminals. Ask the person to install it.
 - The new version: `herdr-app --version` and `hc --version`.
-- The old version: the README requirement line on `main`, "Herdr desktop app X or later". An open branch can already hold the new version there.
+- The old version: the README requirement line on `main`, "Herdr desktop app X or later" (older form: "Herdr desktop app (tested on X)"). An open branch can already hold the new version there.
 - herdr-core: Argus runs no `hc` command, so a core change reaches Argus only through Herdr's API. When a mod starts to run `hc`, also read `CHANGELOG.md` at the tags of `herdrdev/herdr-core`.
 
 ## 2. Sources
