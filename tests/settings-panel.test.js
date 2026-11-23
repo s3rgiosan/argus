@@ -36,7 +36,7 @@ test("statusText: nothing to say", () => {
   assert.deepEqual(statusText(quiet), { text: "", level: "dim" });
 });
 
-test("statusText: an error comes first", () => {
+test("statusText: an error comes before the problems", () => {
   assert.deepEqual(statusText({ ...quiet, error: CONFLICT, problems: ["x"], dirty: true }), { text: CONFLICT, level: "error" });
 });
 
@@ -44,8 +44,10 @@ test("statusText: the problems, one per line", () => {
   assert.deepEqual(statusText({ ...quiet, problems: ["one", "two"], dirty: true }), { text: "one\ntwo", level: "error" });
 });
 
-test("statusText: the ask before a revert", () => {
-  assert.deepEqual(statusText({ ...quiet, dirty: true, asking: true }), { text: "Unsaved changes will be lost. Click Revert again to discard them.", level: "dim" });
+test("statusText: the ask before a revert comes first, even over an error", () => {
+  const ask = { text: "Unsaved changes will be lost. Click Revert again to discard them.", level: "dim" };
+  assert.deepEqual(statusText({ ...quiet, dirty: true, asking: true }), ask);
+  assert.deepEqual(statusText({ ...quiet, dirty: true, asking: true, error: "x", problems: ["y"] }), ask);
 });
 
 test("statusText: a file that does not exist yet", () => {

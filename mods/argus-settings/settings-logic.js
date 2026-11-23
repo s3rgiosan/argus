@@ -48,16 +48,16 @@ export function saveFailure(expected, onDisk, message) {
 }
 
 /**
- * The status line under the editor: an error, else the problems that stopped
- * a save, else the ask before a revert, else the state of the text.
+ * The status line under the editor: the ask before a revert, else an error,
+ * else the problems that stopped a save, else the state of the text.
  *
  * @param {{ base: string | null, dirty: boolean, asking: boolean, problems: string[], saved: Date | null, error: string | null }} state
  * @returns {{ text: string, level: "dim" | "error" }}
  */
 export function statusText({ base, dirty, asking, problems, saved, error }) {
+  if (asking) return { text: ASKING, level: "dim" };
   if (error !== null) return { text: error, level: "error" };
   if (problems.length > 0) return { text: problems.join("\n"), level: "error" };
-  if (asking) return { text: ASKING, level: "dim" };
   if (base === null) return { text: MISSING, level: "dim" };
   if (dirty) return { text: UNSAVED, level: "dim" };
   if (saved !== null) return { text: `Saved at ${clock(saved)}`, level: "dim" };
