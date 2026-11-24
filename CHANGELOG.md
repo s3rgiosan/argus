@@ -5,6 +5,12 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- The tab bar of the Argus layout uses `argus-tabs`, a copy of Herdr's `tabs` row. A tab led by a Claude Code agent on an account that `agents.accounts` maps shows that account's icon, as the agents lists do.
+
 ## [1.16.0] - 2026-11-24
 
 ### Added

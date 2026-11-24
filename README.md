@@ -44,7 +44,7 @@ sh scripts/install.sh    # check Herdr, copy every mod, build the Argus layout a
 
 ### The Argus layout
 
-Herdr places mods only through layouts, and it replaces its own layouts on every start. `build-layout.mjs` writes a personal layout, `Argus`, from Herdr's current `main`. Every Herdr block stays, and five things change:
+Herdr places mods only through layouts, and it replaces its own layouts on every start. `build-layout.mjs` writes a personal layout, `Argus`, from Herdr's current `main`. Every Herdr block stays, and seven things change:
 
 - a coffee-cup button at the right end of the tab bar, from `argus-stay-awake`, that keeps the display awake;
 - a toolbar beside the tab bar, with one button per installed mod that declares a panel. The buttons sort A to Z by label, or in the order set in `argus.json`;
@@ -52,6 +52,7 @@ Herdr places mods only through layouts, and it replaces its own layouts on every
 - the pane headers use `argus-pane`, a copy of Herdr's `pane` header that the script writes again from Herdr's header on every run. A pull request, issue or task pane shows the item it holds, for example "T12 · Fix the parser", in place of the mod name. A name given with Rename in Herdr's pane menu shows first. Terminal panes look as before. When the copy cannot be made (Herdr's header changed, the patched copy does not parse, or its folder cannot be written), the script says so and the layout keeps Herdr's header. It never writes into an `argus-pane` folder that it did not create, and it refuses a folder that is a symbolic link;
 - the sidebar uses `argus-spaces`, a copy of Herdr's `spaces` sidebar made the same way, with the same folder rules. A space row shows no repo or branch text after its name; the ahead and behind counts stay. Space colors carry over, because Herdr keeps them in shared state. The copy also gets the space groups of `argus-space-groups`: a New group button in its title row, a folding header per group, and Herdr's space order follows the groups. The script writes `lib/space-groups.js`, `lib/space-groups-view.js`, `lib/menu.js`, `lib/ui.js`, `lib/icons.js` and the icons it draws next to the copy. When the group hooks no longer fit Herdr's sidebar, the script prints "the sidebar has no groups" and writes the copy without them.
 - the agents list in the sidebar uses `argus-agent-list`, a copy of Herdr's `agents` list made the same way. A Claude Code agent on an account that `agents.accounts` maps shows that account's icon (see Settings file).
+- the tab bar uses `argus-tabs`, a copy of Herdr's `tabs` row made the same way. A tab led by a Claude Code agent on a mapped account shows that account's icon. The copy keeps its own memory of which side panel each space had open, so that memory starts empty once.
 
 `build-layout.mjs` writes its files atomically. It needs `argus-toolbar` installed first and stops with "install the toolbar first: sh scripts/install.sh argus-toolbar" when it is not. `--name <Name>` writes the layout under another name (letters, digits, `_` and `-` only; `main`, `terminals` and `win98` are refused), and the script does not overwrite a file of that name that it did not write.
 
@@ -70,7 +71,7 @@ Argus reads `~/.config/herdr-app/argus.json`. The install script does not create
 - `toolbar.order`: the panel mod names in the order their toolbar buttons show. A button not in the list follows, sorted A to Z by label. A name that matches no button is ignored. The toolbar follows the file as you save it.
 - `toolbar.display`: how the toolbar buttons show. `"icons"` shows the icon only, with the label as a tooltip. `"labels"` shows the label only. `"both"` shows the icon and the label. The default is `"both"`. A button without an icon shows its label in every mode. The toolbar block resizes to fit the buttons when the value changes.
 
-- `agents.accounts`: a `programs.json` entry per Claude Code account folder. A Claude Code agent on that account shows the entry's icon and name in the Argus agents list and the Overview board. Keys are absolute or `~/` folders, as in `pullRequests.review.accounts`; each entry is `{ "program": "<programs.json key>" }`. Argus reads each agent's `CLAUDE_CONFIG_DIR` from its process with `ps`, once per process; no variable means `~/.claude`. An unmapped account, or a key with no `programs.json` entry, keeps Herdr's icon.
+- `agents.accounts`: a `programs.json` entry per Claude Code account folder. A Claude Code agent on that account shows the entry's icon and name in the Argus agents list and the Overview board, and its icon in the tab bar. Keys are absolute or `~/` folders, as in `pullRequests.review.accounts`; each entry is `{ "program": "<programs.json key>" }`. Argus reads each agent's `CLAUDE_CONFIG_DIR` from its process with `ps`, once per process; no variable means `~/.claude`. An unmapped account, or a key with no `programs.json` entry, keeps Herdr's icon.
 
 ```json
 { "agents": { "accounts": { "~/.claude-work": { "program": "claude-work" } } } }

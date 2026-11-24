@@ -18,6 +18,7 @@ import { changelogSections, compareVersions, plainVersion, trackedChanges } from
 import * as paneHeader from "./pane-header.mjs";
 import * as sidebar from "./sidebar.mjs";
 import * as agentList from "./agent-list.mjs";
+import * as tabRow from "./tab-row.mjs";
 
 const REPO_URL = "https://github.com/herdrdev/herdr-app.git";
 
@@ -106,6 +107,10 @@ if (typeof sidebar.addGroups === "function") {
 // The account hooks exist once scripts/agent-list.mjs exports addAccountHooks.
 if (typeof agentList.addAccountHooks === "function") {
   patches.push({ name: "argus-agent-list (addAccountHooks)", file: "defaults/mods/agents/main.js", apply: agentList.addAccountHooks });
+}
+// The tab account hooks exist once scripts/tab-row.mjs exports addTabAccountHooks.
+if (typeof tabRow.addTabAccountHooks === "function") {
+  patches.push({ name: "argus-tabs (addTabAccountHooks)", file: "defaults/mods/tabs/main.js", apply: tabRow.addTabAccountHooks });
 }
 for (const patch of patches) {
   let result;

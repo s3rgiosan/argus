@@ -1,0 +1,20 @@
+import { View, div, svg, image } from "gpui-kit";
+import { h_flex, ScrollHandle } from "gpui-base";
+import { spaces, panes, run, theme } from "herdr";
+
+export default class Tabs extends View {
+  init() {
+    this.pressed = null;
+  }
+
+  render() {
+    const t = theme();
+    const space = spaces().find(p => p.active);
+    const item = (c) => {
+      const lead = panes().find(p => p.tab === c.id && p.program?.agent) ?? panes().find(p => p.tab === c.id);
+      const program = lead?.program;
+      return h_flex().when(Boolean(program?.icon), el => el.child(program.tint ? svg(program.icon).size(14).text_color(t.muted) : image(program.icon).size(14)));
+    };
+    return h_flex().children((space?.tabs ?? []).map(item));
+  }
+}

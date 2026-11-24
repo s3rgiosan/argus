@@ -59,7 +59,7 @@ test("trackedChanges: the Argus code to check for each changed Herdr file", () =
 
 test("TRACKED: names the Herdr files Argus follows", () => {
   const herdr = TRACKED.map((t) => t.herdr);
-  for (const file of ["defaults/herdr.d.ts", "defaults/AGENTS.md", "docs/commands.md", "defaults/mods/spaces/main.js", "defaults/mods/pane/main.js", "defaults/mods/agents/main.js"]) {
+  for (const file of ["defaults/herdr.d.ts", "defaults/AGENTS.md", "docs/commands.md", "defaults/mods/spaces/main.js", "defaults/mods/pane/main.js", "defaults/mods/agents/main.js", "defaults/mods/tabs/main.js"]) {
     assert.ok(herdr.includes(file), file);
   }
 });
