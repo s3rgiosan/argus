@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A scroll up in the Spaces list of the Argus sidebar no longer runs away past the top. The list still brings the active space into view when you switch spaces.
+- A scroll up in the Spaces list of the Argus sidebar no longer runs away past the top. The list still brings the active space into view when you switch spaces, and when the list gets shorter.
 
 ## [1.14.0] - 2026-11-23
 

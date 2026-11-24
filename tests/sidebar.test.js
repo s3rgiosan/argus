@@ -88,7 +88,7 @@ function parses(source) {
 }
 
 const HOOKS = [
-  'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton } from "./space-groups-view.js";',
+  'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton, argusSizeReveal } from "./space-groups-view.js";',
   "    argusInit(this, cx);",
   "    out.splice(0, out.length, ...argusSort(this, out, sp, (w) => this.git[where(w, ps)]));",
   "      const argus = argusSections(this, rows, draw, t, collapsed, null);\n      this.activeAt = argus.active;\n      return argus.items;",
@@ -109,19 +109,10 @@ test("addGroups: adds every hook", () => {
   assert.ok(parses(out));
 });
 
-test("addGroups: removes the reveal on a size change, and its comment", () => {
+test("addGroups: the reveal on a size change goes through argusSizeReveal", () => {
   const out = addGroups(patchSidebar(FIXTURE));
-  assert.doesNotMatch(out, /on_size_change/);
-  assert.doesNotMatch(out, /A block above/);
-  assert.match(out, /\.track_scroll\(this\.scroll\)\n        \.children\(this\.grouped\(t, collapsed\)\)\);/);
-  assert.equal(out.match(/scroll_to_item/g), null);
-});
-
-test("addGroups: removes the reveal on a size change without its comment", () => {
-  const bare = FIXTURE.replace(/\n *\/\/ A block above[^\n]*/, "");
-  const out = addGroups(patchSidebar(bare));
-  assert.doesNotMatch(out, /on_size_change/);
-  assert.match(out, /\.track_scroll\(this\.scroll\)\n        \.children\(/);
+  assert.match(out, /\n        \/\/ A block above[^\n]*\n        \.on_size_change\(\(_size, cx\) => argusSizeReveal\(this, cx\)\)\n/);
+  assert.doesNotMatch(out, /scroll_to_item/);
 });
 
 // Each anchor and a change that removes it.
