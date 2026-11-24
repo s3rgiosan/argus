@@ -65,6 +65,10 @@ export default class Spaces extends View {
     return div()
       .child(div()
         .when(!collapsed, el => el.child("Spaces"))
-        .child(div().id("space-new").on_click(() => run("space.new"))));
+        .child(div().id("space-new").on_click(() => run("space.new"))))
+      .child(v_flex().overflow_y_scrollbar().track_scroll(this.scroll)
+        // A block above (another mod's) growing, or the window resizing, shrinks this list and can push the active space out.
+        .on_size_change((_size, cx) => { if (this.activeAt >= 0) { this.scroll.scroll_to_item(this.activeAt); cx.notify(); } })
+        .children(this.grouped(t, collapsed)));
   }
 }

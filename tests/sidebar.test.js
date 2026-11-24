@@ -109,6 +109,21 @@ test("addGroups: adds every hook", () => {
   assert.ok(parses(out));
 });
 
+test("addGroups: removes the reveal on a size change, and its comment", () => {
+  const out = addGroups(patchSidebar(FIXTURE));
+  assert.doesNotMatch(out, /on_size_change/);
+  assert.doesNotMatch(out, /A block above/);
+  assert.match(out, /\.track_scroll\(this\.scroll\)\n        \.children\(this\.grouped\(t, collapsed\)\)\);/);
+  assert.equal(out.match(/scroll_to_item/g), null);
+});
+
+test("addGroups: removes the reveal on a size change without its comment", () => {
+  const bare = FIXTURE.replace(/\n *\/\/ A block above[^\n]*/, "");
+  const out = addGroups(patchSidebar(bare));
+  assert.doesNotMatch(out, /on_size_change/);
+  assert.match(out, /\.track_scroll\(this\.scroll\)\n        \.children\(/);
+});
+
 // Each anchor and a change that removes it.
 const ANCHORS = [
   ['import { spaces, machines, panes, run, openOverlay, shared, setShared } from "herdr";', 'import { spaces, machines, panes, run, openOverlay, shared, setShared } from "herdr-kit";'],
@@ -129,6 +144,7 @@ const ANCHORS = [
   ["      const first = folded ? -1 : mine.findIndex(r => r.w.active);", "      const first = folded ? -1 : mine.findIndex((r) => r.w.active);"],
   ["          const index = spaces().findIndex(s => s.id === w.id);", "          const index = spaces().findIndex((s) => s.id === w.id);"],
   ['        .child(div().id("space-new")', '        .child(div().id("space-add")'],
+  [".on_size_change((_size, cx) => { if (this.activeAt >= 0) { this.scroll.scroll_to_item(this.activeAt); cx.notify(); } })", ".on_size_change((_size, cx) => { if (this.activeAt >= 0) this.scroll.scroll_to_item(this.activeAt); })"],
 ];
 
 test("addGroups: refuses a missing anchor", () => {

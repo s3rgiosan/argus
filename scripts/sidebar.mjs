@@ -139,12 +139,19 @@ const ANCHORS = {
   remoteFirst: (text) => text === "const first = folded ? -1 : mine.findIndex(r => r.w.active);",
   drop: (text) => text === "const index = spaces().findIndex(s => s.id === w.id);",
   title: (text) => text.startsWith('.child(div().id("space-new")'),
+  sizeReveal: (text) => text === SIZE_REVEAL,
 };
+
+// The scroll list jumps back to the active space each time its size changes. In the copy with
+// groups, this jump fights a scroll up and the list runs away, so the copy drops it.
+const SIZE_REVEAL = ".on_size_change((_size, cx) => { if (this.activeAt >= 0) { this.scroll.scroll_to_item(this.activeAt); cx.notify(); } })";
+const SIZE_REVEAL_COMMENT = "// A block above";
 
 /**
  * The patched sidebar source with the space groups hooks: one-line calls into
- * `space-groups-view.js`, which `build-layout` writes next to the copy. Every
- * hook applies, or none does.
+ * `space-groups-view.js`, which `build-layout` writes next to the copy, and
+ * without the jump to the active space on a size change. Every hook applies,
+ * or none does.
  *
  * @param {string} source The sidebar source after `patchSidebar`.
  * @returns {string}
@@ -179,6 +186,10 @@ export function addGroups(source) {
   replace.set(at.remoteFirst, [`${indent(at.remoteFirst)}const first = folded ? -1 : argusMine.active;`]);
   before.set(at.drop, [`${indent(at.drop)}argusDropOnRow(this, from, w);`]);
   before.set(at.title, [`${indent(at.title)}.when(!collapsed, el => el.child(argusNewGroupButton(this, t)))`]);
+  replace.set(at.sizeReveal, []);
+  // The comment above the jump explains only the jump, so it goes too.
+  const comment = at.sizeReveal - 1;
+  if (lines[comment].trim().startsWith(SIZE_REVEAL_COMMENT) && !replace.has(comment)) replace.set(comment, []);
   const out = [];
   lines.forEach((line, i) => {
     out.push(...(before.get(i) ?? []));

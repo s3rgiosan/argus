@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The `argus.json` checks of `argus-toolbar` and `argus-pull-requests` moved to `lib/argus-file.js`, with no change in behavior.
 
+### Fixed
+
+- A scroll up in the Spaces list of the Argus sidebar no longer runs away past the top. The list still brings the active space into view when you switch spaces.
+
 ## [1.14.0] - 2026-11-23
 
 ### Added
