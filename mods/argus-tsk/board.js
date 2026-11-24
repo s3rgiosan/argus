@@ -11,11 +11,12 @@ export { compareNames, followFolder, followedProject };
  * @typedef {import("./model.js").Activity} Activity
  * @typedef {"needsYou"|"inMotion"|"onDeck"|"done"} SectionId
  * @typedef {{needsYou: TaskRow[], inMotion: TaskRow[], ready: TaskRow[], inbox: TaskRow[]}} BoardModel
- * @typedef {{where: "follow"|"desk"|"all", thread: ?string, assignee: ?string}
+ * @typedef {{where: "follow"|"desk"|"all"|"none", thread: ?string, assignee: ?string}
  *   | {where: "project", project: string, thread: ?string, assignee: ?string}} Scope
  *   `where` is the place: the project of the focused space, the desk, every project or
  *   one project. A thread or an assignee, when set, keeps only the rows that have it.
- *   `effectiveScope` turns `follow` into a project or the desk.
+ *   `effectiveScope` turns `follow` into a project, or into `none` when the focused space
+ *   is in no project on the board; `none` shows no rows and is never stored.
  * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} SidebarItem
  *   `scope` is the current scope with only this row's choice changed.
  * @typedef {SidebarItem & {title: ?string, folder: string}} ProjectItem `title` is the
@@ -174,7 +175,7 @@ function follow() {
 }
 
 /**
- * The rows a scope shows. Follow shows the rows of `followed`, else the desk.
+ * The rows a scope shows. Follow shows the rows of `followed`, else none.
  * @param {TaskRow[]} rows
  * @param {Scope} scope
  * @param {?string} [followed] the project the focused space is in
@@ -190,6 +191,8 @@ export function rowsInScope(rows, scope, followed = null) {
         return onDesk(r);
       case "project":
         return r.project === shown.project;
+      case "none":
+        return false;
       default:
         return true;
     }
@@ -330,7 +333,7 @@ export function scopeTitle(scope, model, followed = null) {
   switch (scope.where) {
     case "follow": {
       const shown = effectiveScope(scope, followed);
-      place = `${labelOf("follow")} · ${shown.where === "project" ? projectLabel(shown.project, model) : labelOf("desk")}`;
+      place = `${labelOf("follow")} · ${shown.where === "project" ? projectLabel(shown.project, model) : "No project"}`;
       break;
     }
     case "project":
@@ -354,7 +357,7 @@ function projectLabel(project, model) {
 }
 
 /**
- * The scope the board lists: follow becomes the followed project, else the desk.
+ * The scope the board lists: follow becomes the followed project, else `none`.
  * The thread and the assignee stay.
  * @param {Scope} scope
  * @param {?string} followed
@@ -363,7 +366,42 @@ function projectLabel(project, model) {
 export function effectiveScope(scope, followed) {
   if (scope.where !== "follow") return scope;
   const filters = { thread: scope.thread, assignee: scope.assignee };
-  return followed ? { where: "project", project: followed, ...filters } : { where: "desk", ...filters };
+  return followed ? { where: "project", project: followed, ...filters } : { where: "none", ...filters };
+}
+
+/**
+ * The note of a board with no rows: still loading, no project for the focused space, or no tasks.
+ * @param {Scope} scope
+ * @param {?string} followed
+ * @param {number} readAt when the board was last read, 0 before the first read
+ * @returns {string}
+ */
+export function emptyNote(scope, followed, readAt) {
+  if (readAt <= 0) return "Loading…";
+  return effectiveScope(scope, followed).where === "none" ? "No tasks for this space" : "No tasks here";
+}
+
+/**
+ * The git arguments that print the repo root of `folder`. A capture with no project for the
+ * focused space starts a project there, because tsk keeps a subfolder as its own project.
+ * @param {string} folder
+ * @returns {string[]}
+ */
+export function repoRootArgs(folder) {
+  return ["-C", folder, "rev-parse", "--show-toplevel"];
+}
+
+/**
+ * Why a capture with no project for the focused space cannot start one, or null when the
+ * repo root is found.
+ * @param {?string} folder the focused space's folder, null for a space on another machine
+ * @param {?{code: number, stdout: string}} result the `repoRootArgs` run, null when it did not run
+ * @returns {?string}
+ */
+export function captureRefusal(folder, result) {
+  if (folder === null) return "This space has no folder on this computer. Pick Desk or a project to add a task.";
+  const root = result?.code === 0 ? result.stdout.trim() : "";
+  return root === "" ? "This space's folder is not in a git repo. Pick Desk or a project to add a task." : null;
 }
 
 /**
