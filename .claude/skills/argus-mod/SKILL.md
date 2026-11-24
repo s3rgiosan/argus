@@ -27,7 +27,8 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 - Guard side effects with `checking()`, because `herdr-app check` runs the mod.
 - `herdr-app check <mod dir>` renders only the first state. It does not test clicks, popups or later states.
 - Herdr app 0.1.16 does not load a symlinked mod folder. `scripts/install.sh` copies the files.
-- Herdr replaces its shipped layouts on start and does not let mods edit them. Never edit Herdr's shipped mods or layouts. Argus builds its own layout with `node scripts/build-layout.mjs`; rebuild it after a Herdr update. For the review of a Herdr update, use `.claude/skills/argus-herdr-update/SKILL.md`. A copy of a shipped mod is allowed only when that script writes it again from the shipped files on every run, as `scripts/pane-header.mjs`, `scripts/sidebar.mjs` and `scripts/agent-list.mjs` do for `argus-pane`, `argus-spaces` and `argus-agent-list`, and the script keeps the shipped mod when its patch no longer applies.
+- `herdr` in `package.json` is the oldest Herdr app that Argus supports, and `install.sh` refuses an older one. A change that needs a newer Herdr API raises it and the README requirement line together. A test keeps the two equal.
+- Herdr replaces its shipped layouts on start and does not let mods edit them. Never edit Herdr's shipped mods or layouts. Argus builds its own layout with `node scripts/build-layout.mjs`; rebuild it after a Herdr update (`sh scripts/update.sh` runs it). For the review of a Herdr update, use `.claude/skills/argus-herdr-update/SKILL.md`. A copy of a shipped mod is allowed only when that script writes it again from the shipped files on every run, as `scripts/pane-header.mjs`, `scripts/sidebar.mjs` and `scripts/agent-list.mjs` do for `argus-pane`, `argus-spaces` and `argus-agent-list`, and the script keeps the shipped mod when its patch no longer applies. A copy gets the `lib/` files that its hooks import from `build-layout.mjs`, not from `install.sh` or `sync-lib.mjs`.
 - `readTextFile` reads at most 1 MiB and gives null when the file is missing.
 - Keep data for one copy in the instance and data for all copies in shared state, because a mod can have several copies open.
 - A mod imports only files in its own folder. This is why `lib/` is copied into each mod.
@@ -37,6 +38,7 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 ## Match Herdr's UI
 
 - Use the building blocks that `lib/ui.js` exports, because they copy Herdr's values. Read the file for the current list. It has settings fields (`commandField`, `forgeCommandFields`, `intervalPicker`), popup menus (`menuPopup` with `menuHeight` from `lib/menu.js`), board rows (`twoLineRow`) and pane parts (`paneHead`, `foldTitle`, `markdown`). Do not draw a second version of a control that `lib/ui.js` already has.
+- A mod that opens as a window with `mod.open` declares a `palette` entry in its `mod.json` (Herdr 0.1.18), so people open it from the command palette. Do not ask people to bind a key.
 - `lib/pane.js` opens a mod's pane (`openModPane`), sets its title with the selection (`setTitle`) and from a render (`shareTitle`), opens links with `cx.open_url` (`openInBrowser`) and makes text inputs that track focus (`createInputs`).
 - When Herdr has a control that `lib/ui.js` does not have, copy Herdr's values from its mod into a new block in `lib/ui.js`. Name the Herdr file and line in your report, not in the code comment.
 - Section titles use sentence case, for example "Ready to merge".
@@ -60,7 +62,7 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 - `argus.json` in Herdr's app folder (`appHome()`) holds settings that people edit by hand. Today it holds `toolbar.order`, `toolbar.display`, and `pullRequests.review.instructions`, `pullRequests.review.promptFile`, `pullRequests.review.accounts`, `pullRequests.review.reportFolders` and `agents.accounts`. Read the file with `readTextFile` and watch the folder with `watchFolder`. When the file is missing, use the defaults. When the file is not valid, show one toast and use the defaults. Its parsers and `checkArgusFile` live in `lib/argus-file.js`; a new setting gets its parser there, so the Settings window (`argus-settings`) checks it before a save.
 - A mod's own Settings view stores its values in one shared-state key named `<mod name>.settings`, for example `argus-tsk.settings`, `argus-claude-usage.settings` and `argus-pull-requests.settings`. The value is a small object that the mod normalizes when it reads it.
 - Shared-state keys start with the mod name, for example `argus-tsk.board`. Settings and keys that several mods share start with `argus.`, for example `argus.forge` (the `gh` and `glab` commands of every forge mod, through `lib/forge-settings.js`).
-- A mod that starts or reads Claude Code must support several Claude Code accounts. Find the profile folders (`~/.claude` and every `~/.claude-*`) and start each account with `env CLAUDE_CONFIG_DIR=<folder>` (no variable for the default `~/.claude`). Use the display names from `argus-claude-usage` when that mod is installed.
+- A mod that starts or reads Claude Code must support several Claude Code accounts. Find the profile folders (`~/.claude` and every `~/.claude-*`) and start each account with `env CLAUDE_CONFIG_DIR=<folder>` (no variable for the default `~/.claude`). Use the display names from `argus-claude-usage` when that mod is installed. A list of Claude Code agents draws each agent's icon from `argusProgram` in `lib/agent-accounts-view.js`, which applies `agents.accounts` from `argus.json`.
 - Do not include defaults that belong to one stack, company or skill. The mods are for anyone.
 
 ## Public repo safety
@@ -71,7 +73,7 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 
 ## Live checks
 
-- Install, then rebuild the layout when panels or the tab row change. Look at the result with `herdr-app shot <path>` and crop it with `sips`.
+- A full `sh scripts/install.sh` copies the mods and rebuilds the layout. After `sh scripts/install.sh <mod>`, run `node scripts/build-layout.mjs` when panels, the tab row, a copy's patch or a `lib/` file that a copy imports changed. Look at the result with `herdr-app shot <path>` and crop it with `sips`.
 - Tests and live checks for `argus-tsk` use a throwaway `--state-dir` and never write to the real store.
 - To test a click or a popup, add a temporary driver to the installed copy (for example `cx.timer.after(3000, ...)` in `init`). Reinstall the clean build afterwards.
 - End every live check with `herdr-app status` showing `errors: []` and `overlays: []`. Remove anything the test made, such as worktrees, branches, spaces, test files or `caffeinate` runs.
@@ -84,5 +86,5 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 - Turn on the commit check once per clone with `git config core.hooksPath .githooks`. Worktrees share it. Before you hand off a branch, run `node scripts/check-commits.mjs`, which checks `main..HEAD`.
 - A brief for another agent links this file for the commit rules. It does not restate them.
 - `CHANGELOG.md` follows Keep a Changelog 1.1.0, with full-sentence entries under `## [Unreleased]`.
-- Tags are plain semver without `v`, for example `1.3.1`. A release bumps `package.json`, dates the CHANGELOG section and adds its compare link.
+- Tags are plain semver without `v`, annotated with the version as the message: `git tag -a 1.3.1 -m 1.3.1`. A release bumps `package.json`, dates the CHANGELOG section and adds its compare link.
 - Never commit `docs/` or `.superpowers/`.
