@@ -33,6 +33,7 @@ The popups of the space groups in Argus's sidebar copy (`argus-spaces`): the gro
 ## Watch out
 
 - The sidebar copy is Herdr's `spaces` mod written again by `build-layout`. When a hook anchor is gone after a Herdr update, `build-layout` prints "the sidebar has no groups" and writes the copy without groups; fix the anchors in `scripts/sidebar.mjs`.
+- The copy with groups replaces Herdr's jump to the active space on a size change of the list with `argusSizeReveal`, which jumps only when the list's visible height (`scroll.viewport_size()`) drops by more than 1 px. With Herdr's jump, a scroll up ran away in a live check. The jump when the active space changes stays.
 - Herdr's space menu cannot take items, so the group actions live on the group header.
 - Groups are kept per Herdr app (`shared.json`); the space order is kept per machine. See the fight guard.
 - In the title row (`justify_between`), a child that takes the free space (`ml_auto()`, or a `flex_1` row) hid both title buttons in a live render, also Herdr's `+`. A fixed margin and an absolute position render; the New group button is absolute.

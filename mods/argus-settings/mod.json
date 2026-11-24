@@ -1,0 +1,1 @@
+{"place": "none", "title": "Settings", "overlay": {"width": 640, "height": 640}, "palette": [{"title": "Argus settings", "command": "mod.open", "args": {"name": "argus-settings"}, "words": "argus.json preferences"}]}

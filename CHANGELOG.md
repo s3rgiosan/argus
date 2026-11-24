@@ -5,6 +5,24 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A new mod, `argus-settings`, adds a Settings window that shows `argus.json` in Herdr's code editor. Open it with `mod.open:argus-settings`, for example from a key in `keys.json`. Save checks the text with the rules the mods use and shows what is wrong. It does not overwrite a change made to the file by another program, and Revert reads the file again.
+- The command palette has an **Argus settings** entry that opens the Settings window.
+
+### Changed
+
+- Argus needs Herdr 0.1.18 or later.
+- The `argus.json` checks of `argus-toolbar` and `argus-pull-requests` moved to `lib/argus-file.js`, with no change in behavior.
+- The review agent of `argus-pull-requests` may now post a comment, an approval or a change request, after the person approves the exact text, where it goes and the review event in the agent's conversation. Commit, push and merge stay banned.
+- The review agent may write report files in the dot folders that the new `pullRequests.review.reportFolders` setting in `argus.json` names, for example `.drafts`. The setting refuses `.git`, `.github`, `.gitlab`, `.claude`, `.githooks`, `.husky` and `.vscode`.
+
+### Fixed
+
+- A scroll up in the Spaces list of the Argus sidebar no longer runs away past the top. The list still brings the active space into view when you switch spaces, and when the list gets shorter.
+
 ## [1.14.0] - 2026-11-23
 
 ### Added

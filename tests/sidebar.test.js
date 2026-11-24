@@ -88,7 +88,7 @@ function parses(source) {
 }
 
 const HOOKS = [
-  'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton } from "./space-groups-view.js";',
+  'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton, argusSizeReveal } from "./space-groups-view.js";',
   "    argusInit(this, cx);",
   "    out.splice(0, out.length, ...argusSort(this, out, sp, (w) => this.git[where(w, ps)]));",
   "      const argus = argusSections(this, rows, draw, t, collapsed, null);\n      this.activeAt = argus.active;\n      return argus.items;",
@@ -107,6 +107,12 @@ test("addGroups: adds every hook", () => {
   assert.doesNotMatch(out, /mine\.length \?/);
   assert.match(out, /^    const where = "";$/m);
   assert.ok(parses(out));
+});
+
+test("addGroups: the reveal on a size change goes through argusSizeReveal", () => {
+  const out = addGroups(patchSidebar(FIXTURE));
+  assert.match(out, /\n        \/\/ A block above[^\n]*\n        \.on_size_change\(\(_size, cx\) => argusSizeReveal\(this, cx\)\)\n/);
+  assert.doesNotMatch(out, /scroll_to_item/);
 });
 
 // Each anchor and a change that removes it.
@@ -129,6 +135,7 @@ const ANCHORS = [
   ["      const first = folded ? -1 : mine.findIndex(r => r.w.active);", "      const first = folded ? -1 : mine.findIndex((r) => r.w.active);"],
   ["          const index = spaces().findIndex(s => s.id === w.id);", "          const index = spaces().findIndex((s) => s.id === w.id);"],
   ['        .child(div().id("space-new")', '        .child(div().id("space-add")'],
+  [".on_size_change((_size, cx) => { if (this.activeAt >= 0) { this.scroll.scroll_to_item(this.activeAt); cx.notify(); } })", ".on_size_change((_size, cx) => { if (this.activeAt >= 0) this.scroll.scroll_to_item(this.activeAt); })"],
 ];
 
 test("addGroups: refuses a missing anchor", () => {

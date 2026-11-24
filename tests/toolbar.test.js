@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isOpen, clickCommands, toolbarSettings, touchesFile, measuredResize, DISPLAYS, waitAfter, badFileToast, SETTLE_MS, POLL_MS } from "../mods/argus-toolbar/toolbar-logic.js";
+import { toolbarSettings, DISPLAYS } from "../lib/argus-file.js";
+import { isOpen, clickCommands, touchesFile, measuredResize, waitAfter, badFileToast, SETTLE_MS, POLL_MS } from "../mods/argus-toolbar/toolbar-logic.js";
 
 const tree = (hidden, active) => ({
   id: "root",

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   addGroup,
+  viewportShrank,
   checkName,
   checklist,
   createGuard,
@@ -243,4 +244,13 @@ test("guardStamp: changes with a membership key or the nesting, not with Herdr's
   assert.notEqual(guardStamp(store, [a, { ...b, g: null }], keyOf), stamp);
   assert.notEqual(guardStamp(store, [a, { ...b, tree: "└─" }], keyOf), stamp);
   assert.notEqual(guardStamp(setMember(store, "rb", "A"), [a, b], keyOf), stamp);
+});
+
+test("viewportShrank: true only when the visible height drops by more than 1 px", () => {
+  assert.equal(viewportShrank(400, 300), true);
+  assert.equal(viewportShrank(400, 399.5), false);
+  assert.equal(viewportShrank(400, 400), false);
+  assert.equal(viewportShrank(300, 400), false);
+  assert.equal(viewportShrank(undefined, 300), false);
+  assert.equal(viewportShrank(0, 300), false);
 });

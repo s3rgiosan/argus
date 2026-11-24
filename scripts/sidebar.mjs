@@ -109,7 +109,7 @@ export const GROUP_FILES = {
   "icons/chevron-right.svg": "mods/argus-space-groups/icons/chevron-right.svg",
 };
 
-const GROUPS_IMPORT = 'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton } from "./space-groups-view.js";';
+const GROUPS_IMPORT = 'import { argusInit, argusSort, argusSections, argusDropOnRow, argusNewGroupButton, argusSizeReveal } from "./space-groups-view.js";';
 const HERDR_IMPORT = /^import \{[^}]*\} from "herdr";$/;
 const ITEMS_START = "const items = [cell(head),";
 const ITEMS_DRAW = "mine.length ? mine.map(draw) :";
@@ -139,12 +139,19 @@ const ANCHORS = {
   remoteFirst: (text) => text === "const first = folded ? -1 : mine.findIndex(r => r.w.active);",
   drop: (text) => text === "const index = spaces().findIndex(s => s.id === w.id);",
   title: (text) => text.startsWith('.child(div().id("space-new")'),
+  sizeReveal: (text) => text === SIZE_REVEAL,
 };
+
+// The scroll list jumps back to the active space each time its size changes. In the copy with
+// groups, this jump fought a scroll up and the list ran away, so the copy jumps only when the
+// list's visible height shrinks (`argusSizeReveal`).
+const SIZE_REVEAL = ".on_size_change((_size, cx) => { if (this.activeAt >= 0) { this.scroll.scroll_to_item(this.activeAt); cx.notify(); } })";
 
 /**
  * The patched sidebar source with the space groups hooks: one-line calls into
- * `space-groups-view.js`, which `build-layout` writes next to the copy. Every
- * hook applies, or none does.
+ * `space-groups-view.js`, which `build-layout` writes next to the copy. The
+ * jump to the active space on a size change runs only when the list shrinks.
+ * Every hook applies, or none does.
  *
  * @param {string} source The sidebar source after `patchSidebar`.
  * @returns {string}
@@ -179,6 +186,7 @@ export function addGroups(source) {
   replace.set(at.remoteFirst, [`${indent(at.remoteFirst)}const first = folded ? -1 : argusMine.active;`]);
   before.set(at.drop, [`${indent(at.drop)}argusDropOnRow(this, from, w);`]);
   before.set(at.title, [`${indent(at.title)}.when(!collapsed, el => el.child(argusNewGroupButton(this, t)))`]);
+  replace.set(at.sizeReveal, [`${indent(at.sizeReveal)}.on_size_change((_size, cx) => argusSizeReveal(this, cx))`]);
   const out = [];
   lines.forEach((line, i) => {
     out.push(...(before.get(i) ?? []));
