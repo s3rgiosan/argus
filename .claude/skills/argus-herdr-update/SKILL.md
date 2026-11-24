@@ -51,7 +51,7 @@ Build only the items that the person picks.
 - Put the fixes in one pull request. When a pull request for this Herdr version is already open, add them to it.
 - Skip each change below that the branch already has.
 - Add a `CHANGELOG.md` entry under `## [Unreleased]` → `### Changed`: "Argus needs Herdr <new version> or later."
-- Change the README requirement line to "Herdr desktop app <new version> or later", and the `--from` value of the `herdr-diff.mjs` line in the README to the new version.
+- Change `herdr` in `package.json` and the README requirement line to the new version ("Herdr desktop app <new version> or later"; a test keeps the two equal), and the `--from` value of the `herdr-diff.mjs` line in the README to the new version. `install.sh` refuses an older Herdr from `package.json`.
 
 ## Traps
 
