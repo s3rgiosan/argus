@@ -16,7 +16,7 @@ Every Herdr release can change the mod API, the shipped mods that Argus patches 
 
 ## 2. Sources
 
-- Run `node scripts/herdr-diff.mjs --from <old> > <scratchpad>/herdr-diff.md` and read the file. It prints the release notes of the range, the changed shipped files, the full diff of each file that Argus follows, and whether the `argus-pane` and `argus-spaces` patches (with the space group hooks, when `scripts/sidebar.mjs` has them) apply to the new shipped files and parse.
+- Run `node scripts/herdr-diff.mjs --from <old> > <scratchpad>/herdr-diff.md` and read the file. It prints the release notes of the range, the changed shipped files, the full diff of each file that Argus follows, and whether the `argus-pane`, `argus-spaces`, `argus-agent-list` and `argus-tabs` patches (with the space group hooks, when `scripts/sidebar.mjs` has them) apply to the new shipped files and parse.
 - The script checks the patches of the checkout it runs in. To check the space group hooks of an open branch, run the script in a worktree of that branch that also has `scripts/herdr-diff*.mjs`.
 - The release notes are also in `~/.config/herdr-app/update-notes-cache.md`.
 - The installed `AGENTS.md` and `herdr.d.ts` are the new version's.
@@ -25,13 +25,13 @@ Every Herdr release can change the mod API, the shipped mods that Argus patches 
 ## 3. Review
 
 1. Breaks: each removed or changed signature in the `herdr.d.ts` diff, and each changed rule in the `AGENTS.md` diff. Grep `mods/`, `lib/` and `scripts/` for each one.
-2. Patches: a patch line that is not "applies and parses" comes first. Fix its anchors in `scripts/sidebar.mjs` or `scripts/pane-header.mjs`.
+2. Patches: a patch line that is not "applies and parses" comes first. Fix its anchors in `scripts/sidebar.mjs`, `scripts/pane-header.mjs`, `scripts/agent-list.mjs` or `scripts/tab-row.mjs`.
 3. Copied logic: for each tracked file in the diff, compare the Herdr change with the Argus code that `TRACKED` in `scripts/herdr-diff-lib.mjs` names. When Argus copies more Herdr logic, add it to `TRACKED`.
 4. Core now does it: compare each "New" item in the release notes with the Argus features. Argus code that core replaces can go.
 5. Improvements: each new API or command that a mod can use.
 6. Version notes: `grep -rn "<old version>" .claude/skills mods/*/RECIPE.md README.md scripts/install.sh` finds notes such as "Herdr app 0.1.16 does not …". Change a note only after a live test shows the new behavior.
 7. Live: run `herdr-app check ~/.config/herdr-app/mods/<mod>` for each installed `argus-*` mod, and check that `herdr-app status` shows `errors: []`.
-8. Rebuild the layout (`node scripts/build-layout.mjs`). A build removes from the installed copies the work of every branch it does not include, so build from a checkout that holds all open work on `scripts/sidebar.mjs`, `scripts/pane-header.mjs` and `lib/space-groups*.js`:
+8. Rebuild the layout (`node scripts/build-layout.mjs`). A build removes from the installed copies the work of every branch it does not include, so build from a checkout that holds all open work on `scripts/sidebar.mjs`, `scripts/pane-header.mjs`, `scripts/agent-list.mjs`, `scripts/tab-row.mjs`, `lib/space-groups*.js` and `lib/agent-accounts*.js`:
    - No open branch changes them: build from `main`.
    - One open branch changes them: build from that branch.
    - Two or more do: ask the person. Build from a throwaway worktree that merges them, or wait until they merge.

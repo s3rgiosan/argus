@@ -16,6 +16,7 @@ import { toolbarSettings } from "../lib/argus-file.js";
 import { PANE_HEADER, SHIPPED_HEADER, PaneHeaderError, ownsHeader, paneHeaderManifest, patchPaneHeader, useHeader } from "./pane-header.mjs";
 import { GROUP_FILES, GroupsError, SIDEBAR, SHIPPED_SIDEBAR, SidebarError, addGroups, ownsSidebar, sidebarManifest, patchSidebar, useSidebar } from "./sidebar.mjs";
 import { AGENT_LIST, AGENT_LIST_FILES, AgentListError, SHIPPED_AGENT_LIST, addAccountHooks, agentListManifest, ownsAgentList, useAgentList } from "./agent-list.mjs";
+import { SHIPPED_TAB_ROW, TAB_ROW, TAB_ROW_FILES, TabRowError, addTabAccountHooks, ownsTabRow, tabRowManifest, useTabRow } from "./tab-row.mjs";
 import { buildLayout, panelsFromManifests, planLayoutFile, planStateFile, ArgusBlocksError, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";
 
 const MARKER = "argus";
@@ -310,6 +311,21 @@ const copies = [
     },
     warning: "the agents list shows Herdr's icons",
     use: (out) => useAgentList(out, AGENT_LIST),
+  },
+  {
+    spec: {
+      shipped: SHIPPED_TAB_ROW,
+      copy: TAB_ROW,
+      what: "tab row",
+      // The copy is Herdr's file as it is; the account hooks are the extend step.
+      patch: (source) => source,
+      manifest: tabRowManifest,
+      owns: ownsTabRow,
+      PatchError: TabRowError,
+      extend: { apply: addTabAccountHooks, files: TAB_ROW_FILES, PatchError: TabRowError },
+    },
+    warning: "the tab row shows Herdr's icons",
+    use: (out) => useTabRow(out, TAB_ROW),
   },
 ];
 for (const { spec, use, warning } of copies) {
