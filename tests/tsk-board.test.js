@@ -5,6 +5,9 @@ import {
   activitySentence,
   buildBoard,
   captureTarget,
+  captureRefusal,
+  emptyNote,
+  repoRootArgs,
   effectiveScope,
   inputToOn,
   liveNumbersOf,
@@ -172,12 +175,14 @@ test("sidebarModel: sorted thread and assignee items, skipping empty ones", () =
       row({ thread: "zeta", assignee: "bob" }),
       row({ thread: "alpha", assignee: "amy" }),
       row({ thread: "alpha" }),
-    ]
+    ],
+    null,
+    scope({ where: "desk" }),
   );
   assert.deepEqual(m.threads.map((t) => [t.label, t.count]), [["Any thread", 3], ["alpha", 2], ["zeta", 1]]);
-  assert.deepEqual(m.threads[1].scope, { where: "follow", thread: "alpha", assignee: null });
+  assert.deepEqual(m.threads[1].scope, { where: "desk", thread: "alpha", assignee: null });
   assert.deepEqual(m.assignees.map((a) => a.label), ["Anyone", "amy", "bob"]);
-  assert.deepEqual(m.assignees[1].scope, { where: "follow", thread: null, assignee: "amy" });
+  assert.deepEqual(m.assignees[1].scope, { where: "desk", thread: null, assignee: "amy" });
 });
 test("sidebarModel: desk and all items carry their scopes and keys", () => {
   const m = sidebarModel([]);
@@ -202,7 +207,7 @@ test("scopeTitle: adds the thread and the assignee after the place", () => {
   const model = sidebarModel([]);
   assert.equal(scopeTitle(scope({ where: "all", thread: "launch" }), model), "All Projects · launch");
   assert.equal(scopeTitle(scope({ where: "desk", assignee: "ana" }), model), "Desk · ana");
-  assert.equal(scopeTitle(scope({ where: "follow", thread: "launch", assignee: "ana" }), model, null), "Follow space · Desk · launch · ana");
+  assert.equal(scopeTitle(scope({ where: "follow", thread: "launch", assignee: "ana" }), model, null), "Follow space · No project · launch · ana");
 });
 
 test("projectLabelsOf: maps each project path to its sidebar label", () => {
@@ -443,9 +448,9 @@ test("sortByProject: sorts shown names without regard to case", () => {
 });
 
 // follow the focused space
-test("effectiveScope: follow becomes the followed project, else the desk, and keeps the filters", () => {
+test("effectiveScope: follow becomes the followed project, else no project, and keeps the filters", () => {
   assert.deepEqual(effectiveScope(scope({ where: "follow", thread: "t" }), "/home/test/site"), scope({ where: "project", project: "/home/test/site", thread: "t" }));
-  assert.deepEqual(effectiveScope(scope({ where: "follow", assignee: "amy" }), null), scope({ where: "desk", assignee: "amy" }));
+  assert.deepEqual(effectiveScope(scope({ where: "follow", assignee: "amy" }), null), scope({ where: "none", assignee: "amy" }));
   assert.deepEqual(effectiveScope(scope({ where: "all" }), "/home/test/site"), scope({ where: "all" }));
   assert.deepEqual(effectiveScope(scope({ where: "project", project: "/x" }), null), scope({ where: "project", project: "/x" }));
 });
@@ -454,7 +459,7 @@ test("scopeTitle: follow names what it follows", () => {
   const rows = [row({ project: "/home/test/sites/alpha", projectTitle: "Alpha Site" })];
   const model = sidebarModel(rows);
   assert.equal(scopeTitle(scope({ where: "follow" }), model, "/home/test/sites/alpha"), "Follow space · Alpha Site");
-  assert.equal(scopeTitle(scope({ where: "follow" }), model, null), "Follow space · Desk");
+  assert.equal(scopeTitle(scope({ where: "follow" }), model, null), "Follow space · No project");
 });
 test("sidebarModel: a follow item heads the list and is current by default", () => {
   const m = sidebarModel([]);
@@ -464,7 +469,7 @@ test("sidebarModel: a follow item heads the list and is current by default", () 
 test("sidebarModel: the follow item counts what it follows", () => {
   const rows = [row({ project: "/home/test/p" }), row({ project: "/home/test/p" }), row({ project: null, status: "open" }), row({ project: "/home/test/q", status: "ready" })];
   assert.equal(whereItem(sidebarModel(rows, "/home/test/p"), "follow").count, 2);
-  assert.equal(whereItem(sidebarModel(rows, null), "follow").count, 1);
+  assert.equal(whereItem(sidebarModel(rows, null), "follow").count, 0);
 });
 
 // combined scopes
@@ -531,4 +536,27 @@ test("sidebarModel reuses its result for the same rows and scope", () => {
   assert.equal(sidebarModel(rows, null, { ...scope }), a);
   assert.notEqual(sidebarModel(rows, "/p", scope), a);
   assert.notEqual(sidebarModel([], "/p", scope), a);
+});
+
+test("rowsInScope: follow with no project shows no rows, not the desk", () => {
+  const rows = [row({ number: 1, project: null, status: "open" }), row({ number: 2, project: "/home/test/p" })];
+  assert.deepEqual(numbers(rowsInScope(rows, scope({ where: "follow" }), null)), []);
+});
+
+test("emptyNote: loading, no project for the space, or no tasks", () => {
+  assert.equal(emptyNote(scope({ where: "follow" }), null, 0), "Loading…");
+  assert.equal(emptyNote(scope({ where: "follow" }), null, 5), "No tasks for this space");
+  assert.equal(emptyNote(scope({ where: "follow" }), "/home/test/p", 5), "No tasks here");
+  assert.equal(emptyNote(scope({ where: "desk" }), null, 5), "No tasks here");
+});
+
+test("repoRootArgs: git finds the repo root of the space's folder", () => {
+  assert.deepEqual(repoRootArgs("/home/test/site/sub"), ["-C", "/home/test/site/sub", "rev-parse", "--show-toplevel"]);
+});
+
+test("captureRefusal: why a capture with no project for the space cannot start one", () => {
+  assert.equal(captureRefusal(null, null), "This space has no folder on this computer. Pick Desk or a project to add a task.");
+  assert.equal(captureRefusal("/home/test/notes", { code: 128, stdout: "" }), "This space's folder is not in a git repo. Pick Desk or a project to add a task.");
+  assert.equal(captureRefusal("/home/test/site/sub", { code: 0, stdout: "/home/test/site\n" }), null);
+  assert.equal(captureRefusal("/home/test/site", { code: 0, stdout: "  \n" }), "This space's folder is not in a git repo. Pick Desk or a project to add a task.");
 });

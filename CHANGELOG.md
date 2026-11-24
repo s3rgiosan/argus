@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A scroll up in the Spaces list of the Argus sidebar no longer runs away past the top. The list still brings the active space into view when you switch spaces, and when the list gets shorter.
+- In `argus-tsk`, Follow space no longer shows the desk tasks when the focused space is in no tsk project. The board shows "No tasks for this space", and a captured task starts a project at the space's git repo root.
 
 ## [1.14.0] - 2026-11-23
 

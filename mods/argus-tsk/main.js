@@ -10,7 +10,7 @@ import { listArgs, addArgs, taskArgs, statusArgs, editArgs, stepsArgs, replyArgs
 import { commandCandidates, normalizeSettings, storeDir, versionAtLeast, versionOk, MIN_TSK, TITLES_TSK } from "./locate.js";
 import { expandHome, tildePath } from "./paths.js";
 import { parseRows, parseError } from "./model.js";
-import { activitySentence, buildBoard, captureTarget, effectiveScope, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, taskPaneTitle, titleChange, titleError } from "./board.js";
+import { activitySentence, buildBoard, captureRefusal, captureTarget, effectiveScope, emptyNote, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, repoRootArgs, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, taskPaneTitle, titleChange, titleError } from "./board.js";
 import { answerBlock, applyOptimistic, flowOutcome, retryStatus, sendBack } from "./flows.js";
 import { actionsFor, addAfter, blockChange, changeFor, CHECK_LABELS, detailState, fieldSave, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
 import { debounce } from "./timing.js";
@@ -374,7 +374,18 @@ export default class Tasks extends View {
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       try {
-        const scope = effectiveScope(readScope(), followedOf(readBoard().rows));
+        let scope = effectiveScope(readScope(), followedOf(readBoard().rows));
+        if (scope.where === "none") {
+          // No project holds the focused space: the task starts one at the space's repo root.
+          const folder = followFolder(focused(), panes(), spaces());
+          const found = folder === null ? null : await exec("git", repoRootArgs(folder), { timeout: EXEC_TIMEOUT });
+          const refusal = captureRefusal(folder, found);
+          if (refusal !== null) {
+            this.captureError = refusal;
+            return;
+          }
+          scope = { where: "project", project: found.stdout.trim(), thread: scope.thread, assignee: scope.assignee };
+        }
         const reply = await this.runTsk(addArgs({ title, ...captureTarget(scope) }));
         if (reply.code === 0) {
           this.captureInput.set_value("");
@@ -913,7 +924,7 @@ export default class Tasks extends View {
       section("needs-you", "Needs you", sections.needsYou, (el) => el.bg(t.blocked));
       section("in-motion", "In motion", sections.inMotion, (el) => el.bg(t.working));
       section("on-deck", "On deck", onDeck, (el) => el.border_1().border_color(t.muted));
-      if (count === 0 && !board.error) parts.push(note(t, board.readAt > 0 ? "No tasks here" : "Loading…"));
+      if (count === 0 && !board.error) parts.push(note(t, emptyNote(scope, following, board.readAt)));
     }
 
     const bar = footer(t)
