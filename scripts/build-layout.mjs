@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { toolbarSettings } from "../lib/argus-file.js";
 import { PANE_HEADER, SHIPPED_HEADER, PaneHeaderError, ownsHeader, paneHeaderManifest, patchPaneHeader, useHeader } from "./pane-header.mjs";
 import { GROUP_FILES, GroupsError, SIDEBAR, SHIPPED_SIDEBAR, SidebarError, addGroups, ownsSidebar, sidebarManifest, patchSidebar, useSidebar } from "./sidebar.mjs";
+import { AGENT_LIST, AGENT_LIST_FILES, AgentListError, SHIPPED_AGENT_LIST, addAccountHooks, agentListManifest, ownsAgentList, useAgentList } from "./agent-list.mjs";
 import { buildLayout, panelsFromManifests, planLayoutFile, planStateFile, ArgusBlocksError, LAYOUT_NAME, LEGACY_NAME } from "./layout-build.mjs";
 
 const MARKER = "argus";
@@ -294,6 +295,21 @@ const copies = [
     },
     warning: "the sidebar has no groups",
     use: (out) => useSidebar(out, SIDEBAR),
+  },
+  {
+    spec: {
+      shipped: SHIPPED_AGENT_LIST,
+      copy: AGENT_LIST,
+      what: "agents list",
+      // The copy is Herdr's file as it is; the account hooks are the extend step.
+      patch: (source) => source,
+      manifest: agentListManifest,
+      owns: ownsAgentList,
+      PatchError: AgentListError,
+      extend: { apply: addAccountHooks, files: AGENT_LIST_FILES, PatchError: AgentListError },
+    },
+    warning: "the agents list shows Herdr's icons",
+    use: (out) => useAgentList(out, AGENT_LIST),
   },
 ];
 for (const { spec, use, warning } of copies) {

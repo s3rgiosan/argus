@@ -84,17 +84,9 @@ export function reviewInstructions(text, home = "") {
   const raw = review?.accounts;
   if (raw !== undefined && raw !== null) {
     if (typeof raw !== "object" || Array.isArray(raw)) return { ...none, error: "pullRequests.review.accounts is not an object" };
-    /** @type {Map<string, string>} */
-    const named = new Map();
-    for (const [key, entry] of Object.entries(raw)) {
-      const name = `pullRequests.review.accounts[${JSON.stringify(key)}]`;
-      const folder = expandHome(key, home);
-      if (key.trim() === "") return { ...none, error: "pullRequests.review.accounts has an empty key." };
-      if (key === "__proto__") return { ...none, error: `${name} is not a valid key.` };
-      if (!folder.startsWith("/")) return { ...none, error: `${name} must be an absolute or ~/ folder.` };
-      if (named.has(folder)) return { ...none, error: `${named.get(folder)} and ${name} name the same account folder.` };
-      named.set(folder, name);
-      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return { ...none, error: `${name} is not an object` };
+    const named = accountFolders(raw, home, "pullRequests.review.accounts");
+    if (named.error) return { ...none, error: named.error };
+    for (const { key, entry, folder, name } of named.list) {
       const text = read(entry, "instructions", `${name}.instructions`);
       if (text.error) return { ...none, error: text.error };
       const file = read(entry, "promptFile", `${name}.promptFile`);
@@ -134,6 +126,66 @@ function reportFolders(raw) {
 }
 
 /**
+ * The entries of an object keyed by Claude Code account folder, in file order, each with its
+ * folder (`~` expanded) and its name for messages. A key must be non-empty, not `__proto__`,
+ * absolute or `~/`, and no two keys may expand to one folder. Each entry must be an object.
+ * @param {Record<string, unknown>} raw
+ * @param {string} home
+ * @param {string} setting the setting's path, for messages
+ * @returns {{list: {key: string, entry: Record<string, unknown>, folder: string, name: string}[], error?: undefined} | {error: string}}
+ */
+function accountFolders(raw, home, setting) {
+  /** @type {Map<string, string>} */
+  const named = new Map();
+  const list = [];
+  for (const [key, entry] of Object.entries(raw)) {
+    const name = `${setting}[${JSON.stringify(key)}]`;
+    const folder = expandHome(key, home);
+    if (key.trim() === "") return { error: `${setting} has an empty key.` };
+    if (key === "__proto__") return { error: `${name} is not a valid key.` };
+    if (!folder.startsWith("/")) return { error: `${name} must be an absolute or ~/ folder.` };
+    if (named.has(folder)) return { error: `${named.get(folder)} and ${name} name the same account folder.` };
+    named.set(folder, name);
+    if (!isObject(entry)) return { error: `${name} is not an object` };
+    list.push({ key, entry: /** @type {Record<string, unknown>} */ (entry), folder, name });
+  }
+  return { list };
+}
+
+/**
+ * `agents.accounts` from the text of `argus.json`: a `programs.json` key per Claude Code
+ * account folder, so the agents lists show that entry's icon for the account's agents. Keyed by
+ * the folder with `~` expanded, with no prototype; each entry keeps its key as written. A missing
+ * file or key gives none and no error.
+ * @param {string|null} text
+ * @param {string} [home]
+ * @returns {{accounts: Record<string, {key: string, program: string}>, error: string|null}}
+ */
+export function agentAccounts(text, home = "") {
+  const none = { accounts: Object.create(null), error: null };
+  if (text === null || text === undefined || text.trim() === "") return none;
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    return { ...none, error: `argus.json is not valid JSON (${error instanceof Error ? error.message : String(error)})` };
+  }
+  const raw = data?.agents?.accounts;
+  if (raw === undefined || raw === null) return none;
+  if (!isObject(raw)) return { ...none, error: "agents.accounts is not an object" };
+  const named = accountFolders(raw, home, "agents.accounts");
+  if (named.error) return { ...none, error: named.error };
+  const accounts = Object.create(null);
+  for (const { key, entry, folder, name } of named.list) {
+    const program = entry.program;
+    if (typeof program !== "string") return { ...none, error: `${name}.program is not text` };
+    if (program.trim() === "") return { ...none, error: `${name}.program is empty` };
+    accounts[folder] = { key, program: program.trim() };
+  }
+  return { accounts, error: null };
+}
+
+/**
  * The problems in the text of `argus.json`, one line each, with the same rules
  * that the mods use when they read the file. Blank text has no problems,
  * because the mods then use the defaults.
@@ -149,7 +201,7 @@ export function checkArgusFile(text, home) {
   } catch (error) {
     return [`argus.json is not valid JSON (${error instanceof Error ? error.message : String(error)})`];
   }
-  const errors = [toolbarSettings(text).error, reviewInstructions(text, home).error];
+  const errors = [toolbarSettings(text).error, reviewInstructions(text, home).error, agentAccounts(text, home).error];
   return errors.filter((error) => error !== null);
 }
 

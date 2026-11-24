@@ -23,6 +23,7 @@ import {
 import { frame, header, badge, iconButton, row, scrollArea, sectionTitle, note, menuRow, menuPopup, foldTitle } from "./ui.js";
 import { probeIcons, iconResolver } from "./icons.js";
 import { menuKey, menuHeight } from "./menu.js";
+import { argusAccountsInit, argusProgram } from "./agent-accounts-view.js";
 
 const MOD = "argus-agents";
 const TRACK_KEY = "argus-agents.track";
@@ -70,6 +71,7 @@ export default class AgentsBoard extends View {
       this.handle.focus();
       return;
     }
+    argusAccountsInit(this, cx);
     cx.spawn(async (cx) => {
       await cx.sleep(0);
       tick();
@@ -143,7 +145,7 @@ export default class AgentsBoard extends View {
     const id = `${r.until !== undefined ? "snoozed" : r.kind}-${r.address}`;
     const snoozed = r.until !== undefined;
     const hovered = this.hovered === id;
-    const pic = programIcon(r.program, 16, t.foreground);
+    const pic = programIcon(argusProgram(this, r), 16, t.foreground);
     const when = snoozed ? untilLabel(r.until, now) : duration(now - r.since);
     const action = r.kind === "working" || r.kind === "idle"
       ? null
