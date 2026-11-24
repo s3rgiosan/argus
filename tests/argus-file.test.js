@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkArgusFile } from "../lib/argus-file.js";
+import { agentAccounts, checkArgusFile } from "../lib/argus-file.js";
 
 const HOME = "/home/test";
 
@@ -39,4 +39,27 @@ test("checkArgusFile: a full valid file has no problems", () => {
 
 test("checkArgusFile: a refused report folder is one problem", () => {
   assert.equal(checkArgusFile('{"pullRequests":{"review":{"reportFolders":[".git"]}}}', HOME).length, 1);
+});
+
+test("agentAccounts: maps account folders to programs.json keys", () => {
+  const read = agentAccounts('{"agents":{"accounts":{"~/.claude-work":{"program":" claude-work "},"/opt/claude":{"program":"other"}}}}', HOME);
+  assert.equal(read.error, null);
+  assert.deepEqual({ ...read.accounts }, {
+    "/home/test/.claude-work": { key: "~/.claude-work", program: "claude-work" },
+    "/opt/claude": { key: "/opt/claude", program: "other" },
+  });
+  assert.deepEqual({ ...agentAccounts(null, HOME).accounts }, {});
+  assert.deepEqual({ ...agentAccounts('{"toolbar":{}}', HOME).accounts }, {});
+});
+
+test("agentAccounts: refuses bad keys and entries", () => {
+  const error = (accounts) => agentAccounts(JSON.stringify({ agents: { accounts } }), HOME).error;
+  assert.equal(agentAccounts('{"agents":{"accounts":[]}}', HOME).error, "agents.accounts is not an object");
+  assert.match(String(error({ "": { program: "x" } })), /empty key/);
+  assert.match(String(error({ "relative/dir": { program: "x" } })), /absolute or ~\/ folder/);
+  assert.match(String(error({ "~/.claude-work": { program: "x" }, "/home/test/.claude-work": { program: "y" } })), /same account folder/);
+  assert.match(String(error({ "~/.claude-work": "claude-work" })), /is not an object/);
+  assert.match(String(error({ "~/.claude-work": { program: "" } })), /program is empty/);
+  assert.match(String(error({ "~/.claude-work": { program: 3 } })), /program is not text/);
+  assert.equal(checkArgusFile('{"agents":{"accounts":{"rel":{"program":"x"}}}}', HOME).length, 1);
 });
