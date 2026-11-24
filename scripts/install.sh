@@ -2,11 +2,17 @@
 # Installs this repo's mods into the Herdr app: each mods/<name> becomes
 # ~/.config/herdr-app/mods/<name> (or $HERDR_APP_HOME/mods/<name>).
 #
-# Usage: sh scripts/install.sh [--link] [--force] [mod ...]
-#   --link   make a symlink to this repo instead of a copy. Herdr app 0.1.16
-#            does not load a symlinked mod folder, so copy is the default.
-#   --force  replace an existing folder that this script did not make
-#   mod      names under mods/ (default: all)
+# Usage: sh scripts/install.sh [--link] [--force] [--no-layout] [--prune] [mod ...]
+#   --link       make a symlink to this repo instead of a copy. Herdr app 0.1.16
+#                does not load a symlinked mod folder, so copy is the default.
+#   --force      replace an existing folder that this script did not make
+#   --no-layout  with no mod names, copy the mods only: no Argus layout build
+#   --prune      remove installed Argus mods that this repo no longer has
+#   mod          names under mods/ (default: all)
+#
+# It first checks the Herdr version with node (when node is found). With no mod
+# names, it then builds the Argus layout with node, and shows it on the first
+# install.
 
 set -eu
 
@@ -14,16 +20,32 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 target="${HERDR_APP_HOME:-$HOME/.config/herdr-app}/mods"
 link=
 force=
+no_layout=
+prune=
 
 while [ $# -gt 0 ]; do
   case $1 in
     --link) link=1 ;;
     --force) force=1 ;;
+    --no-layout) no_layout=1 ;;
+    --prune) prune=1 ;;
     -*) echo "install.sh: unknown option: $1" >&2; exit 2 ;;
     *) break ;;
   esac
   shift
 done
+
+layout=
+if [ $# -eq 0 ] && [ -z "$no_layout" ]; then
+  layout=1
+fi
+
+if command -v node >/dev/null 2>&1; then
+  node "$repo/scripts/herdr-version.mjs" || exit 1
+elif [ -n "$layout" ]; then
+  echo "install.sh: node is needed to build the Argus layout; install Node.js, or add --no-layout to copy the mods only" >&2
+  exit 1
+fi
 
 if [ $# -eq 0 ]; then
   set --
@@ -145,3 +167,24 @@ for name in "$@"; do
     echo "linked $name -> $dest"
   fi
 done
+
+if [ -n "$prune" ]; then
+  for dir in "$target"/*/; do
+    gone=$(basename "$dir")
+    # Only a folder this script made, and only when the repo has no mod by that name.
+    [ -L "$target/$gone" ] && continue
+    [ -f "$target/$gone/.installed-from-argus" ] || continue
+    [ -d "$repo/mods/$gone" ] && continue
+    rm -rf "${target:?}/$gone"
+    echo "removed $gone"
+  done
+fi
+
+if [ -n "$layout" ]; then
+  # The first install also shows the layout; later ones keep the shown layout.
+  if [ -e "${target%/*}/layouts/Argus.json" ]; then
+    node "$repo/scripts/build-layout.mjs"
+  else
+    node "$repo/scripts/build-layout.mjs" --switch
+  fi
+fi
