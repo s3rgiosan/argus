@@ -17,7 +17,7 @@ A 640 x 640 window, opened by `mod.open {name: "argus-settings"}` (a second call
 
 ## Built from
 
-- `mod.json`: `{ "place": "none", "title": "Settings", "overlay": { "width": 640, "height": 640 } }`. No `panel`, so the Argus toolbar has no button for it. The person binds `mod.open:argus-settings` to a key in their own `keys.json`.
+- `mod.json`: `{ "place": "none", "title": "Settings", "overlay": { "width": 640, "height": 640 }, "palette": [{ "title": "Argus settings", "command": "mod.open", "args": { "name": "argus-settings" }, "words": "argus.json preferences" }] }`. The `palette` entry puts the window in the command palette, in its default "Mod" group. No `panel`, so the Argus toolbar has no button for it. The person binds `mod.open:argus-settings` to a key in their own `keys.json`.
 - `settings-logic.js`: `TEMPLATE`, `CONFLICT`, `isDirty`, `revertStep`, `saveFailure`, `statusText`. No Herdr imports.
 - `main.js`: the view, the read and the write.
 - Copies of lib files: `argus-file.js` (`checkArgusFile`), `paths.js`, `ui.js` and `menu.js`.

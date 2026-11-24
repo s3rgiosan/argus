@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { TEMPLATE, CONFLICT, isDirty, revertStep, saveFailure, statusText } from "../mods/argus-settings/settings-logic.js";
 
 test("TEMPLATE: the default toolbar display, with a final newline", () => {
@@ -63,4 +64,10 @@ test("statusText: unsaved changes, then the save time", () => {
   const saved = new Date(2026, 0, 2, 9, 5);
   assert.deepEqual(statusText({ ...quiet, saved }), { text: "Saved at 09:05", level: "dim" });
   assert.deepEqual(statusText({ ...quiet, saved, dirty: true }), { text: "Unsaved changes", level: "dim" });
+});
+
+test("argus-settings mod.json: the command palette opens the window", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../mods/argus-settings/mod.json", import.meta.url), "utf8"));
+  assert.deepEqual(manifest.palette, [{ title: "Argus settings", command: "mod.open", args: { name: "argus-settings" }, words: "argus.json preferences" }]);
+  assert.equal(manifest.place, "none");
 });

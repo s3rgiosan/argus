@@ -20,6 +20,8 @@ sh scripts/install.sh argus-settings
 
 ## Open it
 
+Open the command palette (⌘⇧P) and pick **Argus settings**; typing `argus` finds it.
+
 The `mod.open` command opens the window, and runs again to close it. To open it with a key, add a line to the `global` section of `~/.config/herdr-app/keys.json` (⌘, is Herdr's own Settings):
 
 ```json

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - A new mod, `argus-settings`, adds a Settings window that shows `argus.json` in Herdr's code editor. Open it with `mod.open:argus-settings`, for example from a key in `keys.json`. Save checks the text with the rules the mods use and shows what is wrong. It does not overwrite a change made to the file by another program, and Revert reads the file again.
+- The command palette has an **Argus settings** entry that opens the Settings window.
 
 ### Changed
 
