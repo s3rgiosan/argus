@@ -33,9 +33,10 @@ Not affiliated with Herdr or Anthropic.
 ```sh
 git clone https://github.com/s3rgiosan/argus.git
 cd argus
-sh scripts/install.sh                     # copy every mod into ~/.config/herdr-app/mods
-node scripts/build-layout.mjs --switch    # write the Argus layout and show it
+sh scripts/install.sh    # check Herdr, copy every mod, build the Argus layout and show it
 ```
+
+`install.sh` first checks that Herdr is at least the version in `package.json` (`herdr`) and stops when it is older. With no mod names, it then copies every mod and runs `node scripts/build-layout.mjs`, which writes the Argus layout; the first install also shows it. It needs Node.js for both; `--no-layout` copies the mods only. Mod names (`sh scripts/install.sh argus-tsk`) copy only those mods and leave the layout alone. `--prune` removes installed Argus mods that the repo no longer has.
 
 `install.sh` copies each `mods/<name>` folder, without its editor files (`gpui-kit.d.ts`, `jsconfig.json`). It copies into a temporary folder beside `mods/` (`.argus-install.*` in the Herdr app folder) and then swaps it in, so a failed copy keeps the old install. It refuses to replace a folder it did not install (`--force` overrides). `sh scripts/install.sh argus-claude-usage` installs one mod.
 
@@ -82,20 +83,20 @@ When the file is not valid JSON, a toast says so and the defaults show. A value 
 ## Update
 
 ```sh
-git pull
-sh scripts/install.sh
-node scripts/build-layout.mjs
+sh scripts/update.sh
 ```
 
-Run `build-layout.mjs` again after a Herdr update too: it rebuilds from Herdr's new `main`, so Herdr's changes reach the layout. Do not edit `Argus.json` by hand; the next build replaces it. The script never overwrites a layout it did not write, and it writes nothing if Herdr's `main` no longer has the blocks it attaches to.
+`update.sh` pulls the clone and runs `install.sh`, with any options you give it. It stops when the clone has local changes.
+
+Run `update.sh` again after a Herdr update too: it rebuilds from Herdr's new `main`, so Herdr's changes reach the layout. Do not edit `Argus.json` by hand; the next build replaces it. The script never overwrites a layout it did not write, and it writes nothing if Herdr's `main` no longer has the blocks it attaches to.
 
 ## Uninstall
 
 ```sh
-herdr-app do layout.switch '{"name":"main"}'
-rm ~/.config/herdr-app/layouts/Argus.json ~/.config/herdr-app/layouts/Argus.svg
-rm -r ~/.config/herdr-app/mods/argus-pane ~/.config/herdr-app/mods/argus-spaces ~/.config/herdr-app/mods/argus-agent-list ~/.config/herdr-app/mods/argus-stay-awake ~/.config/herdr-app/mods/argus-settings ~/.config/herdr-app/mods/argus-claude-usage ~/.config/herdr-app/mods/argus-toolbar ~/.config/herdr-app/mods/argus-tsk ~/.config/herdr-app/mods/argus-pull-requests ~/.config/herdr-app/mods/argus-issues ~/.config/herdr-app/mods/argus-agents ~/.config/herdr-app/mods/argus-space-groups
+sh scripts/uninstall.sh
 ```
+
+It removes every mod folder that `install.sh` made, the copies of Herdr's mods and the layouts that `build-layout.mjs` wrote. When an Argus layout shows, Herdr switches to `main` first. `argus.json` and the mods' saved state stay.
 
 ## Development
 

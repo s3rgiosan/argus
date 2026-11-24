@@ -156,3 +156,74 @@ test("an installed folder gets the normal folder mode, not 0700", () => {
   mkdirSync(normal);
   assert.equal(mode(join(root, "app/mods/demo")), mode(normal));
 });
+
+/** A fake `node` that logs its arguments and fails a script whose name is in FAIL_SCRIPT. */
+function nodeShim(root) {
+  const dir = join(root, "shim");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "node"), `#!/bin/sh\necho "$*" >> "${join(root, "node.log")}"\ncase "$1" in *"$FAIL_SCRIPT"*) [ -n "$FAIL_SCRIPT" ] && { echo "refused" >&2; exit 1; } ;; esac\nexit 0\n`);
+  chmodSync(join(dir, "node"), 0o755);
+  const log = () => (existsSync(join(root, "node.log")) ? readFileSync(join(root, "node.log"), "utf8").trim().split("\n").map((line) => line.replace(`${root}/repo/`, "")) : []);
+  const run = (env, ...args) =>
+    spawnSync("sh", [join(root, "repo/scripts/install.sh"), ...args], {
+      env: { PATH: `${dir}:/usr/bin:/bin`, HOME: root, HERDR_APP_HOME: join(root, "app"), FAIL_SCRIPT: "", ...env },
+      encoding: "utf8",
+    });
+  return { log, run };
+}
+
+test("a full install checks Herdr, copies every mod, then builds the layout and shows it the first time", () => {
+  const { root } = sandbox();
+  const { log, run } = nodeShim(root);
+  const first = run({});
+  assert.equal(first.status, 0, first.stderr);
+  assert.ok(existsSync(join(root, "app/mods/demo/main.js")));
+  assert.deepEqual(log(), ["scripts/herdr-version.mjs", "scripts/build-layout.mjs --switch"]);
+  mkdirSync(join(root, "app/layouts"), { recursive: true });
+  writeFileSync(join(root, "app/layouts/Argus.json"), "{}");
+  assert.equal(run({}).status, 0);
+  assert.deepEqual(log().slice(2), ["scripts/herdr-version.mjs", "scripts/build-layout.mjs"]);
+});
+
+test("an older Herdr stops the install before it copies anything", () => {
+  const { root } = sandbox();
+  const { log, run } = nodeShim(root);
+  const r = run({ FAIL_SCRIPT: "herdr-version" });
+  assert.equal(r.status, 1);
+  assert.ok(!existsSync(join(root, "app/mods/demo")));
+  assert.deepEqual(log(), ["scripts/herdr-version.mjs"]);
+});
+
+test("named mods and --no-layout skip the layout", () => {
+  const { root } = sandbox();
+  const { log, run } = nodeShim(root);
+  assert.equal(run({}, "demo").status, 0);
+  assert.equal(run({}, "--no-layout").status, 0);
+  assert.deepEqual(log(), ["scripts/herdr-version.mjs", "scripts/herdr-version.mjs"]);
+});
+
+test("a full install without node says how to go on and copies nothing", () => {
+  const { root, run } = sandbox();
+  const r = run();
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /node is needed/);
+  assert.match(r.stderr, /--no-layout/);
+  assert.ok(!existsSync(join(root, "app/mods/demo")));
+  assert.equal(run("--no-layout").status, 0);
+  assert.ok(existsSync(join(root, "app/mods/demo/main.js")));
+});
+
+test("--prune removes installed Argus mods that the repo no longer has, and nothing else", () => {
+  const { root, run } = sandbox();
+  const mods = join(root, "app/mods");
+  mkdirSync(join(mods, "gone"), { recursive: true });
+  writeFileSync(join(mods, "gone/.installed-from-argus"), "");
+  mkdirSync(join(mods, "foreign"), { recursive: true });
+  writeFileSync(join(mods, "foreign/main.js"), "mine");
+  const r = run("--no-layout", "--prune");
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /removed gone/);
+  assert.ok(!existsSync(join(mods, "gone")));
+  assert.ok(existsSync(join(mods, "foreign/main.js")));
+  assert.ok(existsSync(join(mods, "demo/main.js")));
+});

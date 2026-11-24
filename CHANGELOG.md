@@ -5,6 +5,18 @@ All notable changes to Argus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `scripts/update.sh` pulls the clone and runs `install.sh`. It stops when the clone has local changes.
+- `scripts/uninstall.sh` removes the Argus mods, the copies of Herdr's mods and the Argus layouts, and keeps `argus.json`.
+- `install.sh --prune` removes installed Argus mods that the repo no longer has.
+
+### Changed
+
+- `install.sh` checks the Herdr version against `herdr` in `package.json` and stops when Herdr is older. With no mod names, it also builds the Argus layout, and shows it on the first install; `--no-layout` copies the mods only.
+
 ## [1.15.0] - 2026-11-24
 
 ### Added
