@@ -50,15 +50,16 @@ export function toolbarSettings(text) {
  * The review settings from the text of `argus.json`: `pullRequests.review.instructions`, text
  * added to every review prompt, `pullRequests.review.promptFile`, a file whose text replaces
  * the built-in prompt, and `pullRequests.review.accounts`, the same two settings per Claude Code
- * account folder. `accounts` is keyed by the folder with `~` expanded and has no prototype; each entry
+ * account folder, and `pullRequests.review.reportFolders`, the dot folders where report files may go.
+ * `accounts` is keyed by the folder with `~` expanded and has no prototype; each entry
  * keeps its key as written. A key must be non-empty and expand to an absolute folder, and no two keys
  * may expand to the same folder. A missing file or key gives none and no error.
  * @param {string|null} text
  * @param {string} [home]
- * @returns {{instructions: string|null, promptFile: string|null, accounts: Record<string, AccountSettings>, error: string|null}}
+ * @returns {{instructions: string|null, promptFile: string|null, accounts: Record<string, AccountSettings>, reportFolders: string[], error: string|null}}
  */
 export function reviewInstructions(text, home = "") {
-  const none = { instructions: null, promptFile: null, accounts: {}, error: null };
+  const none = { instructions: null, promptFile: null, accounts: {}, reportFolders: [], error: null };
   if (text === null || text === undefined || text.trim() === "") return none;
   let data;
   try {
@@ -101,7 +102,35 @@ export function reviewInstructions(text, home = "") {
       accounts[folder] = { key, instructions: text.value, promptFile: file.value };
     }
   }
-  return { instructions: instructions.value, promptFile: promptFile.value, accounts, error: null };
+  const folders = reportFolders(review?.reportFolders);
+  if (folders.error) return { ...none, error: folders.error };
+  return { instructions: instructions.value, promptFile: promptFile.value, accounts, reportFolders: folders.value, error: null };
+}
+
+/** Dot folders that hold what git, forges, editors and agents read or run. Compared in lowercase. */
+const TOOL_FOLDERS = [".git", ".github", ".gitlab", ".claude", ".githooks", ".husky", ".vscode"];
+
+/**
+ * The dot folder names of `pullRequests.review.reportFolders`, trimmed, with no repeats, in file order.
+ * Each entry is one folder name that starts with a dot and is not a folder of `TOOL_FOLDERS`.
+ * @param {unknown} raw
+ * @returns {{value: string[], error?: undefined} | {error: string}}
+ */
+function reportFolders(raw) {
+  if (raw === undefined || raw === null) return { value: [] };
+  if (!Array.isArray(raw)) return { error: "pullRequests.review.reportFolders is not a list" };
+  const value = [];
+  for (const [index, entry] of raw.entries()) {
+    const name = `pullRequests.review.reportFolders[${index}]`;
+    if (typeof entry !== "string") return { error: `${name} is not text` };
+    const folder = entry.trim();
+    if (!folder.startsWith(".") || folder.includes("/") || folder === "." || folder === "..") {
+      return { error: `${name} must be one folder name that starts with a dot, for example ".drafts".` };
+    }
+    if (TOOL_FOLDERS.includes(folder.toLowerCase())) return { error: `${name} cannot be ${JSON.stringify(folder)}: tools read or run files in it.` };
+    if (!value.includes(folder)) value.push(folder);
+  }
+  return { value };
 }
 
 /**

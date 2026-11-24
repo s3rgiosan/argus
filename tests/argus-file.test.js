@@ -36,3 +36,7 @@ test("checkArgusFile: a full valid file has no problems", () => {
   });
   assert.deepEqual(checkArgusFile(text, HOME), []);
 });
+
+test("checkArgusFile: a refused report folder is one problem", () => {
+  assert.equal(checkArgusFile('{"pullRequests":{"review":{"reportFolders":[".git"]}}}', HOME).length, 1);
+});

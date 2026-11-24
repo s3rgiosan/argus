@@ -731,7 +731,7 @@ export default class PullRequests extends View {
       name: `PR #${pr.number} · ${pr.title}`,
       folder: plan.path,
       argv,
-      task: reviewPrompt({ detail, configured: configured.instructions, extra, template }),
+      task: reviewPrompt({ detail, configured: configured.instructions, extra, template, reportFolders: configured.reportFolders }),
     });
     setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
     return null;

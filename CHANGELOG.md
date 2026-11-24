@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The `argus.json` checks of `argus-toolbar` and `argus-pull-requests` moved to `lib/argus-file.js`, with no change in behavior.
+- The review agent of `argus-pull-requests` may now post a comment, an approval or a change request, after the person approves the exact text, where it goes and the review event in the agent's conversation. Commit, push and merge stay banned.
+- The review agent may write report files in the dot folders that the new `pullRequests.review.reportFolders` setting in `argus.json` names, for example `.drafts`. The setting refuses `.git`, `.github`, `.gitlab`, `.claude`, `.githooks`, `.husky` and `.vscode`.
 
 ### Fixed
 
