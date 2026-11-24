@@ -1,0 +1,30 @@
+import { View, div, image, svg } from "gpui-kit";
+import { v_flex, h_flex } from "gpui-base";
+import { agents, terminals, theme, run } from "herdr";
+
+function icon(p, size, color) {
+  if (!p?.icon) return null;
+  return p.tint ? svg(p.icon).size(size).text_color(color) : image(p.icon).w(size).h(size);
+}
+
+export default class Agents extends View {
+  init(_props, cx) {
+    this.folded = new Set();
+    cx.timer.every(30000, (cx) => cx.notify());
+  }
+
+  subRow(t, s) {
+    const k = s.t;
+    const pic = icon(k.program, 14, t.foreground);
+    return h_flex().child(pic);
+  }
+
+  render() {
+    const t = theme();
+    const row = (a) => {
+      const pic = icon(a.program, 16, t.foreground);
+      return h_flex().child(pic);
+    };
+    return v_flex().children(agents().map(row));
+  }
+}

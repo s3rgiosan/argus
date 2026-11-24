@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A new mod, `argus-settings`, adds a Settings window that shows `argus.json` in Herdr's code editor. Open it with `mod.open:argus-settings`, for example from a key in `keys.json`. Save checks the text with the rules the mods use and shows what is wrong. It does not overwrite a change made to the file by another program, and Revert reads the file again.
 - The command palette has an **Argus settings** entry that opens the Settings window.
+- The new `agents.accounts` setting in `argus.json` maps a Claude Code account folder to a `programs.json` entry. The Argus agents list in the sidebar (`argus-agent-list`, a copy of Herdr's `agents` list) and the Overview board show that entry's icon for the account's agents.
 
 ### Changed
 

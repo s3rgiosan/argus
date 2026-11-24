@@ -11,7 +11,7 @@ export const TRACKED = [
   { herdr: "docs/commands.md", argus: "mods/, lib/", why: "The commands that mods run with run()." },
   { herdr: "defaults/mods/spaces/main.js", argus: "scripts/sidebar.mjs", why: "argus-spaces is a patched copy; the hooks must still find their anchors." },
   { herdr: "defaults/mods/pane/main.js", argus: "scripts/pane-header.mjs", why: "argus-pane is a patched copy; the name line and element must still match." },
-  { herdr: "defaults/mods/agents/main.js", argus: "mods/argus-agents/model.js", why: "cleanTitle follows the title rule (clean) of Herdr's agents list." },
+  { herdr: "defaults/mods/agents/main.js", argus: "mods/argus-agents/model.js, scripts/agent-list.mjs", why: "cleanTitle follows the title rule (clean) of Herdr's agents list; argus-agent-list is a patched copy whose hooks must still find their anchors." },
 ];
 
 /**

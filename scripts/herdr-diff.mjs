@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { changelogSections, compareVersions, plainVersion, trackedChanges } from "./herdr-diff-lib.mjs";
 import * as paneHeader from "./pane-header.mjs";
 import * as sidebar from "./sidebar.mjs";
+import * as agentList from "./agent-list.mjs";
 
 const REPO_URL = "https://github.com/herdrdev/herdr-app.git";
 
@@ -101,6 +102,10 @@ const patches = [
 // The space group hooks exist once scripts/sidebar.mjs exports addGroups.
 if (typeof sidebar.addGroups === "function") {
   patches.push({ name: "argus-spaces groups (patchSidebar + addGroups)", file: "defaults/mods/spaces/main.js", apply: (source) => sidebar.addGroups(sidebar.patchSidebar(source)) });
+}
+// The account hooks exist once scripts/agent-list.mjs exports addAccountHooks.
+if (typeof agentList.addAccountHooks === "function") {
+  patches.push({ name: "argus-agent-list (addAccountHooks)", file: "defaults/mods/agents/main.js", apply: agentList.addAccountHooks });
 }
 for (const patch of patches) {
   let result;
