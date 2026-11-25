@@ -227,3 +227,19 @@ test("--prune removes installed Argus mods that the repo no longer has, and noth
   assert.ok(existsSync(join(mods, "foreign/main.js")));
   assert.ok(existsSync(join(mods, "demo/main.js")));
 });
+
+test("--prune removes a link to a repo mod that no longer exists, and keeps other links", () => {
+  const { root, run } = sandbox();
+  const mods = join(root, "app/mods");
+  mkdirSync(mods, { recursive: true });
+  const elsewhere = join(root, "elsewhere");
+  mkdirSync(elsewhere);
+  symlinkSync(join(root, "repo/mods/gone"), join(mods, "gone"));
+  symlinkSync(elsewhere, join(mods, "away"));
+  const r = run("--no-layout", "--prune");
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /removed gone/);
+  assert.throws(() => lstatSync(join(mods, "gone")));
+  assert.ok(lstatSync(join(mods, "away")).isSymbolicLink());
+  assert.ok(existsSync(elsewhere));
+});

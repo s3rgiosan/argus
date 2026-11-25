@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, existsSync, readFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, existsSync, lstatSync, readFileSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -82,6 +82,24 @@ test("uninstall.sh removes Argus's mods, copies and layouts, and keeps the perso
   for (const gone of ["mods/argus-tsk", "mods/argus-spaces", "layouts/Argus.json", "layouts/Argus.svg"]) assert.ok(!existsSync(join(home, gone)), gone);
   for (const kept of ["mods/mine/main.js", "layouts/Mine.json", "argus.json"]) assert.ok(existsSync(join(home, kept)), kept);
   assert.match(r.stdout, /argus\.json stays/);
+});
+
+test("uninstall.sh removes a link to this repo's mod folder, never its target, and keeps other links", () => {
+  const { root, home, run } = app();
+  const repoMods = fileURLToPath(new URL("../mods", import.meta.url));
+  const elsewhere = join(root, "elsewhere");
+  mkdirSync(elsewhere);
+  writeFileSync(join(elsewhere, "main.js"), "");
+  symlinkSync(join(repoMods, "argus-issues"), join(home, "mods/argus-issues"));
+  symlinkSync(elsewhere, join(home, "mods/linked-away"));
+  symlinkSync(join(repoMods, "argus-issues"), join(home, "mods/other-name"));
+  const r = run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.throws(() => lstatSync(join(home, "mods/argus-issues")));
+  assert.ok(existsSync(join(repoMods, "argus-issues/main.js")));
+  assert.ok(lstatSync(join(home, "mods/linked-away")).isSymbolicLink());
+  assert.ok(lstatSync(join(home, "mods/other-name")).isSymbolicLink());
+  assert.ok(existsSync(join(elsewhere, "main.js")));
 });
 
 test("uninstall.sh switches Herdr to main first when an Argus layout shows", () => {

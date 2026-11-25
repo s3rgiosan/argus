@@ -169,10 +169,18 @@ for name in "$@"; do
 done
 
 if [ -n "$prune" ]; then
-  for dir in "$target"/*/; do
+  for dir in "$target"/*; do
+    [ -e "$dir" ] || [ -L "$dir" ] || continue
     gone=$(basename "$dir")
-    # Only a folder this script made, and only when the repo has no mod by that name.
-    [ -L "$target/$gone" ] && continue
+    # Only a folder or link this script made, and only when the repo has no mod by that name.
+    if [ -L "$target/$gone" ]; then
+      if [ "$(readlink "$target/$gone")" = "$repo/mods/$gone" ] && [ ! -d "$repo/mods/$gone" ]; then
+        rm "$target/$gone"
+        echo "removed $gone"
+      fi
+      continue
+    fi
+    [ -d "$target/$gone" ] || continue
     [ -f "$target/$gone/.installed-from-argus" ] || continue
     [ -d "$repo/mods/$gone" ] && continue
     rm -rf "${target:?}/$gone"
