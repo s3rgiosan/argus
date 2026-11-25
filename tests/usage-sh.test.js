@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, utimesSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, utimesSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,4 +54,12 @@ test("removes its own stale temp folders", () => {
   assert.equal(r.status, 0);
   assert.equal(existsSync(stale), false);
   assert.equal(existsSync(other), true);
+});
+
+test("a claude that exits at once ends with exit 1 and leaves no temp folder", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "argus-usage-tmp-"));
+  const r = spawnSync("sh", [script], { env: { TMPDIR: tmp, PATH: `${fake("exits")}:/usr/bin:/bin` }, encoding: "utf8", timeout: 20_000 });
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, "");
+  assert.deepEqual(readdirSync(tmp), []);
 });

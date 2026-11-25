@@ -53,7 +53,11 @@ pid=$!
 
 # Keep the pipe open so Claude Code waits for more input after the request.
 exec 3>"$dir/in"
-printf '%s\n' '{"type":"control_request","request_id":"argus-claude-usage","request":{"subtype":"get_usage","skip_behaviors":true}}' >&3
+# A claude that exits at once closes the pipe. Ignore SIGPIPE here (claude
+# already started with the default), so the failed write cannot kill this
+# script and the checks below end with exit 1.
+trap '' PIPE
+printf '%s\n' '{"type":"control_request","request_id":"argus-claude-usage","request":{"subtype":"get_usage","skip_behaviors":true}}' >&3 2>/dev/null || :
 
 found=
 # Check twice a second.
