@@ -23,10 +23,10 @@ import { createWorktreeRunner, GIT_LONG_TIMEOUT } from "./worktree-runner.js";
 import { createBoardSync } from "./board-sync.js";
 import { createLimiter, mapPool } from "./pool.js";
 import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT, GIT_TIMEOUT } from "./forge-runner.js";
-import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
+import { agentArgv, agentChoices, branchDelete, branchRefusal, dirtyRefusal, removePlan, reviewBranch, accountSettings, prefillNext, reviewPlan, reviewPrompt, reviewRuns, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, requestFolder, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, templateRefusal, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "./review.js";
 import { discover, usageSettings } from "./accounts.js";
 import { expandHome } from "./paths.js";
-import { reviewInstructions } from "./argus-file.js";
+import { agentAccounts, reviewInstructions } from "./argus-file.js";
 import { openInBrowser, openModPane, setTitle, shareTitle, createInputs } from "./pane.js";
 import { readForge, saveForge } from "./forge-settings.js";
 import { profileIO } from "./profile-io.js";
@@ -51,7 +51,7 @@ const TITLE_KEY = "argus-pull-requests.paneTitle";
 // The argus-claude-usage settings: account names and hidden accounts, read only.
 const USAGE_SETTINGS_KEY = "argus-claude-usage.settings";
 // A Start request from a Review with agent dialog, run by the pull request pane that opened it:
-// {id, owner, pr, argv, branch, extra}. The pane clears the key when it takes the request, and keeps
+// {id, owner, pr, argv, folder, branch, extra}. The pane clears the key when it takes the request, and keeps
 // running it when the dialog closes.
 const REVIEW_START_KEY = "argus-pull-requests.reviewStart";
 // The state of each recent Start request, by id: {state: "running"|"done", error, at, seen}.
@@ -653,13 +653,18 @@ export default class PullRequests extends View {
         // Without the profiles, Claude Code shows once with its plain command.
       }
       // The per-account settings come from argus.json. A file that cannot be read or has an error pre-fills nothing; Start reports the error.
+      // agents.accounts joins an account to its programs.json agent, so the account shows once.
       let accounts = {};
+      let mapped = {};
       try {
-        accounts = reviewInstructions(await readTextFile(`${appHome()}/argus.json`), home()).accounts;
+        const text = await readTextFile(`${appHome()}/argus.json`);
+        accounts = reviewInstructions(text, home()).accounts;
+        mapped = agentAccounts(text, home()).accounts;
       } catch {
         accounts = {};
+        mapped = {};
       }
-      this.review = { ...this.review, choices: agentChoices(known, profiles, usage, home()), accounts, error };
+      this.review = { ...this.review, choices: agentChoices(known, profiles, usage, home(), mapped), accounts, error };
       this.prefillExtra();
       cx.notify();
     });
@@ -699,7 +704,7 @@ export default class PullRequests extends View {
     const id = randomUUID();
     const startedAt = Date.now();
     this.review = { ...review, starting: true, error: null, startId: id };
-    setShared(REVIEW_START_KEY, { id, owner: review.owner, pr: review.pr, argv: agentArgv(choice, model), branch, extra: this.extraInput.value() });
+    setShared(REVIEW_START_KEY, { id, owner: review.owner, pr: review.pr, argv: agentArgv(choice, model), folder: choice.folder, branch, extra: this.extraInput.value() });
     // A start the pane never takes, or never finishes, ends with a message, and its request is withdrawn
     // so the pane cannot run it later.
     const check = (cx) => {
@@ -724,7 +729,7 @@ export default class PullRequests extends View {
       if (shared(REVIEW_START_KEY)?.id === request.id) setShared(REVIEW_START_KEY, null);
       let error;
       try {
-        error = await this.runReview(request.pr, request.argv, request.branch, request.extra);
+        error = await this.runReview(request.pr, request.argv, requestFolder(request, home()), request.branch, request.extra);
       } catch (caught) {
         error = caught?.message ?? String(caught);
       }
@@ -738,13 +743,13 @@ export default class PullRequests extends View {
   }
 
   /** Runs a review: reads the settings and the pull request, adds the worktree, opens the space. Gives an error text, or null. */
-  async runReview(pr, argv, branch, extra) {
+  async runReview(pr, argv, folder, branch, extra) {
     const resolved = await this.worktrees.root();
     if ("error" in resolved) return resolved.error;
     const configured = reviewInstructions(await readTextFile(`${appHome()}/argus.json`), home());
     if (configured.error !== null) return configured.error;
     // A prompt file from argus.json replaces the built-in prompt. The account's file wins over the global one.
-    const promptFile = promptFileFor(configured, accountFolderOf(argv, home()));
+    const promptFile = promptFileFor(configured, folder);
     let template = null;
     if (promptFile.path !== null) {
       const pathRefusal = promptFileRefusal(promptFile.path, promptFile.source);

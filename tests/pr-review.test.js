@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { CLI_TIMEOUT } from "../lib/forge-runner.js";
 import { GIT_TIMEOUT, GIT_LONG_TIMEOUT } from "../lib/worktree-runner.js";
-import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, removePlan, branchDelete, dirtyRefusal, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, accountSettings, prefillNext, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, quoted, DATA_START, DATA_END, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
+import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, removePlan, branchDelete, dirtyRefusal, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, requestFolder, accountSettings, prefillNext, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, quoted, DATA_START, DATA_END, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
 import { reviewInstructions } from "../lib/argus-file.js";
 
 const known = [
@@ -578,6 +578,58 @@ test("agentChoices: Claude Code choices carry their account folder, other agents
   const choices = agentChoices(known, profiles, { names: {}, hidden: [] }, "/home/test");
   assert.deepEqual(choices.map((c) => c.folder), ["/home/test/.claude", "/home/test/.claude-work", null]);
   assert.deepEqual(agentChoices(known.slice(0, 1), [], { names: {}, hidden: [] }, "/home/test").map((c) => c.folder), ["/home/test/.claude"]);
+});
+
+const wrapper = { key: "claude-work", name: "Claude Work", icon: "my-icons/work.svg", tint: false, agent: true, installed: true, run: ["claude-work-wrapper"] };
+const mapped = { "/home/test/.claude-work": { key: "~/.claude-work", program: "claude-work" } };
+
+test("agentChoices: an agents.accounts entry merges into its account's tile and runs its command", () => {
+  const choices = agentChoices([wrapper, ...known], profiles, { names: { "~/.claude-work": "Work" }, hidden: [] }, "/home/test", mapped);
+  assert.deepEqual(choices.map((c) => [c.id, c.label, c.argv, c.icon, c.tint, c.folder, c.model]), [
+    ["claude:/home/test/.claude", "Claude Code · Personal", ["claude"], "icons/claude.svg", true, "/home/test/.claude", true],
+    ["claude:/home/test/.claude-work", "Claude Code · Work", ["claude-work-wrapper"], "my-icons/work.svg", false, "/home/test/.claude-work", true],
+    ["codex", "Codex", ["codex"], null, false, null, false],
+  ]);
+  assert.deepEqual(agentArgv(choices[1], "opus"), ["claude-work-wrapper", "--model", "opus"]);
+});
+
+test("agentChoices: a mapped entry that is not installed keeps the env command and gives its icon", () => {
+  const choices = agentChoices([{ ...wrapper, installed: false }, ...known], profiles, { names: {}, hidden: [] }, "/home/test", mapped);
+  assert.deepEqual(choices.map((c) => [c.label, c.argv, c.icon]), [
+    ["Claude Code · Personal", ["claude"], "icons/claude.svg"],
+    ["Claude Code · .claude-work", ["env", "CLAUDE_CONFIG_DIR=/home/test/.claude-work", "claude"], "my-icons/work.svg"],
+    ["Codex", ["codex"], null],
+  ]);
+});
+
+test("agentChoices: a mapped entry of a hidden account is hidden too", () => {
+  const choices = agentChoices([wrapper, ...known], profiles, { names: {}, hidden: ["~/.claude-work"] }, "/home/test", mapped);
+  assert.deepEqual(choices.map((c) => c.label), ["Claude Code · Personal", "Codex"]);
+});
+
+test("agentChoices: a mapping with no known entry, or with no found account, changes nothing", () => {
+  const none = agentChoices(known, profiles, { names: {}, hidden: [] }, "/home/test");
+  assert.deepEqual(agentChoices(known, profiles, { names: {}, hidden: [] }, "/home/test", mapped), none);
+  const other = { "/home/test/.claude-gone": { key: "~/.claude-gone", program: "claude-work" } };
+  assert.deepEqual(agentChoices([wrapper, ...known], profiles, { names: {}, hidden: [] }, "/home/test", other).map((c) => c.label), [
+    "Claude Work",
+    "Claude Code · Personal",
+    "Claude Code · .claude-work",
+    "Codex",
+  ]);
+});
+
+test("agentChoices: without Claude Code installed, a mapped entry keeps its own tile", () => {
+  const choices = agentChoices([wrapper, { ...known[0], installed: false }], profiles, { names: {}, hidden: [] }, "/home/test", mapped);
+  assert.deepEqual(choices.map((c) => [c.label, c.argv, c.folder]), [["Claude Work", ["claude-work-wrapper"], null]]);
+});
+
+test("requestFolder: the folder the dialog sent, else the folder of the command", () => {
+  assert.equal(requestFolder({ argv: ["claude-work-wrapper"], folder: "/home/test/.claude-work" }, "/home/test"), "/home/test/.claude-work");
+  assert.equal(requestFolder({ argv: ["codex"], folder: null }, "/home/test"), null);
+  assert.equal(requestFolder({ argv: ["env", "CLAUDE_CONFIG_DIR=/home/test/.claude-work", "claude"] }, "/home/test"), "/home/test/.claude-work");
+  assert.equal(requestFolder({ argv: ["claude"], folder: 3 }, "/home/test"), "/home/test/.claude");
+  assert.equal(requestFolder({ argv: ["claude"], folder: "relative" }, "/home/test"), "/home/test/.claude");
 });
 
 test("accountSettings: the entry of the account folder, or null", () => {
