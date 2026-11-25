@@ -1,6 +1,6 @@
 # Overview
 
-A Herdr panel of the agents that need the person: waiting on them, failed or finished, plus folded lists of working, idle and older ones, with snooze and reopen. It reads Herdr's live agent data only and runs no programs.
+A Herdr panel of the agents that need the person: waiting on them, failed or finished, plus folded lists of working, idle and older ones, with snooze and reopen. It reads Herdr's live agent data and `argus.json`, and runs `ps` once for each new Claude Code process to find its account.
 
 ## What you see
 
@@ -31,7 +31,7 @@ A Herdr panel of the agents that need the person: waiting on them, failed or fin
 
 - `main.js`: the `View`, with `menuPopup`, `foldTitle` and the rows from `ui.js`, `menuKey` and `menuHeight` from `menu.js`, and the icon loader of `icons.js` (all copies of `lib/` files); `agents`, `terminals`, `spaces`, `theme`, `shared`, `setShared`, `props`, `run`, `openOverlay`, `closeOverlay`, `checking`, `readTextFile`, `appHome` from `herdr`; `image`, `svg`, `div` from `gpui-kit`; `h_flex` from `gpui-base`.
 - `model.js`: rows (`boardItems`), the tracker (`advance`, `normalizeTrack`), holds (`snoozeUntil`, `snoozeHold`, `reopenHold`, `holdActive`, `pruneHolds`, `normalizeHolds`), sections (`buildSections`) and labels (`untilLabel`, `wakeLabel`, `duration`, `cleanTitle`). Pure, tested with `node --test` (`tests/agents-model.test.js`).
-- `ui.js`, `icons.js` and `menu.js` are copies of the files in `lib/`.
+- `ui.js`, `icons.js` and `menu.js` are copies of the files in `lib/`. So are `agent-accounts-view.js` (`argusAccountsInit` and `argusProgram`, the account lookup and the program entry of an agent), `agent-accounts.js` (`configDirOf` and `accountProgram`, which find the account folder of a process and its `programs.json` entry), `argus-file.js` (`agentAccounts`, which reads `agents.accounts` from `argus.json`) and `paths.js` (`expandHome`).
 
 ## Watch out
 

@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The tab bar of the Argus layout uses `argus-tabs`, a copy of Herdr's `tabs` row. A tab led by a Claude Code agent on an account that `agents.accounts` maps shows that account's icon, as the agents lists do.
 
+### Changed
+
+- Buttons in every Argus mod stop the left mouse press, so a press on a button does not reach the element under it. The Back button of each Settings page has a tooltip.
+- The icon buttons of the Tasks panel and pane have tooltips.
+
+### Fixed
+
+- The Tasks pane reads "In Review" right after Request Review, not "Blocked".
+- Runs after names the real reason when a task cannot be added: the task itself, or a task already in the list.
+- The Tasks pane does not write a picked status while `herdr-app check` runs.
+- The New worktree view reads the Branch list again on every open, so the "worktree" marks show on every tab.
+- Remove worktree in the Review agent section refuses a worktree that a space has open.
+- A GitLab GraphQL reply with errors counts as a failed read in the merged worktrees count and view.
+- A review start or a pull request action with slow CLI or git runs is no longer reported as stuck before its timeouts end.
+- The issue pane uses Herdr's icons when Herdr ships them.
+- Open as a pane in the Usage popup focuses the Usage pane that the tab already has.
+- `usage.sh` ends with "No usage reply" when Claude Code exits at once.
+- Closing the Settings window while it reads `argus.json` leaves no editor behind.
+- `scripts/uninstall.sh` and `install.sh --prune` remove the links that `install.sh --link` made.
+- The commit hook says so when `node` is missing.
+
 ## [1.16.0] - 2026-11-24
 
 ### Added
