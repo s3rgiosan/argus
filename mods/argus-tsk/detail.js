@@ -309,6 +309,30 @@ export function addAfter(task, number) {
   return [...current, number];
 }
 
+/**
+ * Why `addAfter` gives null: the text to show for the typed reference `number`
+ * (null when it is not a task number).
+ * @param {{number: number, after: {task: number}[]}} task
+ * @param {number | null} number
+ * @returns {string}
+ */
+export function addAfterError(task, number) {
+  if (number === task.number) return "A task cannot run after itself.";
+  if (number !== null && task.after.some((a) => a.task === number)) return `T${number} already runs before this task.`;
+  return "Type the number of another task, such as T7.";
+}
+
+/**
+ * The heading of the open block or review card. A task in review reads "In
+ * Review" before its review is read, with the round once it is known.
+ * @param {{status: string, review?: {round: number} | null}} task
+ * @returns {string}
+ */
+export function threadTitle(task) {
+  if (task.status !== "review") return "Blocked";
+  return task.review ? `In Review · Round ${task.review.round}` : "In Review";
+}
+
 /** Steps are addressed by their short id; the full id is accepted too. */
 function stepIs(step, id) {
   return step.shortId === id || step.id === id;
