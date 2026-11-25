@@ -2,7 +2,7 @@
 
 Claude plan usage for every Claude Code account on this computer, one section per account.
 
-- Session, weekly and per-model limits (for example Fable), each with time to reset and pace: how much is in reserve or in deficit, and whether it lasts until the reset.
+- Session, weekly and per-model limits (for example Fable), each with time to reset ("Resets soon" once the reset time has passed) and pace: how much is in reserve or in deficit, and whether it lasts until the reset.
 - This week's usage by surface (Claude Code, Chats, Cowork), when the account reports it.
 - Extra usage: off, or spent of the monthly limit.
 - A toast when an account's session or weekly use reaches 80%, once per window.

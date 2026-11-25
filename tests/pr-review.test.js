@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { CLI_TIMEOUT } from "../lib/forge-runner.js";
+import { GIT_TIMEOUT, GIT_LONG_TIMEOUT } from "../lib/worktree-runner.js";
 import { agentArgv, agentChoices, branchRefusal, reviewBranch, reviewPlan, reviewPrefix, reviewPrompt, reviewRuns, templateRefusal, removePlan, branchDelete, dirtyRefusal, startRefusal, promptFileRefusal, promptFileFor, promptFileReadError, accountFolderOf, accountSettings, prefillNext, templateUses, goneRefusal, keepRuns, takesRequest, resultFor, withResult, markSeen, startState, startMessage, hidesRemoved, quoted, DATA_START, DATA_END, KEEP_RUNS_MS, REVIEW_RUN_MS, REVIEW_TAKE_MS } from "../mods/argus-pull-requests/review.js";
 import { reviewInstructions } from "../lib/argus-file.js";
 
@@ -619,4 +621,8 @@ test("prefillNext: a whitespace difference counts as typed", () => {
 
 test("reviewBranch: a title with no ASCII letters or digits gives the number and hash only", () => {
   assert.equal(reviewBranch({ number: 12, title: "✨" }, "0f59ec2c"), "argus/review-12-0f59ec2c");
+});
+
+test("REVIEW_RUN_MS covers the detail reads, the ref check and the worktree add", () => {
+  assert.ok(REVIEW_RUN_MS > 3 * CLI_TIMEOUT + GIT_TIMEOUT + GIT_LONG_TIMEOUT);
 });

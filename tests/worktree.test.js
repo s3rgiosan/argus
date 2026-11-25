@@ -57,16 +57,21 @@ const PORCELAIN =
 
 test("parseWorktrees", () => {
   assert.deepEqual(parseWorktrees(PORCELAIN), [
-    { path: "/home/test/a", branch: "main", prunable: false },
-    { path: "/wt/a/pr-42", branch: "pr/42", prunable: false },
-    { path: "/wt/a/old", branch: null, prunable: false },
+    { path: "/home/test/a", branch: "main", head: "abc", locked: false, prunable: false },
+    { path: "/wt/a/pr-42", branch: "pr/42", head: "def", locked: false, prunable: false },
+    { path: "/wt/a/old", branch: null, head: "123", locked: false, prunable: false },
   ]);
   assert.deepEqual(parseWorktrees(""), []);
 });
 
 test("parseWorktrees marks a prunable entry", () => {
   const text = "worktree /wt/a/gone\nHEAD abc\nbranch refs/heads/pr/7\nprunable gitdir file points to non-existent location\n";
-  assert.deepEqual(parseWorktrees(text), [{ path: "/wt/a/gone", branch: "pr/7", prunable: true }]);
+  assert.deepEqual(parseWorktrees(text), [{ path: "/wt/a/gone", branch: "pr/7", head: "abc", locked: false, prunable: true }]);
+});
+
+test("parseWorktrees marks a locked entry, with or without a reason", () => {
+  const text = "worktree /wt/a/one\nHEAD abc\nbranch refs/heads/x\nlocked\n\nworktree /wt/a/two\nHEAD def\nbranch refs/heads/y\nlocked in use\n";
+  assert.deepEqual(parseWorktrees(text).map((worktree) => worktree.locked), [true, true]);
 });
 
 test("spaceFor", () => {

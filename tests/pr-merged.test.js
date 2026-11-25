@@ -69,3 +69,9 @@ test("a merged entry may have no merge time, and sorts last", () => {
   assert.deepEqual(parseGlMrState(state), { number: 7, headSha: A, mergedAt: null, base: "main" });
 });
 
+
+test("GitLab merged parsers throw on a GraphQL error reply", () => {
+  const reply = JSON.stringify({ errors: [{ message: "Example failure" }], data: null });
+  assert.throws(() => parseGlMerged(reply), /Example failure/);
+  assert.throws(() => parseGlMrState(reply), /Example failure/);
+});

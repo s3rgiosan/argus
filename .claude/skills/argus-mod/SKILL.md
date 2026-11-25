@@ -17,6 +17,7 @@ Argus is a set of mods for the Herdr desktop app. Every mod must work like part 
 ## Herdr API rules
 
 - Never start work from `render`: no `exec`, timers, watches, `setShared`, or `InputState`/`TextareaState`. Create input states only in `init`, event handlers, timers or spawned tasks.
+- Herdr gives a mod no callback when shared state changes. When a shared-state change must start a read or write, `render` may start one `cx.spawn`, guarded by `!checking()` and a key check so it runs once per change. The spawn body starts with `await cx.sleep(0)`.
 - In Herdr app 0.1.16, `cx.spawn` ran its body at once. Start every spawned body with `await cx.sleep(0)`.
 - Never keep a `cx` for later. Use the `cx` that each handler or timer receives.
 - Read props with `props()` from `"herdr"`.

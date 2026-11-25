@@ -4,11 +4,11 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, run, closeOverlay, notify } from "herdr";
+import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, props, closeOverlay, notify } from "herdr";
 import { randomUUID } from "crypto";
 import { discover, visibleProfiles } from "./accounts.js";
 import { expandHome, tildePath } from "./paths.js";
-import { openInBrowser, createInputs } from "./pane.js";
+import { openInBrowser, openModPane, createInputs } from "./pane.js";
 import { profileIO } from "./profile-io.js";
 import { parseReply, mergeEntry, pace, paceText } from "./usage.js";
 import { formatDuration, formatAgo } from "./format.js";
@@ -188,6 +188,7 @@ export default class ClaudeUsage extends View {
         .cursor_pointer()
         .text_size(12)
         .text_color(t.muted)
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => openInBrowser(cx, url))
         .child(label);
 
@@ -226,6 +227,7 @@ export default class ClaudeUsage extends View {
       .rounded(7)
       .cursor_pointer()
       .hover((s) => s.bg(t.hover))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => {
         toggleFolded(profile.folder);
         cx.notify();
@@ -339,6 +341,7 @@ export default class ClaudeUsage extends View {
       parts.push(
         row(t, `account-toggle-${index}`)
           .cursor_pointer()
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click((_e, cx) => this.toggleAccount(profile.folder, cx))
           .child(div().flex_1().min_w(0).truncate().text_color(shown ? t.foreground : t.muted).child(profile.label))
           .child(div().flex_none().max_w(110).truncate().text_size(11).text_color(t.dim).child(tildePath(profile.folder, dir)))
@@ -376,6 +379,7 @@ export default class ClaudeUsage extends View {
               .cursor_pointer()
               .text_color(t.muted)
               .hover((s) => s.text_color(t.foreground))
+              .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
               .on_click((_e, cx) => this.saveSettings(removeExtra(readSettings(), entry), cx, { refetch: true }))
               .child("Remove"),
           ),
@@ -466,7 +470,7 @@ function freshEntries(data, settings, now) {
 
 /** Opens the panel as a pane beside the terminals and closes this popup. */
 function openAsPane() {
-  run("pane.split", { direction: "right", mod: "argus-claude-usage" });
+  openModPane("argus-claude-usage");
   const overlay = props()?.overlay;
   if (overlay) closeOverlay(overlay);
 }

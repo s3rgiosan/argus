@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   actionsFor,
   addAfter,
+  addAfterError,
+  threadTitle,
   assigneeEdit,
   blockChange,
   changeFor,
@@ -244,6 +246,18 @@ test("addAfter writes the runs-after list with the new task", () => {
   assert.deepEqual(addAfter(task({ number: 2, after: [{ task: 5, done: false }] }), 7), [5, 7]);
   assert.equal(addAfter(task({ number: 2, after: [{ task: 7, done: true }] }), 7), null);
   assert.equal(addAfter(task({ number: 2 }), 2), null);
+});
+
+test("addAfterError names why a task cannot be added", () => {
+  assert.equal(addAfterError(task({ number: 2 }), 2), "A task cannot run after itself.");
+  assert.equal(addAfterError(task({ number: 2, after: [{ task: 7, done: true }] }), 7), "T7 already runs before this task.");
+  assert.equal(addAfterError(task({ number: 2 }), null), "Type the number of another task, such as T7.");
+});
+
+test("threadTitle reads In Review for a review with or without a round", () => {
+  assert.equal(threadTitle({ status: "review", review: { round: 2 } }), "In Review · Round 2");
+  assert.equal(threadTitle({ status: "review" }), "In Review");
+  assert.equal(threadTitle({ status: "blocked" }), "Blocked");
 });
 
 // patchDetail

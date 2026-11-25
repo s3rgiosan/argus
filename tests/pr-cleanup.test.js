@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { candidates, insideFolder, rowsFor, branchStep, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces, freshForReview } from "../mods/argus-pull-requests/cleanup.js";
+import { candidates, rowsFor, branchStep, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces, freshForReview } from "../mods/argus-pull-requests/cleanup.js";
 import { branchDelete, linkedWorktrees, reviewNumber } from "../mods/argus-pull-requests/review.js";
 import { BRANCH_MERGED_LIMIT, MERGED_LIST_LIMIT, answerFromList } from "../mods/argus-pull-requests/cleanup.js";
 import { parseGhMerged, parseGhMergedFull, parseGhPrState, parseGlMerged, parseGlMergedFull, parseGlMrState } from "../mods/argus-pull-requests/model.js";
@@ -75,12 +75,6 @@ test("candidates read review numbers and the lock and prune flags", () => {
       ["feat/p", null, false, true],
     ],
   );
-});
-
-test("insideFolder matches the folder and its subfolders, not a folder that only shares a prefix", () => {
-  assert.equal(insideFolder("/w/feat-a", "/w/feat-a"), true);
-  assert.equal(insideFolder("/w/feat-a/src", "/w/feat-a"), true);
-  assert.equal(insideFolder("/w/feat-ab", "/w/feat-a"), false);
 });
 
 test("rowsFor: a merged branch whose tip is the merged head is eligible", () => {

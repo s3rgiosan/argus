@@ -28,4 +28,5 @@ A bar the height of the tab bar, on `chrome` with a 1 px bottom `border`, with o
 
 - `exec` waits for `caffeinate` to end, so one run lasts 120 s. The timer starts a new run while fewer than three are running.
 - Each open copy keeps its own mode and timer.
+- `keepAwake` returns at once while `checking()` is true, so `herdr-app check` starts no `caffeinate`.
 - The layout is generated: rebuild it after a Herdr update.

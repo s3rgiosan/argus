@@ -5,7 +5,7 @@ description: Use when Herdr or herdr-core has a new version (a "Herdr X is ready
 
 # Align Argus with a Herdr update
 
-Every Herdr release can change the mod API, the shipped mods that Argus patches (`spaces`, `pane`) and the Herdr logic that Argus copies. Review the release against Argus, record the findings, and change code only after the person picks what to build. Follow `.claude/skills/argus-mod/SKILL.md` for every code change.
+Every Herdr release can change the mod API, the shipped mods that Argus patches (`spaces`, `pane`, `agents`, `tabs`) and the Herdr logic that Argus copies. Review the release against Argus, record the findings, and change code only after the person picks what to build. Follow `.claude/skills/argus-mod/SKILL.md` for every code change.
 
 ## 1. Versions
 

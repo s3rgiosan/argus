@@ -80,20 +80,24 @@ export function branchSlug(branch) {
 /**
  * Reads the output of `git worktree list --porcelain`.
  * @param {string} porcelain
- * @returns {Array<{path: string, branch: ?string, prunable: boolean}>}
+ * @returns {Array<{path: string, branch: ?string, head: ?string, locked: boolean, prunable: boolean}>}
  */
 export function parseWorktrees(porcelain) {
   const result = [];
   for (const block of String(porcelain).split(/\r?\n\r?\n/)) {
     let path = null;
     let branch = null;
+    let head = null;
+    let locked = false;
     let prunable = false;
     for (const line of block.split(/\r?\n/)) {
       if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
+      else if (line.startsWith("HEAD ")) head = line.slice("HEAD ".length);
+      else if (line === "locked" || line.startsWith("locked ")) locked = true;
       else if (line.startsWith("branch ")) branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
       else if (line === "prunable" || line.startsWith("prunable ")) prunable = true;
     }
-    if (path !== null) result.push({ path, branch, prunable });
+    if (path !== null) result.push({ path, branch, head, locked, prunable });
   }
   return result;
 }

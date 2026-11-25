@@ -9,7 +9,7 @@ import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, 
 import { randomUUID } from "crypto";
 import { localFolders, followProjectKey, projectKey, localPathFor } from "./remote.js";
 import { GH_MISSING, GLAB_MISSING, cliError, missingNotes, glabArgs, issuesOffList, limitNote, ghDefaultBranchArgs, GL_DEFAULT_BRANCH_QUERY, parseGhDefaultBranch, parseGlDefaultBranch } from "./forge-cli.js";
-import { OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, headRefusal, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, runningOf, withRunning, withoutRunning } from "./actions.js";
+import { JOB_RENEW_MS, JOB_STALE_MS, OWN_PR, canAct, ownPr, actionCommand, actionFailure, afterAction, leavePr, ghMethodArgs, headRefusal, mergePrompt, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, anyRunning, renewed, runningOf, withRunning, withoutRunning } from "./actions.js";
 import { ghLoginArgs, ghSearchArgs, ghListArgs, ghViewArgs, ghThreadsArgs, ghMergedArgs, ghMergedListArgs, ghPrStateArgs, ghIssuesArgs, GL_USER_QUERY, GL_PROJECT_QUERY, GL_DETAIL_QUERY, GL_MERGED_QUERY, GL_MERGED_LIST_QUERY, GL_MR_STATE_QUERY, GL_ISSUES_QUERY } from "./forge.js";
 import { parseGhSearch, parseGhList, parseGhDetail, parseGhThreads, mergeThreads, parseGlabDetail, parseGlabUser, parseGlabProject, parseGhMerged, parseGhMergedList, parseGlMergedList, parseGhMergedFull, parseGlMergedFull, parseGhPrState, parseGlMerged, parseGlMrState, parseGhIssues, parseGlIssues, prKey } from "./model.js";
 import { answerFromList, candidates, candidateSignature, mergedHeadsFresh, countMerged, freshForReview, rowsFor, branchStep, statusArgs, ignoredArgs, ignoredOf, tickedByDefault, readsOnOpen, recheck, reflogArgs, reflogShas, unsavedArgs, hasOutput, submoduleArgs, worktreesInSpaces } from "./cleanup.js";
@@ -43,6 +43,10 @@ const SETTINGS_KEY = "argus-pull-requests.settings";
 const LOCK_KEY = "argus-pull-requests.lock";
 // PR key -> {kind, at} for the review and merge actions running in any copy.
 const RUNNING_KEY = "argus-pull-requests.running";
+// PR key -> {kind, at} for the check outs running in any copy.
+const CHECKOUTS_KEY = "argus-pull-requests.checkouts";
+// Worktree path -> {kind, at} for the review worktree removals running in any copy.
+const REMOVALS_KEY = "argus-pull-requests.removals";
 const TITLE_KEY = "argus-pull-requests.paneTitle";
 // The argus-claude-usage settings: account names and hidden accounts, read only.
 const USAGE_SETTINGS_KEY = "argus-claude-usage.settings";
@@ -110,6 +114,8 @@ export default class PullRequests extends View {
     // The check out action: {key, running, error}.
     // PR key -> {running, error} for the check out action of each pull request.
     this.checkouts = new Map();
+    // When this copy last renewed its running jobs in shared state.
+    this.jobsRenewedAt = 0;
     // PR key -> {running, error, confirm, text, draftText, menu, methods} for the review and merge actions of each pull
     // request. `draftText` is the comment this pane left as a pending GitLab draft.
     this.actions = new Map();
@@ -155,6 +161,7 @@ export default class PullRequests extends View {
     }
 
     if (checking()) return;
+    cx.timer.every(POLL, () => this.renewJobs());
     if (this.view === "scopes" || this.view === "review") this.handle.focus();
     if (this.review) this.loadAgents(cx);
     cx.spawn(async (cx) => {
@@ -186,6 +193,35 @@ export default class PullRequests extends View {
   /** Gives the lock back when this copy goes. */
   async close() {
     this.boardSync.release();
+    this.dropJobs();
+  }
+
+  /** The keys of the check outs and removals that run in this copy. */
+  ownJobs() {
+    const running = (map) => [...map].filter(([, job]) => job.running === true).map(([key]) => key);
+    return { checkouts: running(this.checkouts), removals: running(this.removals) };
+  }
+
+  /** Renews the shared entries of this copy's running jobs, at most once each JOB_RENEW_MS. Writes nothing when none runs. */
+  renewJobs() {
+    const own = this.ownJobs();
+    const now = Date.now();
+    if (own.checkouts.length + own.removals.length === 0 || now - this.jobsRenewedAt < JOB_RENEW_MS) return;
+    this.jobsRenewedAt = now;
+    if (own.checkouts.length > 0) setShared(CHECKOUTS_KEY, renewed(shared(CHECKOUTS_KEY), own.checkouts, now));
+    if (own.removals.length > 0) setShared(REMOVALS_KEY, renewed(shared(REMOVALS_KEY), own.removals, now));
+  }
+
+  /** Removes this copy's running jobs from shared state, one write per key that holds one. */
+  dropJobs() {
+    const own = this.ownJobs();
+    const drop = (key, keys) => {
+      const map = shared(key);
+      if (!map || typeof map !== "object" || !keys.some((k) => k in map)) return;
+      setShared(key, keys.reduce((rest, k) => withoutRunning(rest, k), map));
+    };
+    drop(CHECKOUTS_KEY, own.checkouts);
+    drop(REMOVALS_KEY, own.removals);
   }
 
   /**
@@ -543,6 +579,7 @@ export default class PullRequests extends View {
           .text_color(t.accent)
           .cursor_pointer()
           .hover((s) => s.text_color(t.foreground))
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click((_e, cx) => {
             // An old list may say none; the board counted some, so the view reads again.
             this.cleanup = freshForReview(this.cleanup);
@@ -772,6 +809,7 @@ export default class PullRequests extends View {
         .when(picked, (el) => el.bg(t.selected))
         .cursor_pointer()
         .hover((s) => s.bg(t.hover))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => {
           this.review = { ...this.review, picked: index };
           this.prefillExtra();
@@ -847,14 +885,17 @@ export default class PullRequests extends View {
 
   /** One review run in the Agent section: its branch, Open space and Remove worktree, with the remove confirm. */
   reviewRunRow(t, index, reviewRun, localPath) {
-    const state = this.removals.get(reviewRun.path) ?? { confirm: null, running: false, error: null };
+    const own = this.removals.get(reviewRun.path) ?? { confirm: null, running: false, error: null };
+    const state = { ...own, running: this.removalRunning(reviewRun.path) };
     // A removed run stays on the board until the next read; its row goes at once and comes back
     // only if a later read still lists a worktree at that path.
     if (hidesRemoved(state, fetchedAtOf(readBoard()))) return null;
     const set = (patch, cx) => {
-      this.removals.set(reviewRun.path, { ...state, ...patch });
+      this.removals.set(reviewRun.path, { ...own, ...patch });
       cx.notify();
     };
+    // A space holds the worktree, so it stays until the space closes.
+    const inSpace = worktreesInSpaces([reviewRun], spaces(), panes()).size > 0;
     let row = v_flex()
       .id(`run-${index}`)
       .px(8)
@@ -866,8 +907,9 @@ export default class PullRequests extends View {
           .flex_wrap()
           .gap(8)
           .child(button(t, `run-open-${index}`, "Open space", () => this.worktrees.openWorktreeSpace(reviewRun.path), { enabled: !reviewRun.prunable }))
-          .child(button(t, `run-remove-${index}`, "Remove worktree", (_e, cx) => set({ confirm: "plain", error: null }, cx), { enabled: !state.running && state.confirm === null && !reviewRun.locked })),
+          .child(button(t, `run-remove-${index}`, "Remove worktree", (_e, cx) => set({ confirm: "plain", error: null }, cx), { enabled: !state.running && state.confirm === null && !reviewRun.locked && !inSpace })),
       )
+      .when(inSpace, (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Open in a space. Close the space to remove it.")))
       .when(Boolean(reviewRun.locked), (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Locked. Run git worktree unlock on it to remove it.")))
       .when(Boolean(reviewRun.prunable), (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Its folder is gone. Remove worktree clears it.")));
     if (state.confirm !== null) {
@@ -891,8 +933,15 @@ export default class PullRequests extends View {
    */
   removeRun(cx, reviewRun, localPath, force) {
     const key = reviewRun.path;
-    if (this.removals.get(key)?.running) return;
+    if (this.removalRunning(key)) return;
+    // A space may have opened the worktree after the confirm was shown.
+    if (worktreesInSpaces([reviewRun], spaces(), panes()).size > 0) {
+      this.removals.set(key, { confirm: null, running: false, error: "Open in a space. Close the space to remove it." });
+      cx.notify();
+      return;
+    }
     this.removals.set(key, { ...(this.removals.get(key) ?? { confirm: null, error: null }), running: true, error: null });
+    setShared(REMOVALS_KEY, withRunning(shared(REMOVALS_KEY), key, "remove", Date.now()));
     cx.notify();
     cx.spawn(async (cx) => {
       await cx.sleep(0);
@@ -910,6 +959,7 @@ export default class PullRequests extends View {
         next = { confirm: null, running: false, error: caught?.message ?? String(caught) };
       }
       this.removals.set(key, next);
+      setShared(REMOVALS_KEY, withoutRunning(shared(REMOVALS_KEY), key));
       cx.notify();
       if (!next.removed) return;
       setShared(BOARD_KEY, markStale(readBoard(), Date.now()));
@@ -1227,7 +1277,7 @@ export default class PullRequests extends View {
       .child(div().flex_none().text_size(12).text_color(t.muted).child(`#${row.number}`))
       .child(div().flex_none().max_w(170).truncate().text_size(11).text_color(statusColor).child(status));
     if (clickable) {
-      line = line.cursor_pointer().on_click((_e, cx) => {
+      line = line.cursor_pointer().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click((_e, cx) => {
         if (state.ticked.has(row.path)) state.ticked.delete(row.path);
         else state.ticked.add(row.path);
         cx.notify();
@@ -1255,8 +1305,12 @@ export default class PullRequests extends View {
     state.picking = false;
     state.createError = null;
     state.createNote = null;
-    // The Branch list is read again, so the "worktree" marks are fresh.
-    if (state.project !== null) delete state.items.branch[state.project];
+    // The Branch list is read again whatever tab is shown, so the "worktree" marks are fresh.
+    const project = this.worktreeProject(this.worktreeProjects());
+    if (project !== null) {
+      delete state.items.branch[project.key];
+      this.readWorktreeSlot(cx, project, "branch", true);
+    }
     this.readWorktreeTab(cx, false);
     cx.notify();
   }
@@ -1272,9 +1326,19 @@ export default class PullRequests extends View {
     return projects.find((project) => project.key === this.newWorktree?.project) ?? null;
   }
 
-  /** Whether a create or a pull request check out runs now. */
+  /** Whether a create or a pull request check out runs now, in this copy or another. */
   worktreeBusy() {
-    return this.newWorktree.creating !== null || [...this.checkouts.values()].some((checkout) => checkout.running);
+    return this.newWorktree.creating !== null || [...this.checkouts.values()].some((checkout) => checkout.running) || anyRunning(shared(CHECKOUTS_KEY), Date.now(), JOB_STALE_MS);
+  }
+
+  /** Whether a check out of the pull request runs in this copy or in another copy of the mod. */
+  checkoutRunning(key) {
+    return this.checkouts.get(key)?.running === true || runningOf(shared(CHECKOUTS_KEY), key, Date.now(), JOB_STALE_MS) !== null;
+  }
+
+  /** Whether the removal of the review worktree runs in this copy or in another copy of the mod. */
+  removalRunning(path) {
+    return this.removals.get(path)?.running === true || runningOf(shared(REMOVALS_KEY), path, Date.now(), JOB_STALE_MS) !== null;
   }
 
   /** Reads the shown tab of the shown repo unless it is read or loading; `force` reads it again. The pull request tab has no read. */
@@ -1405,6 +1469,7 @@ export default class PullRequests extends View {
         const choices = projects.map((entry) =>
           listRow(t, `worktree-repo-${entry.key}`)
             .cursor_pointer()
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .on_click((_e, cx) => {
               state.project = entry.key;
               state.picking = false;
@@ -1425,6 +1490,7 @@ export default class PullRequests extends View {
           .text_color(t.accent)
           .cursor_pointer()
           .hover((s) => s.text_color(t.foreground))
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click((_e, cx) => {
             state.picking = true;
             cx.notify();
@@ -1523,7 +1589,7 @@ export default class PullRequests extends View {
         label: pr.title,
         slot: null,
         marked: holdsWorktree(held, checkoutBranch(pr)),
-        running: this.checkouts.get(prKey(pr))?.running === true,
+        running: this.checkoutRunning(prKey(pr)),
         pick: (cx) => {
           state.lastPr = prKey(pr);
           state.createError = null;
@@ -1595,7 +1661,7 @@ export default class PullRequests extends View {
   /** A pickable 28 px row. A busy row takes no clicks. */
   worktreeRow(t, id, busy, onPick) {
     const line = listRow(t, id, { hover: !busy });
-    return busy ? line : line.cursor_pointer().on_click((_e, cx) => onPick(cx));
+    return busy ? line : line.cursor_pointer().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click((_e, cx) => onPick(cx));
   }
 
   renderSettings(t) {
@@ -1697,8 +1763,9 @@ export default class PullRequests extends View {
   /** Opens the space of the pull request's worktree, creating the worktree first when needed. */
   checkOut(cx, pr, localPath) {
     const key = prKey(pr);
-    if (this.checkouts.get(key)?.running) return;
+    if (this.checkoutRunning(key)) return;
     this.checkouts.set(key, { running: true, error: null });
+    setShared(CHECKOUTS_KEY, withRunning(shared(CHECKOUTS_KEY), key, "checkout", Date.now()));
     cx.notify();
     cx.spawn(async (cx) => {
       await cx.sleep(0);
@@ -1709,6 +1776,7 @@ export default class PullRequests extends View {
         error = caught?.message ?? String(caught);
       }
       this.checkouts.set(key, { running: false, error });
+      setShared(CHECKOUTS_KEY, withoutRunning(shared(CHECKOUTS_KEY), key));
       cx.notify();
     });
   }
@@ -1984,7 +2052,7 @@ export default class PullRequests extends View {
     const pr = detail.pr;
     const key = shown.key;
     const localPath = localPathFor(board.projects, pr.host, pr.repo);
-    const checkout = this.checkouts.get(key) ?? { running: false, error: null };
+    const checkout = { ...(this.checkouts.get(key) ?? { error: null }), running: this.checkoutRunning(key) };
     const runs = board.reviews[key] ?? [];
     const position = positionIn(shownOrder(board, readScope(), followedOf(board)), key);
     // The runs the section shows: a removed run stays out until the board reads again.

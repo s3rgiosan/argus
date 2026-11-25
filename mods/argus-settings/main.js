@@ -28,10 +28,12 @@ export default class ArgusSettings extends View {
     // A read runs; Save and Revert wait for it.
     this.loading = false;
     this.saved = null;
+    this.closed = false;
     this.load(cx);
   }
 
   close() {
+    this.closed = true;
     this.state?.release();
     this.state = null;
   }
@@ -41,8 +43,10 @@ export default class ArgusSettings extends View {
     this.loading = true;
     cx.spawn(async (cx) => {
       await cx.sleep(0);
+      if (this.closed) return;
       try {
         const text = await readTextFile(this.path);
+        if (this.closed) return;
         this.base = text;
         this.loadError = null;
         const value = text ?? TEMPLATE;
@@ -56,7 +60,7 @@ export default class ArgusSettings extends View {
       } finally {
         this.loading = false;
         this.loaded = true;
-        cx.notify();
+        if (!this.closed) cx.notify();
       }
     });
   }

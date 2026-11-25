@@ -514,7 +514,7 @@ export default class Issues extends View {
       error: this.readError?.key === key ? this.readError.text : null,
       now: Date.now(),
       age: ageText,
-      icon: ICON,
+      icon: iconResolver(MOD, this.found),
       worktree: worktreeState(target, this.worktreeRuns.get(key), busy),
     };
     const on = {

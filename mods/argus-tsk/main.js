@@ -12,7 +12,7 @@ import { expandHome, tildePath } from "./paths.js";
 import { parseRows, parseError } from "./model.js";
 import { activitySentence, buildBoard, captureRefusal, captureTarget, effectiveScope, emptyNote, followedProject, followFolder, liveNumbersOf, normalizeScope, projectOf, repoRootArgs, rowsInScope, scopeTitle, sidebarModel, STATUS_LABELS, taskPaneTitle, titleChange, titleError } from "./board.js";
 import { answerBlock, applyOptimistic, flowOutcome, retryStatus, sendBack } from "./flows.js";
-import { actionsFor, addAfter, blockChange, changeFor, CHECK_LABELS, detailState, fieldSave, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef } from "./detail.js";
+import { actionsFor, addAfter, addAfterError, blockChange, changeFor, CHECK_LABELS, detailState, fieldSave, normalizeChoices, patchDetail, pickedChange, refusalOffer, reviewChange, statusChoices, statusPick, taskRef, threadTitle } from "./detail.js";
 import { debounce } from "./timing.js";
 import { expandAction, isExpanded, panelOf } from "./panel.js";
 import { parseStamp, stampArgs, storeChanged } from "./store.js";
@@ -212,7 +212,7 @@ export default class Tasks extends View {
     return result;
   }
 
-  /** The store folder: the setting, else `TSK_STATE_DIR` as a login shell sees it, else `~/.tsk`. */
+  /** The store folder: the setting, else `TSK_STATE_DIR` from Herdr's own environment, else `~/.tsk`. */
   async storePath() {
     const dir = readSettings().stateDir;
     if (dir) return expandHome(dir, home());
@@ -725,7 +725,7 @@ export default class Tasks extends View {
     const ref = taskRef(this.fields.after.value());
     const after = ref === null ? null : addAfter(task, ref);
     if (after === null) {
-      this.writeError = "Type the number of another task, such as T7.";
+      this.writeError = addAfterError(task, ref);
       cx.notify();
       return;
     }
@@ -895,7 +895,7 @@ export default class Tasks extends View {
 
     const scopeButton = dropdownButton(t, "scope", scopeTitle(scope, model, following), this.icon("chevron-down"), () => openScopes());
     const actions = [scopeButton];
-    if (panel !== null) actions.push(iconButton(t, "expand", ICON(isExpanded(panel) ? "minimize-2" : "maximize-2"), (_e, cx) => this.toggleExpand(cx)));
+    if (panel !== null) actions.push(iconButton(t, "expand", ICON(isExpanded(panel) ? "minimize-2" : "maximize-2"), (_e, cx) => this.toggleExpand(cx), { tooltip: isExpanded(panel) ? "Collapse" : "Expand" }));
     actions.push(
       iconButton(
         t,
@@ -906,9 +906,9 @@ export default class Tasks extends View {
           this.located = null;
           this.refresh(cx);
         },
-        { busy: this.reading },
+        { busy: this.reading, tooltip: "Refresh" },
       ),
-      iconButton(t, "settings", this.icon("settings"), (_e, cx) => this.openSettings(cx)),
+      iconButton(t, "settings", this.icon("settings"), (_e, cx) => this.openSettings(cx), { tooltip: "Settings" }),
     );
     const head = header(t, "Tasks", actions, { badge: !blocking && board.readAt > 0 ? badge(t, String(count)) : null });
 
@@ -979,7 +979,7 @@ export default class Tasks extends View {
             ? iconButton(t, `rename-${index}`, this.icon("square-pen"), (_e, cx) => {
                 cx.stop_propagation();
                 this.startRename(cx, entry);
-              })
+              }, { tooltip: "Rename" })
             : null,
       });
     };
@@ -1076,7 +1076,7 @@ export default class Tasks extends View {
     if (pick) {
       this.pickSince = pick.at;
       const picked = pick.run && task ? pickedChange(statusChoices(task), pick.status) : null;
-      if (picked) {
+      if (picked && !checking()) {
         const pickedNumber = task.number;
         cx.spawn(async (cx) => {
           await cx.sleep(0);
@@ -1167,7 +1167,7 @@ export default class Tasks extends View {
               .when(step.done, (el) => el.line_through().text_color(t.muted))
               .child(step.text),
           )
-          .child(iconButton(t, `step-remove-${step.shortId}`, this.icon("x"), (_e, cx) => this.stepOp(cx, number, { kind: "remove", id: step.shortId }, "Remove Step"))),
+          .child(iconButton(t, `step-remove-${step.shortId}`, this.icon("x"), (_e, cx) => this.stepOp(cx, number, { kind: "remove", id: step.shortId }, "Remove Step"), { tooltip: "Remove step" })),
       );
     }
     parts.push(pad(field(t, "step", fields.step, this.focused === "step")));
@@ -1192,7 +1192,7 @@ export default class Tasks extends View {
     const block = task.status === "blocked" ? task.block : null;
     const review = task.status === "review" ? task.review : null;
     const waiting = block ?? review;
-    const title = review ? `In Review · Round ${review.round}` : "Blocked";
+    const title = threadTitle(task);
     const parts = [
       h_flex()
         .gap(8)
@@ -1414,7 +1414,7 @@ function chip(t, id, label, onClick, { selected = false, enabled = true, icon = 
     .text_size(12)
     .bg(selected ? t.selected : t.raised)
     .text_color(!enabled || done ? t.dim : t.foreground)
-    .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick))
+    .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(onClick))
     .child(div().when(done, (el) => el.line_through()).child(label))
     .when(Boolean(icon), (el) => el.child(svg(icon ?? "").size(12)));
 }

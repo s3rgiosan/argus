@@ -11,13 +11,20 @@ set -eu
 app="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
 MARKER='"generated_by": *"argus"'
 
-for dir in "$app"/mods/*/; do
-  [ -d "$dir" ] || continue
-  name=$(basename "$dir")
-  path="$app/mods/$name"
+repo=$(cd "$(dirname "$0")/.." && pwd)
+
+for path in "$app"/mods/*; do
+  [ -e "$path" ] || [ -L "$path" ] || continue
+  name=$(basename "$path")
   if [ -L "$path" ]; then
+    # Only a link that install.sh --link made: remove the link, never its target.
+    if [ "$(readlink "$path")" = "$repo/mods/$name" ]; then
+      rm "$path"
+      echo "removed mods/$name"
+    fi
     continue
   fi
+  [ -d "$path" ] || continue
   if [ -f "$path/.installed-from-argus" ] || grep -q "$MARKER" "$path/mod.json" 2>/dev/null; then
     rm -rf "${path:?}"
     echo "removed mods/$name"

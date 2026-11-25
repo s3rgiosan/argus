@@ -14,6 +14,9 @@ export { MENU_PAD, MENU_ROW };
 /** One turn of a busy icon, in ms, as Herdr's spinner. */
 const SPIN_MS = 900;
 
+/** Stops a left press so the element under a button does not take it. */
+const stopPress = (_e, cx) => cx.stop_propagation();
+
 /** A panel's frame: 10 px corners, the terminal background, a 1 px border. */
 export function frame(t, id) {
   return v_flex()
@@ -58,7 +61,7 @@ export function subHeader(t, onBack, title, icon) {
     .items_center()
     .border_b(1)
     .border_color(t.border)
-    .child(iconButton(t, "back", icon, onBack))
+    .child(iconButton(t, "back", icon, onBack, { tooltip: "Back" }))
     .child(div().font_semibold().child(title));
 }
 
@@ -83,7 +86,7 @@ export function iconButton(t, id, icon, onClick, { busy = false, enabled = true,
     .rounded(6)
     .text_color(enabled ? t.muted : t.dim)
     .when(tooltip !== null, (el) => el.tooltip(tooltip))
-    .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(onClick))
+    .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stopPress).on_click(onClick))
     .child(glyph);
 }
 
@@ -106,6 +109,7 @@ export function dropdownButton(t, id, label, chevron, onClick) {
     .text_size(12)
     .text_color(t.muted)
     .hover((s) => s.bg(t.hover).text_color(t.foreground))
+    .on_mouse_down("left", stopPress)
     .on_click(onClick)
     .child(div().min_w(0).truncate().child(label))
     .child(svg(chevron).size(12).flex_none());
@@ -204,7 +208,7 @@ export function button(t, id, label, onClick, { primary = false, enabled = true 
       .text_size(12)
       .bg(enabled ? t.solid : t.raised)
       .text_color(enabled ? t.solid_foreground : t.dim)
-      .when(enabled, (el) => el.cursor_pointer().on_click(onClick))
+      .when(enabled, (el) => el.cursor_pointer().on_mouse_down("left", stopPress).on_click(onClick))
       .child(label);
   }
   return base
@@ -216,7 +220,7 @@ export function button(t, id, label, onClick, { primary = false, enabled = true 
     .bg(t.raised)
     .text_size(12)
     .text_color(enabled ? t.foreground : t.dim)
-    .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(onClick))
+    .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_mouse_down("left", stopPress).on_click(onClick))
     .child(label);
 }
 
@@ -233,6 +237,7 @@ export function toggle(t, id, on, onClick) {
     .bg(on ? t.accent : t.hover)
     .flex()
     .when(on, (el) => el.justify_end())
+    .on_mouse_down("left", stopPress)
     .on_click(onClick)
     .child(div().w(16).h(16).rounded(8).bg(on ? t.accent_foreground : t.muted));
 }
@@ -263,6 +268,7 @@ export function segmented(t, id, options, current, onPick) {
           .cursor_pointer()
           .when(option.value === current, (el) => el.bg(t.raised).text_color(t.foreground).border_1().border_color(t.border))
           .when(option.value !== current, (el) => el.text_color(t.muted).hover((s) => s.text_color(t.foreground)))
+          .on_mouse_down("left", stopPress)
           .on_click((_e, cx) => onPick(option.value, cx))
           .child(option.label),
       ),

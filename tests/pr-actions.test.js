@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DRAFT_KEPT, DRAFT_TEXT, DRAFTS_UNREAD, HEAD_MOVED, HEAD_UNREAD, LOGIN_TTL, NEEDS_BODY, NO_METHOD, NO_SHA, RUN_LIMIT, actionCommand, ghHeadArgs, glHeadArgs, headRefusal, actionFailure, afterAction, bodyError, canAct, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, ownPr, ghMethodArgs, leavePr, mergePrompt, pendingDrafts, pickMergeMethod, runningOf, withRunning, withoutRunning } from "../mods/argus-pull-requests/actions.js";
+import { CLI_TIMEOUT } from "../lib/forge-runner.js";
+import { DRAFT_KEPT, DRAFT_TEXT, DRAFTS_UNREAD, HEAD_MOVED, HEAD_UNREAD, LOGIN_TTL, NEEDS_BODY, NO_METHOD, NO_SHA, JOB_STALE_MS, JOB_RENEW_MS, RUN_LIMIT, actionCommand, anyRunning, renewed, ghHeadArgs, glHeadArgs, headRefusal, actionFailure, afterAction, bodyError, canAct, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, ownPr, ghMethodArgs, leavePr, mergePrompt, pendingDrafts, pickMergeMethod, runningOf, withRunning, withoutRunning } from "../mods/argus-pull-requests/actions.js";
 
 const GL_URL = "https://gitlab.example.com/example-group/example-sub/example-project";
 
@@ -341,4 +342,37 @@ test("mergePrompt on GitLab names the picked method", () => {
 
 test("GitLab Merge sends no squash flag, because glab sends nothing for --squash=false", () => {
   assert.deepEqual(actionCommand({ kind: "merge", detail: { ...gl, squash: false }, body: "", method: "merge" }).args.slice(-2), ["--sha", "abc123"]);
+});
+
+test("RUN_LIMIT covers the longest action: a locate and four CLI runs", () => {
+  assert.ok(RUN_LIMIT > 5 * CLI_TIMEOUT);
+});
+
+test("runningOf takes the limit of the job it asks about", () => {
+  const map = withRunning(null, "k", "checkout", 1000);
+  assert.equal(runningOf(map, "k", 1000 + 50, 100), "checkout");
+  assert.equal(runningOf(map, "k", 1000 + 100, 100), null);
+});
+
+test("JOB_STALE_MS is three missed renewals", () => {
+  assert.equal(JOB_STALE_MS, 90_000);
+  assert.ok(JOB_RENEW_MS * 3 < JOB_STALE_MS + 1 && JOB_RENEW_MS >= 20_000 && JOB_RENEW_MS <= 30_000);
+});
+
+test("renewed moves only the given keys that run", () => {
+  const map = withRunning(withRunning(null, "a", "checkout", 0), "b", "checkout", 0);
+  const next = renewed(map, ["a", "missing"], 50);
+  assert.deepEqual(next, { a: { kind: "checkout", at: 50 }, b: { kind: "checkout", at: 0 } });
+  assert.equal(renewed(null, ["a"], 50) !== null, true);
+  assert.deepEqual(renewed(null, ["a"], 50), {});
+  assert.equal(runningOf(map, "a", 100_000, JOB_STALE_MS), null);
+  assert.equal(runningOf(next, "a", 50 + 89_999, JOB_STALE_MS), "checkout");
+});
+
+test("anyRunning is true while one key runs within the limit", () => {
+  const map = withRunning(withRunning(null, "a", "checkout", 0), "b", "checkout", 500);
+  assert.equal(anyRunning(map, 599, 100), true);
+  assert.equal(anyRunning(map, 700, 100), false);
+  assert.equal(anyRunning(null, 0, 100), false);
+  assert.equal(anyRunning(withoutRunning(withoutRunning(map, "a"), "b"), 0, 100), false);
 });

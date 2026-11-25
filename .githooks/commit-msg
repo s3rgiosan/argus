@@ -1,4 +1,8 @@
 #!/bin/sh
 # Refuses a commit message that breaks the repo rules. Turn it on once per clone:
 #   git config core.hooksPath .githooks
+if ! command -v node >/dev/null 2>&1; then
+  echo "commit-msg: node not found; install Node.js to check the commit message." >&2
+  exit 1
+fi
 exec node "$(git rev-parse --show-toplevel)/scripts/check-commits.mjs" --file "$1"

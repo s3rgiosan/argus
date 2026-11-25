@@ -1,6 +1,6 @@
 # Space groups
 
-The popups of the space groups in Argus's sidebar copy (`argus-spaces`): the group menu, the Add spaces checklist and the group name field. The sidebar side lives in `lib/space-groups-view.js`, which `scripts/build-layout.mjs` writes into the copy with `lib/space-groups.js`, `lib/menu.js`, `lib/ui.js` and the copy's `icons/`.
+The popups of the space groups in Argus's sidebar copy (`argus-spaces`): the group menu, the Add spaces checklist and the group name field. The sidebar side lives in `lib/space-groups-view.js`, which `scripts/build-layout.mjs` writes into the copy with `lib/space-groups.js`, `lib/menu.js`, `lib/ui.js`, `lib/icons.js` and the copy's `icons/`.
 
 ## What you see
 
