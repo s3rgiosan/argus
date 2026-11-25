@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-11-25
+
 ### Added
 
 - The tab bar of the Argus layout uses `argus-tabs`, a copy of Herdr's `tabs` row. A tab led by a Claude Code agent on an account that `agents.accounts` maps shows that account's icon, as the agents lists do.
@@ -399,7 +401,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.16.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.17.0...HEAD
+[1.17.0]: https://github.com/s3rgiosan/argus/compare/1.16.0...1.17.0
 [1.16.0]: https://github.com/s3rgiosan/argus/compare/1.15.0...1.16.0
 [1.15.0]: https://github.com/s3rgiosan/argus/compare/1.14.0...1.15.0
 [1.14.0]: https://github.com/s3rgiosan/argus/compare/1.13.0...1.14.0
