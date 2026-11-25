@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A checkout or a review worktree removal running in one Pull requests view shows in the others, which do not start it again.
 - The Tasks pane reads "In Review" right after Request Review, not "Blocked".
 - Runs after names the real reason when a task cannot be added: the task itself, or a task already in the list.
 - The Tasks pane does not write a picked status while `herdr-app check` runs.

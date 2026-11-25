@@ -31,6 +31,15 @@ export const LOGIN_TTL = 5 * 60 * 1000;
  */
 export const RUN_LIMIT = 5 * CLI_TIMEOUT + 30_000;
 
+/** How often a copy renews the entries of its own running jobs in shared state, in ms. */
+export const JOB_RENEW_MS = 25_000;
+
+/**
+ * How long an entry of a running check out or worktree removal counts without a renewal: three
+ * missed renewals. A copy that stopped stops renewing, so its entry expires soon.
+ */
+export const JOB_STALE_MS = 90_000;
+
 /** Every action the pane offers. */
 const KINDS = ["approve", "request_changes", "comment", "merge"];
 
@@ -387,26 +396,52 @@ export function loginFresh(cache, setting, now) {
 }
 
 /**
- * The action running on a pull request in any copy of the mod, or null. An entry
- * older than RUN_LIMIT is from a copy that stopped and counts as done.
- * @param {unknown} map The shared map of PR key to {kind, at}.
+ * The job running under `key` in any copy of the mod, or null. An entry older than `limit`
+ * is from a copy that stopped and counts as done.
+ * @param {unknown} map The shared map of key to {kind, at}.
  * @param {string} key
  * @param {number} now
- * @returns {ActionKind|null}
+ * @param {number} [limit] RUN_LIMIT for an action; JOB_STALE_MS for a check out or removal.
+ * @returns {string|null}
  */
-export function runningOf(map, key, now) {
+export function runningOf(map, key, now, limit = RUN_LIMIT) {
   const entry = map && typeof map === "object" ? map[key] : null;
   if (!entry || typeof entry !== "object" || typeof entry.kind !== "string" || typeof entry.at !== "number") return null;
-  return now - entry.at < RUN_LIMIT ? entry.kind : null;
+  return now - entry.at < limit ? entry.kind : null;
+}
+
+/**
+ * Whether any key of the shared map is running in any copy of the mod.
+ * @param {unknown} map
+ * @param {number} now
+ * @param {number} limit
+ * @returns {boolean}
+ */
+export function anyRunning(map, now, limit) {
+  return map && typeof map === "object" ? Object.keys(map).some((key) => runningOf(map, key, now, limit) !== null) : false;
+}
+
+/**
+ * A copy of the shared running map where each of `keys` that has an entry runs from `now`.
+ * @param {unknown} map
+ * @param {string[]} keys
+ * @param {number} now
+ * @returns {Record<string, {kind: string, at: number}>}
+ */
+export function renewed(map, keys, now) {
+  const base = map && typeof map === "object" ? map : {};
+  const next = { ...base };
+  for (const key of keys) if (next[key] && typeof next[key] === "object") next[key] = { ...next[key], at: now };
+  return next;
 }
 
 /**
  * A copy of the shared running map with `key` running `kind` from `now`.
  * @param {unknown} map
  * @param {string} key
- * @param {ActionKind} kind
+ * @param {string} kind
  * @param {number} now
- * @returns {Record<string, {kind: ActionKind, at: number}>}
+ * @returns {Record<string, {kind: string, at: number}>}
  */
 export function withRunning(map, key, kind, now) {
   const base = map && typeof map === "object" ? map : {};
@@ -417,7 +452,7 @@ export function withRunning(map, key, kind, now) {
  * A copy of the shared running map without `key`.
  * @param {unknown} map
  * @param {string} key
- * @returns {Record<string, {kind: ActionKind, at: number}>}
+ * @returns {Record<string, {kind: string, at: number}>}
  */
 export function withoutRunning(map, key) {
   const { [key]: _done, ...rest } = map && typeof map === "object" ? map : {};
