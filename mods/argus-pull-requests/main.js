@@ -543,6 +543,7 @@ export default class PullRequests extends View {
           .text_color(t.accent)
           .cursor_pointer()
           .hover((s) => s.text_color(t.foreground))
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click((_e, cx) => {
             // An old list may say none; the board counted some, so the view reads again.
             this.cleanup = freshForReview(this.cleanup);
@@ -772,6 +773,7 @@ export default class PullRequests extends View {
         .when(picked, (el) => el.bg(t.selected))
         .cursor_pointer()
         .hover((s) => s.bg(t.hover))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => {
           this.review = { ...this.review, picked: index };
           this.prefillExtra();
@@ -855,6 +857,8 @@ export default class PullRequests extends View {
       this.removals.set(reviewRun.path, { ...state, ...patch });
       cx.notify();
     };
+    // A space holds the worktree, so it stays until the space closes.
+    const inSpace = worktreesInSpaces([reviewRun], spaces(), panes()).size > 0;
     let row = v_flex()
       .id(`run-${index}`)
       .px(8)
@@ -866,8 +870,9 @@ export default class PullRequests extends View {
           .flex_wrap()
           .gap(8)
           .child(button(t, `run-open-${index}`, "Open space", () => this.worktrees.openWorktreeSpace(reviewRun.path), { enabled: !reviewRun.prunable }))
-          .child(button(t, `run-remove-${index}`, "Remove worktree", (_e, cx) => set({ confirm: "plain", error: null }, cx), { enabled: !state.running && state.confirm === null && !reviewRun.locked })),
+          .child(button(t, `run-remove-${index}`, "Remove worktree", (_e, cx) => set({ confirm: "plain", error: null }, cx), { enabled: !state.running && state.confirm === null && !reviewRun.locked && !inSpace })),
       )
+      .when(inSpace, (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Open in a space. Close the space to remove it.")))
       .when(Boolean(reviewRun.locked), (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Locked. Run git worktree unlock on it to remove it.")))
       .when(Boolean(reviewRun.prunable), (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child("Its folder is gone. Remove worktree clears it.")));
     if (state.confirm !== null) {
@@ -892,6 +897,12 @@ export default class PullRequests extends View {
   removeRun(cx, reviewRun, localPath, force) {
     const key = reviewRun.path;
     if (this.removals.get(key)?.running) return;
+    // A space may have opened the worktree after the confirm was shown.
+    if (worktreesInSpaces([reviewRun], spaces(), panes()).size > 0) {
+      this.removals.set(key, { confirm: null, running: false, error: "Open in a space. Close the space to remove it." });
+      cx.notify();
+      return;
+    }
     this.removals.set(key, { ...(this.removals.get(key) ?? { confirm: null, error: null }), running: true, error: null });
     cx.notify();
     cx.spawn(async (cx) => {
@@ -1227,7 +1238,7 @@ export default class PullRequests extends View {
       .child(div().flex_none().text_size(12).text_color(t.muted).child(`#${row.number}`))
       .child(div().flex_none().max_w(170).truncate().text_size(11).text_color(statusColor).child(status));
     if (clickable) {
-      line = line.cursor_pointer().on_click((_e, cx) => {
+      line = line.cursor_pointer().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click((_e, cx) => {
         if (state.ticked.has(row.path)) state.ticked.delete(row.path);
         else state.ticked.add(row.path);
         cx.notify();
@@ -1255,8 +1266,12 @@ export default class PullRequests extends View {
     state.picking = false;
     state.createError = null;
     state.createNote = null;
-    // The Branch list is read again, so the "worktree" marks are fresh.
-    if (state.project !== null) delete state.items.branch[state.project];
+    // The Branch list is read again whatever tab is shown, so the "worktree" marks are fresh.
+    const project = this.worktreeProject(this.worktreeProjects());
+    if (project !== null) {
+      delete state.items.branch[project.key];
+      this.readWorktreeSlot(cx, project, "branch", true);
+    }
     this.readWorktreeTab(cx, false);
     cx.notify();
   }
@@ -1405,6 +1420,7 @@ export default class PullRequests extends View {
         const choices = projects.map((entry) =>
           listRow(t, `worktree-repo-${entry.key}`)
             .cursor_pointer()
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .on_click((_e, cx) => {
               state.project = entry.key;
               state.picking = false;
@@ -1425,6 +1441,7 @@ export default class PullRequests extends View {
           .text_color(t.accent)
           .cursor_pointer()
           .hover((s) => s.text_color(t.foreground))
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click((_e, cx) => {
             state.picking = true;
             cx.notify();
@@ -1595,7 +1612,7 @@ export default class PullRequests extends View {
   /** A pickable 28 px row. A busy row takes no clicks. */
   worktreeRow(t, id, busy, onPick) {
     const line = listRow(t, id, { hover: !busy });
-    return busy ? line : line.cursor_pointer().on_click((_e, cx) => onPick(cx));
+    return busy ? line : line.cursor_pointer().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click((_e, cx) => onPick(cx));
   }
 
   renderSettings(t) {

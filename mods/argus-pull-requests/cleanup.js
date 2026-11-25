@@ -2,7 +2,7 @@
 // may be removed, and when the local branch may be deleted after the worktree is gone.
 
 import { branchDelete, linkedWorktrees, reviewNumber } from "./review.js";
-import { localFolders } from "./remote.js";
+import { parseWorktrees, spaceFor } from "./worktree.js";
 import { byMergedAt } from "./model.js";
 
 /** @typedef {{number: number, headSha: string, mergedAt: string|null, base: string|null}} Merged */
@@ -70,13 +70,12 @@ export function recheck(row, statusStdout, ignoredEntries) {
  * The worktrees that a local space holds: the space's folder or one of its terminals' folders
  * is inside the worktree.
  * @param {Worktree[]} worktrees
- * @param {Parameters<typeof localFolders>[0]} spaces
- * @param {Parameters<typeof localFolders>[1]} panes
+ * @param {Parameters<typeof spaceFor>[0]} spaces
+ * @param {Parameters<typeof spaceFor>[1]} panes
  * @returns {Set<string>}
  */
 export function worktreesInSpaces(worktrees, spaces, panes) {
-  const folders = localFolders(spaces, panes);
-  return new Set(worktrees.filter((worktree) => folders.some((folder) => insideFolder(folder, worktree.path))).map((worktree) => worktree.path));
+  return new Set(worktrees.filter((worktree) => spaceFor(spaces, panes, worktree.path) !== null).map((worktree) => worktree.path));
 }
 
 /**
@@ -126,9 +125,7 @@ export function readsOnOpen(state) {
  * @returns {Worktree[]}
  */
 export function candidates(porcelain, defaultBranch) {
-  const firstBlock = String(porcelain).split(/\r?\n\r?\n/)[0] ?? "";
-  const mainLine = firstBlock.split(/\r?\n/).find((line) => line.startsWith("branch "));
-  const mainBranch = mainLine === undefined ? null : mainLine.slice("branch ".length).replace(/^refs\/heads\//, "");
+  const mainBranch = parseWorktrees(porcelain)[0]?.branch ?? null;
   const result = [];
   for (const worktree of linkedWorktrees(porcelain)) {
     const branch = worktree.branch;
@@ -136,17 +133,6 @@ export function candidates(porcelain, defaultBranch) {
     result.push({ ...worktree, branch, review: reviewNumber(branch) });
   }
   return result;
-}
-
-/**
- * True when `cwd` is the folder `path` or inside it.
- * @param {string} cwd
- * @param {string} path
- * @returns {boolean}
- */
-export function insideFolder(cwd, path) {
-  const folder = path.replace(/\/+$/, "");
-  return cwd === folder || cwd.startsWith(`${folder}/`);
 }
 
 /**

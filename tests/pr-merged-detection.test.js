@@ -110,3 +110,7 @@ test("parseGlMergedFull marks merge requests from another project", () => {
   });
   assert.throws(() => parseGlMergedFull(JSON.stringify({ data: { project: null } })));
 });
+
+test("parseGlMergedList throws on a GraphQL error reply, so the caller keeps the last count", () => {
+  assert.throws(() => parseGlMergedList(JSON.stringify({ errors: [{ message: "Example failure" }], data: null })), /Example failure/);
+});

@@ -3,8 +3,10 @@
 
 import { visibleProfiles } from "./accounts.js";
 import { expandHome, tildePath } from "./paths.js";
-import { branchSlug, titleSlug } from "./worktree.js";
+import { parseWorktrees, titleSlug, worktreePath } from "./worktree.js";
 import { fetchRef } from "./forge.js";
+import { CLI_TIMEOUT } from "./forge-runner.js";
+import { GIT_LONG_TIMEOUT, GIT_TIMEOUT } from "./worktree-runner.js";
 
 /** @typedef {import("./accounts.js").Profile} Profile */
 /** @typedef {import("./model.js").Detail} Detail */
@@ -106,8 +108,7 @@ export function branchRefusal(branch, number) {
  * @returns {{path: string, cwd: string, check: string[], add: string[]}}
  */
 export function reviewPlan({ localPath, root, branch }) {
-  const folder = localPath.replace(/\/+$/, "").split("/").pop();
-  const path = `${root}/${folder}/${branchSlug(branch)}`;
+  const path = worktreePath(root, localPath, branch);
   return {
     path,
     cwd: localPath,
@@ -370,22 +371,7 @@ export function reviewNumber(branch) {
  * @returns {Array<{path: string, branch: string|null, head: string|null, locked: boolean, prunable: boolean}>}
  */
 export function linkedWorktrees(porcelain) {
-  const blocks = String(porcelain).split(/\r?\n\r?\n/).filter((block) => block.trim() !== "");
-  return blocks.slice(1).flatMap((block) => {
-    let path = null;
-    let branch = null;
-    let head = null;
-    let locked = false;
-    let prunable = false;
-    for (const line of block.split(/\r?\n/)) {
-      if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
-      else if (line.startsWith("HEAD ")) head = line.slice("HEAD ".length);
-      else if (line.startsWith("branch ")) branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
-      else if (line === "locked" || line.startsWith("locked ")) locked = true;
-      else if (line === "prunable" || line.startsWith("prunable ")) prunable = true;
-    }
-    return path === null ? [] : [{ path, branch, head, locked, prunable }];
-  });
+  return parseWorktrees(porcelain).slice(1);
 }
 
 /**
@@ -499,8 +485,11 @@ export function takesRequest(request, owner, taken) {
 /** How long the dialog waits for its pane to take a Start request. */
 export const REVIEW_TAKE_MS = 5_000;
 
-/** How long a Start may run before the dialog calls it stuck: the reads and a slow worktree add. */
-export const REVIEW_RUN_MS = 120_000;
+/**
+ * How long a Start may run before the dialog calls it stuck: the longest case of three CLI reads
+ * of the pull request, the ref check and the worktree add, and 30 s of margin.
+ */
+export const REVIEW_RUN_MS = 3 * CLI_TIMEOUT + GIT_TIMEOUT + GIT_LONG_TIMEOUT + 30_000;
 
 /** How long a finished Start result stays in shared state. */
 const RESULT_KEEP_MS = 10 * 60 * 1000;

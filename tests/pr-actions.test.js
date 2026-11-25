@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { CLI_TIMEOUT } from "../lib/forge-runner.js";
 import { DRAFT_KEPT, DRAFT_TEXT, DRAFTS_UNREAD, HEAD_MOVED, HEAD_UNREAD, LOGIN_TTL, NEEDS_BODY, NO_METHOD, NO_SHA, RUN_LIMIT, actionCommand, ghHeadArgs, glHeadArgs, headRefusal, actionFailure, afterAction, bodyError, canAct, clearsComment, confirmedDetail, draftListArgs, draftPlan, loginFresh, ownPr, ghMethodArgs, leavePr, mergePrompt, pendingDrafts, pickMergeMethod, runningOf, withRunning, withoutRunning } from "../mods/argus-pull-requests/actions.js";
 
 const GL_URL = "https://gitlab.example.com/example-group/example-sub/example-project";
@@ -341,4 +342,8 @@ test("mergePrompt on GitLab names the picked method", () => {
 
 test("GitLab Merge sends no squash flag, because glab sends nothing for --squash=false", () => {
   assert.deepEqual(actionCommand({ kind: "merge", detail: { ...gl, squash: false }, body: "", method: "merge" }).args.slice(-2), ["--sha", "abc123"]);
+});
+
+test("RUN_LIMIT covers the longest action: a locate and four CLI runs", () => {
+  assert.ok(RUN_LIMIT > 5 * CLI_TIMEOUT);
 });

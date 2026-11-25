@@ -135,6 +135,7 @@ function sectionBody(t, id, view, on) {
                 .text_color(t.accent)
                 .cursor_pointer()
                 .hover((s) => s.text_color(t.foreground))
+                .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
                 .on_click((_e, cx) => on.togglePassed(cx))
                 .child(passedLine.open ? "Hide" : "Show"),
             ),
@@ -181,6 +182,7 @@ function checkRow(t, view, on, id, check) {
     .cursor_pointer()
     .hover((s) => s.bg(t.hover))
     .tooltip("Open in browser")
+    .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
     .on_click((_e, cx) => on.openCheck(url, cx))
     .child(svg(view.icon("external-link")).size(12).flex_none().text_color(t.dim));
 }

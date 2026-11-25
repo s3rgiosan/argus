@@ -711,7 +711,7 @@ function sameProject(node) {
  * @returns {Merged[]}
  */
 export function parseGlMerged(text) {
-  const nodes = JSON.parse(text)?.data?.project?.mergeRequests?.nodes;
+  const nodes = glReply(text).project?.mergeRequests?.nodes;
   if (!Array.isArray(nodes)) return [];
   return nodes
     .filter((node) => isObject(node) && sameProject(node))
@@ -726,7 +726,7 @@ export function parseGlMerged(text) {
  * @returns {Merged|null}
  */
 export function parseGlMrState(text) {
-  const node = JSON.parse(text)?.data?.project?.mergeRequest;
+  const node = glReply(text).project?.mergeRequest;
   if (!isObject(node) || node.state !== "merged") return null;
   return mergedEntry(node.iid, node.diffHeadSha, node.mergedAt, node.targetBranch);
 }
@@ -807,7 +807,7 @@ export function parseGhMergedList(text) {
  * @returns {MergedHead[]}
  */
 export function parseGlMergedList(text) {
-  const nodes = JSON.parse(text)?.data?.project?.mergeRequests?.nodes;
+  const nodes = glReply(text).project?.mergeRequests?.nodes;
   if (!Array.isArray(nodes)) return [];
   return nodes
     .filter((node) => isObject(node) && sameProject(node))

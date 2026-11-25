@@ -2,6 +2,7 @@
 
 import { glabArgs } from "./forge-cli.js";
 import { GL_MR_STATE_QUERY } from "./forge.js";
+import { CLI_TIMEOUT } from "./forge-runner.js";
 
 /** @typedef {import("./model.js").Pr} Pr */
 /** @typedef {import("./model.js").Detail} Detail */
@@ -24,8 +25,11 @@ export const HEAD_UNREAD = "Could not read the head commit of the pull request."
 /** How long the pane keeps the signed-in GitHub login, or a failed read of it. */
 export const LOGIN_TTL = 5 * 60 * 1000;
 
-/** How long a running action blocks the same pull request in every copy: three CLI runs of 30 s, and some margin. */
-export const RUN_LIMIT = 120 * 1000;
+/**
+ * How long a running action blocks the same pull request in every copy: the longest action
+ * (a GitLab Request changes: a locate and four CLI runs) at the CLI timeout each, and 30 s of margin.
+ */
+export const RUN_LIMIT = 5 * CLI_TIMEOUT + 30_000;
 
 /** Every action the pane offers. */
 const KINDS = ["approve", "request_changes", "comment", "merge"];
