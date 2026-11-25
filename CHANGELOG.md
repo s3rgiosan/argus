@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Review with agent shows a Claude Code account once when `agents.accounts` maps it to a `programs.json` agent. The account's tile shows that agent's icon and starts with its command, and the account's review settings still apply.
+
 ## [1.17.0] - 2026-11-25
 
 ### Added

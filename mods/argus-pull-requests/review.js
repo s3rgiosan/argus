@@ -25,16 +25,36 @@ export const MODEL_AGENTS = new Set(["claude"]);
  * The agents the dialog offers: each installed agent from Herdr's `knownAgents()`,
  * with Claude Code once per shown account. An extra account starts through `env`,
  * because `exec` and `space.new` take no environment.
+ *
+ * An `agents.accounts` entry from `argus.json` joins a found account to a `programs.json` agent:
+ * the account's tile shows that agent's icon and, when it is installed, runs its command. That
+ * agent gets no tile of its own, so each account shows once. The command must pass its arguments
+ * on to Claude Code, because `--model` is added after it.
  * @param {KnownAgent[]} known
  * @param {Profile[]} profiles The Claude Code profiles found on this computer.
  * @param {{names: Record<string, string>, hidden: string[]}} settings The argus-claude-usage settings, read only.
  * @param {string} home
+ * @param {Record<string, {program: string}>} [mapped] The `accounts` of `agentAccounts`, by account folder.
  * @returns {Choice[]}
  */
-export function agentChoices(known, profiles, settings, home) {
+export function agentChoices(known, profiles, settings, home, mapped = {}) {
+  const usable = (agent) => agent.agent && agent.installed && Array.isArray(agent.run) && agent.run.length > 0;
+  const claude = known.find((agent) => agent.key === "claude");
+  // The programs.json agent of each found account, and the keys whose tile the account's tile replaces.
+  const accountAgent = new Map();
+  const merged = new Set();
+  if (claude && usable(claude)) {
+    for (const profile of profiles) {
+      const key = Object.hasOwn(mapped, profile.folder) ? mapped[profile.folder].program : null;
+      const entry = key === null || key === "claude" ? undefined : known.find((agent) => agent.key === key && agent.agent);
+      if (!entry) continue;
+      accountAgent.set(profile.folder, entry);
+      merged.add(entry.key);
+    }
+  }
   const choices = [];
   for (const agent of known) {
-    if (!agent.agent || !agent.installed || !Array.isArray(agent.run) || agent.run.length === 0) continue;
+    if (!usable(agent) || merged.has(agent.key)) continue;
     const base = { model: MODEL_AGENTS.has(agent.key), icon: agent.icon ?? null, tint: Boolean(agent.tint) };
     const accounts = agent.key === "claude" ? visibleProfiles(profiles, settings.hidden, home) : [];
     // Accounts found but all hidden in the Usage panel: Claude Code is left out.
@@ -48,8 +68,11 @@ export function agentChoices(known, profiles, settings, home) {
     const sorted = [...accounts].sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || (a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0));
     for (const profile of sorted) {
       const name = settings.names[tildePath(profile.folder, home)] ?? profile.label;
-      const argv = profile.isDefault ? [...agent.run] : ["env", `CLAUDE_CONFIG_DIR=${profile.folder}`, ...agent.run];
-      choices.push({ ...base, id: `${agent.key}:${profile.folder}`, label: `${agent.name} · ${name}`, argv, folder: profile.folder });
+      const entry = accountAgent.get(profile.folder);
+      const icon = entry ? { icon: entry.icon ?? null, tint: Boolean(entry.tint) } : {};
+      let argv = profile.isDefault ? [...agent.run] : ["env", `CLAUDE_CONFIG_DIR=${profile.folder}`, ...agent.run];
+      if (entry && usable(entry)) argv = [...entry.run];
+      choices.push({ ...base, ...icon, id: `${agent.key}:${profile.folder}`, label: `${agent.name} · ${name}`, argv, folder: profile.folder });
     }
   }
   return choices;
@@ -159,6 +182,20 @@ export function accountFolderOf(argv, home) {
   }
   const command = String(argv[0] ?? "").split("/").pop();
   return command === "claude" ? expandHome("~/.claude", home) : null;
+}
+
+/**
+ * The Claude Code account folder of a Start request: the folder the dialog sent with it, else the
+ * folder that `accountFolderOf` reads from its command. A sent folder is an absolute path or null.
+ * @param {{argv: string[], folder?: unknown}} request
+ * @param {string} home
+ * @returns {string|null}
+ */
+export function requestFolder(request, home) {
+  const folder = request.folder;
+  if (folder === null) return null;
+  if (typeof folder === "string" && folder.startsWith("/")) return folder;
+  return accountFolderOf(request.argv, home);
 }
 
 /**
