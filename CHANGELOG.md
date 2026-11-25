@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-11-25
+
 ### Fixed
 
 - Review with agent shows a Claude Code account once when `agents.accounts` maps it to a `programs.json` agent. The account's tile shows that agent's icon and starts with its command, and the account's review settings still apply.
@@ -405,7 +407,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.17.0...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.17.1...HEAD
+[1.17.1]: https://github.com/s3rgiosan/argus/compare/1.17.0...1.17.1
 [1.17.0]: https://github.com/s3rgiosan/argus/compare/1.16.0...1.17.0
 [1.16.0]: https://github.com/s3rgiosan/argus/compare/1.15.0...1.16.0
 [1.15.0]: https://github.com/s3rgiosan/argus/compare/1.14.0...1.15.0
