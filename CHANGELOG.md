@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-11-26
+
 ### Fixed
 
 - The Pull requests and Issues panels show a "Showing the first 100 …" note only in a scope that shows the cut list. Before, the note of one repo showed in the scope of every other repo.
@@ -411,7 +413,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/install.sh` copies the mods into Herdr's mods folder.
 - `lib/ui.js` holds shared building blocks in the sizes of Herdr's own panels, and `argus-claude-usage` uses Lucide icons.
 
-[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.17.1...HEAD
+[Unreleased]: https://github.com/s3rgiosan/argus/compare/1.17.2...HEAD
+[1.17.2]: https://github.com/s3rgiosan/argus/compare/1.17.1...1.17.2
 [1.17.1]: https://github.com/s3rgiosan/argus/compare/1.17.0...1.17.1
 [1.17.0]: https://github.com/s3rgiosan/argus/compare/1.16.0...1.17.0
 [1.16.0]: https://github.com/s3rgiosan/argus/compare/1.15.0...1.16.0
