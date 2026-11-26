@@ -351,6 +351,14 @@ test("normalizeBoard keeps the reads that worked and drops a bad list", () => {
   assert.deepEqual(assembleBoard(input()).worked, []);
 });
 
+test("normalizeBoard keeps the cut notes and drops bad ones", () => {
+  const cuts = [{ read: "gh", show: "needsReview", text: "Showing the first 100 pull requests that need your review." }];
+  const board = assembleBoard(input({ cuts }));
+  assert.deepEqual(normalizeBoard(board).cuts, cuts);
+  assert.deepEqual(normalizeBoard({ ...board, cuts: [{ read: "gh" }] }).cuts, []);
+  assert.deepEqual(assembleBoard(input()).cuts, []);
+});
+
 test("openBranches: the head branches of a repo's open pull requests", () => {
   const board = assembleBoard(input({}));
   const pr = (number, headRef, state, repo = project.repo) => ({ ...board.prs[0], provider: project.provider, host: project.host, repo, number, headRef, state });

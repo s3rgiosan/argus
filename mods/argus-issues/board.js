@@ -10,6 +10,7 @@ import {
   emptyMessage as emptyText,
   groupItems,
   itemsByKeys,
+  normalizeCuts,
   keptLists as keptItems,
   normalizeScope as normalizeShowWhere,
   paneTitle,
@@ -28,10 +29,12 @@ import {
  * @typedef {"assigned" | "created" | "mentions" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
  * @typedef {"repo" | "assignee" | "label"} Grouping
- * @typedef {{issues: Issue[], scopes: {assigned: string[], created: string[], mentions: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], listedAt: Record<string, number>, worked: string[]}} Board
+ * @typedef {{issues: Issue[], scopes: {assigned: string[], created: string[], mentions: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], listedAt: Record<string, number>, worked: string[], cuts: Cut[]}} Board
  *   `listedAt` holds the time of the last successful issue list of each project, keyed by `projectKey`,
  *   and of each GitHub search, keyed by its read id (`gh:<kind>`).
  *   `worked` holds the ids of the reads that worked in the last read: the project key of a project list, `searchRead` of a search.
+ *   `cuts` holds the notes of the lists cut at their limit, which show only in the scopes they belong to.
+ * @typedef {import("./forge-board.js").Cut} Cut
  * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} Item
  */
 
@@ -54,12 +57,12 @@ export const GROUPINGS = /** @type {Array<[Grouping, string]>} */ ([
 
 /** @returns {Board} */
 function emptyBoard() {
-  return { issues: [], scopes: { assigned: [], created: [], mentions: [], projects: {} }, projects: [], folders: [], readAt: 0, notes: [], listedAt: {}, worked: [] };
+  return { issues: [], scopes: { assigned: [], created: [], mentions: [], projects: {} }, projects: [], folders: [], readAt: 0, notes: [], listedAt: {}, worked: [], cuts: [] };
 }
 
 /**
  * Builds the shared board from one read. Issues are deduplicated by key; the first copy read wins.
- * @param {{projects: Project[], folders: string[], assigned: Issue[], created: Issue[], mentions: Issue[], projectIssues: Record<string, Issue[]>, notes: string[], readAt: number, listedAt?: Record<string, number>, worked?: string[]}} input
+ * @param {{projects: Project[], folders: string[], assigned: Issue[], created: Issue[], mentions: Issue[], projectIssues: Record<string, Issue[]>, notes: string[], readAt: number, listedAt?: Record<string, number>, worked?: string[], cuts?: Cut[]}} input
  * @returns {Board}
  */
 export function assembleBoard(input) {
@@ -76,11 +79,11 @@ export function assembleBoard(input) {
   };
   const scopes = { assigned: keysOf(input.assigned), created: keysOf(input.created), mentions: keysOf(input.mentions), projects: {} };
   for (const project of input.projects) scopes.projects[project.key] = keysOf(input.projectIssues[project.key] ?? []);
-  return { issues: [...byKey.values()], scopes, projects: input.projects, folders: input.folders, readAt: input.readAt, notes: input.notes, listedAt: input.listedAt ?? {}, worked: input.worked ?? [] };
+  return { issues: [...byKey.values()], scopes, projects: input.projects, folders: input.folders, readAt: input.readAt, notes: input.notes, listedAt: input.listedAt ?? {}, worked: input.worked ?? [], cuts: input.cuts ?? [] };
 }
 
 /**
- * A well-formed board, or the empty board for anything else. Bad list times and a bad list of reads that worked mean none.
+ * A well-formed board, or the empty board for anything else. Bad list times, a bad list of reads that worked and bad cuts mean none.
  * @param {unknown} value
  * @returns {Board}
  */
@@ -103,7 +106,8 @@ export function normalizeBoard(value) {
   if (!valid) return emptyBoard();
   const listedAt = isObject(value.listedAt) && Object.values(value.listedAt).every((time) => Number.isFinite(time) && time >= 0) ? value.listedAt : {};
   const worked = isStringArray(value.worked) ? value.worked : [];
-  return /** @type {Board} */ ({ ...value, listedAt, worked });
+  const cuts = normalizeCuts(value.cuts);
+  return /** @type {Board} */ ({ ...value, listedAt, worked, cuts });
 }
 
 /**

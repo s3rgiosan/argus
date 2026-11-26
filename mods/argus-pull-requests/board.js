@@ -5,7 +5,7 @@ import { prKey } from "./model.js";
 import { localPathFor, projectKey } from "./remote.js";
 import { KEEP_RUNS_MS } from "./review.js";
 import { isObject, isStringArray } from "./forge-cli.js";
-import { emptyMessage as emptyText, itemsByKeys, keptLists as keptItems, normalizeScope as normalizeShowWhere, paneTitle, rowSignature, scopeItems as scopeRows, scopeProjects, scopeTitle as titleOf, whereKey } from "./forge-board.js";
+import { emptyMessage as emptyText, itemsByKeys, keptLists as keptItems, normalizeCuts, normalizeScope as normalizeShowWhere, paneTitle, rowSignature, scopeItems as scopeRows, scopeProjects, scopeTitle as titleOf, whereKey } from "./forge-board.js";
 
 
 /**
@@ -14,10 +14,12 @@ import { emptyMessage as emptyText, itemsByKeys, keptLists as keptItems, normali
  * @typedef {import("./remote.js").Project} Project
  * @typedef {"needsReview" | "mine" | "all"} Show
  * @typedef {{show: Show, where: "all" | "follow"} | {show: Show, where: "project", key: string}} Scope
- * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>, listedAt?: Record<string, number>, worked?: string[]}} Board
+ * @typedef {{prs: Pr[], scopes: {needsReview: string[], mine: string[], projects: Record<string, string[]>}, projects: Project[], folders: string[], readAt: number, notes: string[], staleAt?: number, reviews: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>, listedAt?: Record<string, number>, worked?: string[], cuts?: Cut[]}} Board
  * `reviews` holds the review runs of each pull request, keyed by `prKey`. `listedAt` holds the time
  * of the last successful pull request list of each repo, keyed by `projectKey`. `worked` holds the
  * ids of the reads that worked in the last read: the key of a repo list, `searchRead` of a search.
+ * `cuts` holds the notes of the lists cut at their limit, which show only in the scopes they belong to.
+ * @typedef {import("./forge-board.js").Cut} Cut
  * @typedef {{path: string, branch: string}} Run
  * @typedef {"ready"|"needsWork"|"waiting"|"draft"} GroupId
  * @typedef {{key: string, label: string, scope: Scope, count: number, current: boolean}} Item
@@ -43,13 +45,14 @@ function emptyBoard() {
     notes: [],
     reviews: {},
     worked: [],
+    cuts: [],
   };
 }
 
 /**
  * Builds the shared board from one read. Pull requests are deduplicated by key and carry the
  * local checkout path of their repository.
- * @param {{projects: Project[], folders: string[], needsReview: Pr[], mine: Pr[], projectPrs: Record<string, Pr[]>, notes: string[], readAt: number, reviews?: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>, listedAt?: Record<string, number>, worked?: string[]}} input
+ * @param {{projects: Project[], folders: string[], needsReview: Pr[], mine: Pr[], projectPrs: Record<string, Pr[]>, notes: string[], readAt: number, reviews?: Record<string, Run[]>, merged?: Record<string, number>, mergedSeen?: Record<string, number>, listedAt?: Record<string, number>, worked?: string[], cuts?: Cut[]}} input
  * @returns {Board}
  */
 export function assembleBoard(input) {
@@ -70,7 +73,7 @@ export function assembleBoard(input) {
   for (const project of projects) {
     scopes.projects[project.key] = keysOf(projectPrs[project.key] ?? []);
   }
-  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {}, mergedSeen: input.mergedSeen ?? {}, listedAt: input.listedAt ?? {}, worked: input.worked ?? [] };
+  return { prs: [...byKey.values()], scopes, projects, folders, readAt, notes, reviews: input.reviews ?? {}, merged: input.merged ?? {}, mergedSeen: input.mergedSeen ?? {}, listedAt: input.listedAt ?? {}, worked: input.worked ?? [], cuts: input.cuts ?? [] };
 }
 
 /** True when `value` is a review run: a path and a branch. */
@@ -111,7 +114,9 @@ export function normalizeBoard(value) {
   const listedAt = isObject(value.listedAt) && Object.values(value.listedAt).every((time) => Number.isFinite(time) && time >= 0) ? value.listedAt : {};
   // The ids of the reads that worked; a bad list means none.
   const worked = isStringArray(value.worked) ? value.worked : [];
-  return /** @type {Board} */ ({ ...value, reviews, merged, mergedSeen, listedAt, worked });
+  // The notes of lists cut at their limit; bad cuts mean none.
+  const cuts = normalizeCuts(value.cuts);
+  return /** @type {Board} */ ({ ...value, reviews, merged, mergedSeen, listedAt, worked, cuts });
 }
 
 /**

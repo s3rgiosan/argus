@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The Pull requests and Issues panels show a "Showing the first 100 …" note only in a scope that shows the cut list. Before, the note of one repo showed in the scope of every other repo.
+
 ## [1.17.1] - 2026-11-25
 
 ### Fixed

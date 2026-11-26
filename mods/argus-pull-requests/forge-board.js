@@ -362,6 +362,40 @@ export function emptyMessage(board, repos, { failed, none }, reads = []) {
   return broken && !worked ? failed : none;
 }
 
+/**
+ * A note that a list was cut at its limit (`limitNote`). `read` is the id of the read that gave the
+ * list, as a board's `worked` list names it. `show` is the Show that a search feeds, for a search
+ * whose id several Shows share.
+ * @typedef {{read: string, show?: string, text: string}} Cut
+ */
+
+/**
+ * The cuts of a board value, or none when the value is not a list of well-formed cuts.
+ * @param {unknown} value
+ * @returns {Cut[]}
+ */
+export function normalizeCuts(value) {
+  if (!Array.isArray(value)) return [];
+  const valid = value.every(
+    (cut) => isObject(cut) && typeof cut.read === "string" && typeof cut.text === "string" && (cut.show === undefined || typeof cut.show === "string"),
+  );
+  return valid ? value : [];
+}
+
+/**
+ * The texts of the cuts that belong to `scope`: the cuts of the reads that fill the scope
+ * (`scopeReads`), and for a cut with a Show, only when the scope shows it.
+ * @param {{projects: Project[], cuts?: Cut[]}} board
+ * @param {Scope} scope
+ * @param {?string} followed Project key of the followed space.
+ * @param {boolean} [perShow] As in `scopeReads`.
+ * @returns {string[]}
+ */
+export function scopeCuts(board, scope, followed, perShow = false) {
+  const reads = scopeReads(board, scope, followed, perShow);
+  return (board.cuts ?? []).filter((cut) => reads.includes(cut.read) && (cut.show === undefined || cut.show === scope.show)).map((cut) => cut.text);
+}
+
 // Groups
 
 /**
