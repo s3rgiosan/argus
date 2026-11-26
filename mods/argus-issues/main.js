@@ -9,7 +9,7 @@ import { exec, home, appHome, readTextFile, checking, theme, shared, setShared, 
 import { randomUUID } from "crypto";
 import { localFolders, followProjectKey } from "./remote.js";
 import { GH_MISSING, GLAB_MISSING, cliError, glabArgs, issuesOffList, limitNote, missingNotes } from "./forge-cli.js";
-import { INTERVALS, ageText, followStatus, normalizeSettings, positionIn, rereadDue, scopeReads, scopeRepos, searchRead } from "./forge-board.js";
+import { INTERVALS, ageText, followStatus, normalizeSettings, positionIn, rereadDue, scopeCuts, scopeReads, scopeRepos, searchRead } from "./forge-board.js";
 import { createForgeRunner, CLI_CONCURRENCY, CLI_TIMEOUT } from "./forge-runner.js";
 import { createBoardSync } from "./board-sync.js";
 import { createWorktreeRunner } from "./worktree-runner.js";
@@ -151,7 +151,7 @@ export default class Issues extends View {
     this.boardSync.renew();
     notes.push(...missingNotes({ gh: gh !== null, glab: glab !== null, githubProjects: gitHub.length, gitlabProjects: gitLab.length }));
 
-    const result = { assigned: [], created: [], mentions: [], projectIssues: {}, listedAt: {}, worked: [] };
+    const result = { assigned: [], created: [], mentions: [], projectIssues: {}, listedAt: {}, worked: [], cuts: [] };
     if (gh !== null) {
       await this.readGitHub(gh, gitHub, result, notes);
       this.boardSync.renew();
@@ -172,8 +172,8 @@ export default class Issues extends View {
     Object.assign(result.listedAt, read.listedAt);
     GH_SEARCHES.forEach(([kind, what], index) => {
       if (searched[index] !== null) {
-        const cut = limitNote(what, searched[index].length);
-        if (cut !== null) notes.push(cut);
+        const text = limitNote(what, searched[index].length);
+        if (text !== null) result.cuts.push({ read: searchRead({ provider: "github", host: "github.com" }, kind), show: kind, text });
       }
       result[kind].push(...read.lists[kind]);
     });
@@ -186,7 +186,7 @@ export default class Issues extends View {
         failed.push(project.key);
         return;
       }
-      this.listed(result, project, issues, notes);
+      this.listed(result, project, issues);
     });
     keepFailed(result, failed);
   }
@@ -206,8 +206,8 @@ export default class Issues extends View {
           ["assigned", `issues on ${host} assigned to you`],
           ["created", `issues on ${host} that you opened`],
         ]) {
-          const cut = limitNote(what, lists[kind].length);
-          if (cut !== null) notes.push(cut);
+          const text = limitNote(what, lists[kind].length);
+          if (text !== null) result.cuts.push({ read: searchRead({ provider: "gitlab", host }), show: kind, text });
           result[kind].push(...lists[kind]);
         }
       }),
@@ -219,18 +219,18 @@ export default class Issues extends View {
           failed.push(project.key);
           return;
         }
-        this.listed(result, project, issues, notes);
+        this.listed(result, project, issues);
       }),
     ]);
     keepFailed(result, failed);
   }
 
   /** Puts the open issues of one project into `result`, with the time of the list and a note when the list was cut. */
-  listed(result, project, issues, notes) {
+  listed(result, project, issues) {
     result.listedAt[project.key] = Date.now();
     result.worked.push(project.key);
-    const cut = limitNote(`issues of ${project.repo}`, issues.length);
-    if (cut !== null) notes.push(cut);
+    const text = limitNote(`issues of ${project.repo}`, issues.length);
+    if (text !== null) result.cuts.push({ read: project.key, text });
     result.projectIssues[project.key] = issues;
   }
 
@@ -290,7 +290,7 @@ export default class Issues extends View {
     const settings = iconButton(t, "settings", icon("settings"), (_e, cx) => this.openSettings(cx), { tooltip: "Settings" });
     const head = header(t, "Issues", [scopeButton, refresh, settings], { badge: badge(t, String(unfollowed ? 0 : shown.length)) });
 
-    const parts = board.notes.map((message, index) => errorLine(t, message).id(`note-${index}`));
+    const parts = [...board.notes, ...scopeCuts(board, scope, followed, true)].map((message, index) => errorLine(t, message).id(`note-${index}`));
     const mentions = unfollowed ? null : mentionsNote(board, scope, followed);
     if (mentions !== null) parts.push(note(t, mentions).text_size(12));
     if (following === "pending") {

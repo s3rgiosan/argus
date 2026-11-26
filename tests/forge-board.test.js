@@ -15,12 +15,14 @@ import {
   keptLists,
   keyRepo,
   noteIsFor,
+  normalizeCuts,
   normalizeScope,
   normalizeSettings,
   paneTitle,
   positionIn,
   rereadDue,
   rowSignature,
+  scopeCuts,
   scopeItems,
   scopeProjects,
   scopeReads,
@@ -242,6 +244,36 @@ test("scopeReads gives the project lists for All open, and the searches for anot
   assert.deepEqual(scopeReads(board, { show: "assigned", where: "all" }, null), ["gh", "glab (gitlab.example.com)"]);
   assert.deepEqual(scopeReads(makeBoard({ projects: [] }), { show: "assigned", where: "all" }, null), ["gh"]);
   assert.deepEqual(scopeReads(board, { show: "assigned", where: "project", key: lab.key }, null), ["glab (gitlab.example.com)"]);
+});
+
+test("scopeCuts gives the cut notes of the reads that fill the scope", () => {
+  const other = { ...project, key: "github.com/example-org/other-repo", repo: "example-org/other-repo" };
+  const cuts = [
+    { read: project.key, text: "Showing the first 100 pull requests of example-org/example-repo." },
+    { read: other.key, text: "Showing the first 100 pull requests of example-org/other-repo." },
+    { read: "gh", show: "assigned", text: "Showing the first 100 issues assigned to you." },
+    { read: "glab (gitlab.example.com)", show: "assigned", text: "Showing the first 100 issues on gitlab.example.com assigned to you." },
+    { read: "gh:created", show: "created", text: "Showing the first 100 issues you opened." },
+  ];
+  const board = makeBoard({ projects: [project, other, lab], cuts });
+  assert.deepEqual(scopeCuts(board, { show: "all", where: "follow" }, project.key), [cuts[0].text]);
+  assert.deepEqual(scopeCuts(board, { show: "all", where: "project", key: other.key }, null), [cuts[1].text]);
+  assert.deepEqual(scopeCuts(board, { show: "all", where: "all" }, null), [cuts[0].text, cuts[1].text]);
+  assert.deepEqual(scopeCuts(board, { show: "all", where: "follow" }, null), []);
+  assert.deepEqual(scopeCuts(board, { show: "assigned", where: "all" }, null), [cuts[2].text, cuts[3].text]);
+  assert.deepEqual(scopeCuts(board, { show: "assigned", where: "follow" }, project.key), [cuts[2].text]);
+  assert.deepEqual(scopeCuts(board, { show: "created", where: "all" }, null), []);
+  assert.deepEqual(scopeCuts(board, { show: "created", where: "all" }, null, true), [cuts[4].text]);
+  assert.deepEqual(scopeCuts(makeBoard(), { show: "all", where: "all" }, null), []);
+});
+
+test("normalizeCuts keeps a list of well-formed cuts, else none", () => {
+  const cut = { read: "gh", show: "assigned", text: "Showing the first 100 issues assigned to you." };
+  const plain = { read: project.key, text: "Showing the first 100 issues of example-org/example-repo." };
+  assert.deepEqual(normalizeCuts([cut, plain]), [cut, plain]);
+  assert.deepEqual(normalizeCuts(undefined), []);
+  assert.deepEqual(normalizeCuts([cut, { read: "gh" }]), []);
+  assert.deepEqual(normalizeCuts([{ ...cut, show: 3 }]), []);
 });
 
 test("itemsByKeys follows the order of the keys and skips unknown keys", () => {

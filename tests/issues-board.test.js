@@ -291,6 +291,16 @@ test("assembleBoard and normalizeBoard keep the reads that worked", () => {
   assert.deepEqual(board().worked, []);
 });
 
+test("assembleBoard and normalizeBoard keep the cut notes", () => {
+  const cuts = [{ read: github.key, text: "Showing the first 100 issues of example-org/example-repo." }];
+  const b = assembleBoard({ projects: [], folders: [], assigned: [], created: [], mentions: [], projectIssues: {}, notes: [], readAt: 5, cuts });
+  assert.deepEqual(b.cuts, cuts);
+  assert.deepEqual(normalizeBoard(b).cuts, cuts);
+  assert.deepEqual(normalizeBoard({ ...b, cuts: [{ read: 1 }] }).cuts, []);
+  assert.deepEqual(normalizeBoard({ ...b, cuts: undefined }).cuts, []);
+  assert.deepEqual(board().cuts, []);
+});
+
 test("issuePaneTitle shows the number and title", () => {
   assert.equal(issuePaneTitle(null), "Issues");
   assert.equal(issuePaneTitle({ number: 3, title: "" }), "#3");
